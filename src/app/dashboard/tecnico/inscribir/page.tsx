@@ -90,7 +90,7 @@ export default function InscribirPage(){
               <div className="card-title">🔍 Buscar primero</div>
               <div className="flex gap-2 mb-3">
                 <div className="w-32"><label className="lbl">Tipo</label><select className="inp" value={busq.tipo} onChange={e=>setBusq(b=>({...b,tipo:e.target.value}))}><option value="cui">CUI</option><option value="codigo">Código</option><option value="nombre">Nombre</option></select></div>
-                <div className="flex-1"><label className="lbl">Valor</label><input className="inp" value={busq.val} onChange={e=>setBusq(b=>({...b,val:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&buscar()} placeholder={busq.tipo==='cui'?'2456 78901 0101':'...'/></div>
+                <div className="flex-1"><label className="lbl">Valor</label><input className="inp" value={busq.val} onChange={e=>setBusq(b=>({...b,val:e.target.value}))} onKeyDown={e=>e.key==='Enter'&&buscar()} placeholder={busq.tipo==='cui'?'2456 78901 0101':'...'}/></div>
                 <div className="pt-5"><LoadingBtn loading={buscando} className="btn btn-p" onClick={buscar}>Buscar</LoadingBtn></div>
               </div>
               {errBusq&&<Alert type="error">{errBusq}</Alert>}
