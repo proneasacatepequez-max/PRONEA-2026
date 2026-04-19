@@ -74,7 +74,7 @@ body{font-family:'Nunito',sans-serif}
   .tw{@apply overflow-x-auto}
 
   /* Modal */
-  .mo{@apply fixed inset-0 bg-black/50 flex items-center justify-content z-[200] p-4}
+  .mo{@apply fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4}
   .mb{@apply bg-white rounded-2xl shadow-2xl w-full max-h-[90vh] overflow-y-auto}
   .mh{@apply flex items-center justify-between p-5 border-b border-gray-100}
   .mbd{@apply p-5}
