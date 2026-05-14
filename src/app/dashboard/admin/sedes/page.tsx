@@ -1,44 +1,60 @@
 'use client'
 // src/app/dashboard/admin/sedes/page.tsx
+// FIX: Gestión de sedes con asignación de técnicos
 import { useState, useEffect } from 'react'
 
 export default function SedesPage() {
-  const [sedes, setSedes]     = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [modal, setModal]     = useState(false)
-  const [saving, setSaving]   = useState(false)
-  const [msg, setMsg]         = useState('')
+  const [sedes,      setSedes]      = useState<any[]>([])
   const [municipios, setMunicipios] = useState<any[]>([])
+  const [tecnicos,   setTecnicos]   = useState<any[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [modal,      setModal]      = useState(false)
+  const [modalAsig,  setModalAsig]  = useState<any>(null)
+  const [saving,     setSaving]     = useState(false)
+  const [msg,        setMsg]        = useState('')
   const [form, setForm] = useState({
-    nombre: '', direccion: '', telefono: '', horario: '',
-    municipio_id: '', tipo: 'escuela', activo: true,
+    nombre: '', direccion: '', telefono: '', horario: '', municipio_id: '',
   })
 
   const cargar = async () => {
     setLoading(true)
-    const [s, m] = await Promise.all([
+    const [s, m, t] = await Promise.all([
       fetch('/api/sedes').then(r => r.json()).catch(() => []),
       fetch('/api/municipios').then(r => r.json()).catch(() => []),
+      fetch('/api/mis-tecnicos').then(r => r.json()).catch(() => []),
     ])
     setSedes(Array.isArray(s) ? s : [])
     setMunicipios(Array.isArray(m) ? m : [])
+    setTecnicos(Array.isArray(t) ? t : [])
     setLoading(false)
   }
 
   useEffect(() => { cargar() }, [])
 
+  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
+
   const crear = async () => {
-    if (!form.nombre) { setMsg('❌ Nombre requerido'); return }
+    if (!form.nombre.trim()) { flash('❌ Nombre de sede requerido'); return }
     setSaving(true)
     const res = await fetch('/api/sedes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...form, municipio_id: form.municipio_id ? parseInt(form.municipio_id) : null }),
     })
     const d = await res.json()
-    setMsg(res.ok ? '✅ Sede creada' : '❌ ' + d.error)
-    setTimeout(() => setMsg(''), 3000)
-    if (res.ok) { setModal(false); cargar() }
+    flash(res.ok ? '✅ Sede creada' : '❌ ' + (d.error ?? 'Error'))
+    if (res.ok) { setModal(false); cargar(); setForm({ nombre:'', direccion:'', telefono:'', horario:'', municipio_id:'' }) }
+    setSaving(false)
+  }
+
+  const asignarTecnico = async (sedeId: string, tecnicoId: string) => {
+    setSaving(true)
+    const res = await fetch('/api/sedes/asignar-tecnico', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sede_id: sedeId, tecnico_id: tecnicoId }),
+    })
+    flash(res.ok ? '✅ Técnico asignado a la sede' : '❌ Error al asignar')
+    setModalAsig(null)
+    cargar()
     setSaving(false)
   }
 
@@ -56,43 +72,36 @@ export default function SedesPage() {
 
         {loading ? (
           <div className="flex justify-center py-12"><div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" /></div>
+        ) : sedes.length === 0 ? (
+          <div className="text-center py-12 text-gray-400">
+            <div className="text-4xl mb-3">🏫</div>
+            <div className="font-semibold">Sin sedes registradas</div>
+            <button className="btn btn-p mt-4" onClick={() => setModal(true)}>＋ Crear primera sede</button>
+          </div>
         ) : (
-          <div className="card">
-            <div className="card-title">
-              Sedes registradas
-              <span className="text-xs text-gray-400 font-normal">{sedes.length} sede(s)</span>
-            </div>
-            {sedes.length === 0 ? (
-              <div className="text-center py-10 text-gray-400">
-                <div className="text-4xl mb-3">🏫</div>
-                <div className="font-semibold">Sin sedes registradas</div>
-                <div className="text-sm mt-1">Agrega la primera sede con el botón de arriba</div>
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {sedes.map((s: any) => (
+              <div key={s.id} className="card">
+                <div className="flex items-start justify-between mb-2">
+                  <div>
+                    <div className="font-extrabold text-gray-800">{s.nombre}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{s.municipio?.nombre ?? 'Sin municipio'}</div>
+                  </div>
+                  <span className={`badge ${s.activo ? 'badge-green' : 'badge-gray'}`}>{s.activo ? 'Activa' : 'Inactiva'}</span>
+                </div>
+                {s.direccion && <div className="text-xs text-gray-500 mb-1">📍 {s.direccion}</div>}
+                {s.telefono   && <div className="text-xs text-gray-500 mb-1">📞 {s.telefono}</div>}
+                {s.horario    && <div className="text-xs text-gray-500 mb-2">🕐 {s.horario}</div>}
+                <button className="btn btn-g btn-sm w-full" onClick={() => setModalAsig(s)}>
+                  👨‍🏫 Asignar técnico
+                </button>
               </div>
-            ) : (
-              <div className="tw">
-                <table className="tbl">
-                  <thead><tr><th>Nombre</th><th>Municipio</th><th>Teléfono</th><th>Horario</th><th>Estado</th></tr></thead>
-                  <tbody>
-                    {sedes.map((s: any) => (
-                      <tr key={s.id}>
-                        <td>
-                          <div className="font-semibold text-gray-800">{s.nombre}</div>
-                          <div className="text-xs text-gray-400">{s.direccion ?? ''}</div>
-                        </td>
-                        <td className="text-sm text-gray-600">{s.municipio?.nombre ?? '—'}</td>
-                        <td className="text-sm text-gray-600">{s.telefono ?? '—'}</td>
-                        <td className="text-xs text-gray-500">{s.horario ?? '—'}</td>
-                        <td><span className={`badge ${s.activo ? 'badge-green' : 'badge-gray'}`}>{s.activo ? 'Activa' : 'Inactiva'}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            ))}
           </div>
         )}
       </div>
 
+      {/* Modal crear sede */}
       {modal && (
         <div className="mo" onClick={e => e.target === e.currentTarget && setModal(false)}>
           <div className="mb max-w-lg">
@@ -101,8 +110,8 @@ export default function SedesPage() {
               <button onClick={() => setModal(false)} className="text-gray-400 text-2xl">×</button>
             </div>
             <div className="mbd space-y-3">
-              <div className="fg"><label className="lbl">Nombre de la sede *</label>
-                <input className="inp" value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Escuela Primaria..." />
+              <div className="fg"><label className="lbl">Nombre *</label>
+                <input className="inp" value={form.nombre} onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))} placeholder="Escuela..." />
               </div>
               <div className="fg2">
                 <div className="fg"><label className="lbl">Municipio</label>
@@ -126,6 +135,41 @@ export default function SedesPage() {
               <button className="btn btn-g" onClick={() => setModal(false)}>Cancelar</button>
               <button className="btn btn-p" onClick={crear} disabled={saving}>{saving ? 'Creando...' : 'Crear sede'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal asignar técnico */}
+      {modalAsig && (
+        <div className="mo" onClick={e => e.target === e.currentTarget && setModalAsig(null)}>
+          <div className="mb max-w-md">
+            <div className="mh">
+              <h3 className="text-base font-extrabold">👨‍🏫 Asignar técnico a {modalAsig.nombre}</h3>
+              <button onClick={() => setModalAsig(null)} className="text-gray-400 text-2xl">×</button>
+            </div>
+            <div className="mbd">
+              {tecnicos.length === 0 ? (
+                <div className="text-center py-6 text-gray-400">No hay técnicos disponibles. Crea técnicos desde Usuarios.</div>
+              ) : (
+                <div className="space-y-2">
+                  {tecnicos.map((t: any) => (
+                    <button key={t.id}
+                      className="w-full flex items-center gap-3 p-3 border border-gray-100 rounded-xl hover:bg-blue-50 hover:border-blue-200 transition-all text-left"
+                      onClick={() => asignarTecnico(modalAsig.id, t.id)}
+                      disabled={saving}>
+                      <div className="w-9 h-9 rounded-full bg-pronea-light flex items-center justify-center text-pronea font-bold">
+                        {t.primer_nombre?.[0]}{t.primer_apellido?.[0]}
+                      </div>
+                      <div>
+                        <div className="font-semibold text-gray-800">{t.primer_nombre} {t.primer_apellido}</div>
+                        <div className="text-xs text-gray-400">Código: {t.codigo_tecnico ?? '—'} · Tel: {t.telefono ?? '—'}</div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="mf"><button className="btn btn-g" onClick={() => setModalAsig(null)}>Cerrar</button></div>
           </div>
         </div>
       )}
