@@ -1,5 +1,5 @@
 // src/app/api/auth/login/route.ts
-// CORRECCIÓN DEFINITIVA: NextResponse se crea primero, luego se añaden cookies
+// CORRECCIÓN: Supabase NO soporta .catch() encadenado — usar try/catch
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Correo y contraseña requeridos' }, { status: 400 })
     }
 
-    // Configuración de intentos (con fallback)
+    // Configuración de intentos con try/catch (NO .catch() en supabase)
     let maxInt  = 5
     let minBloq = 15
     try {
@@ -49,16 +49,15 @@ export async function POST(req: NextRequest) {
 
     if (u.bloqueado_hasta && new Date(u.bloqueado_hasta) > new Date()) {
       const mins = Math.ceil((new Date(u.bloqueado_hasta).getTime() - Date.now()) / 60000)
-      return NextResponse.json({ error: `Cuenta bloqueada por ${mins} minuto(s). Intenta más tarde.` }, { status: 423 })
+      return NextResponse.json({ error: `Cuenta bloqueada por ${mins} minuto(s).` }, { status: 423 })
     }
 
     // Verificar contraseña
     let valida = false
     try {
       valida = await bcrypt.compare(contrasena, u.contrasena_hash)
-    } catch (bcryptErr: any) {
-      console.error('bcrypt error:', bcryptErr.message)
-      return NextResponse.json({ error: 'Error al verificar contraseña' }, { status: 500 })
+    } catch (e: any) {
+      return NextResponse.json({ error: 'Error bcrypt: ' + e.message }, { status: 500 })
     }
 
     if (!valida) {
@@ -68,12 +67,14 @@ export async function POST(req: NextRequest) {
         upd.bloqueado_hasta   = new Date(Date.now() + minBloq * 60000).toISOString()
         upd.intentos_fallidos = 0
       }
-      await supabaseAdmin.from('usuarios').update(upd).eq('id', u.id).catch(() => {})
-      await supabaseAdmin.from('auditoria').insert({
-        usuario_id: u.id, accion: 'LOGIN_FAIL',
-        tabla_afectada: 'usuarios', registro_id: u.id,
-        ip_address: req.headers.get('x-forwarded-for') ?? 'unknown',
-      }).catch(() => {}) // No fallar si auditoria no existe
+      try { await supabaseAdmin.from('usuarios').update(upd).eq('id', u.id) } catch { /* ignorar */ }
+      try {
+        await supabaseAdmin.from('auditoria').insert({
+          usuario_id: u.id, accion: 'LOGIN_FAIL',
+          tabla_afectada: 'usuarios', registro_id: u.id,
+          ip_address: req.headers.get('x-forwarded-for') ?? 'unknown',
+        })
+      } catch { /* ignorar si tabla no existe */ }
 
       const restantes = maxInt - intentos
       return NextResponse.json({
@@ -83,23 +84,26 @@ export async function POST(req: NextRequest) {
       }, { status: 401 })
     }
 
-    // Login exitoso
-    await supabaseAdmin.from('usuarios').update({
-      intentos_fallidos: 0,
-      bloqueado_hasta:   null,
-      ultimo_acceso:     new Date().toISOString(),
-    }).eq('id', u.id).catch(() => {})
+    // ── LOGIN EXITOSO ──────────────────────────────────────────
+    try {
+      await supabaseAdmin.from('usuarios').update({
+        intentos_fallidos: 0,
+        bloqueado_hasta:   null,
+        ultimo_acceso:     new Date().toISOString(),
+      }).eq('id', u.id)
+    } catch { /* ignorar */ }
 
-    await supabaseAdmin.from('auditoria').insert({
-      usuario_id: u.id, accion: 'LOGIN_OK',
-      tabla_afectada: 'usuarios', registro_id: u.id,
-      ip_address: req.headers.get('x-forwarded-for') ?? 'unknown',
-    }).catch(() => {}) // No fallar si auditoria no existe
+    try {
+      await supabaseAdmin.from('auditoria').insert({
+        usuario_id: u.id, accion: 'LOGIN_OK',
+        tabla_afectada: 'usuarios', registro_id: u.id,
+        ip_address: req.headers.get('x-forwarded-for') ?? 'unknown',
+      })
+    } catch { /* ignorar si tabla no existe */ }
 
     const rol       = u.rol as RolUsuario
     const dashboard = DASHBOARD[rol] ?? '/dashboard'
 
-    // Crear token
     const token = await signToken({
       sub:    u.id,
       correo: u.correo,
@@ -107,7 +111,7 @@ export async function POST(req: NextRequest) {
       activo: u.activo,
     })
 
-    // CORRECCIÓN CLAVE: crear NextResponse y añadir cookie ANTES de retornar
+    // Crear response y añadir cookie directamente (SIN setSession)
     const response = NextResponse.json({
       ok:             true,
       rol,
@@ -115,7 +119,6 @@ export async function POST(req: NextRequest) {
       primer_ingreso: u.primer_ingreso ?? false,
     }, { status: 200 })
 
-    // Establecer cookie de sesión directamente en la response
     response.cookies.set(COOKIE, token, {
       httpOnly: true,
       secure:   process.env.NODE_ENV === 'production',
@@ -127,9 +130,8 @@ export async function POST(req: NextRequest) {
     return response
 
   } catch (error: any) {
-    console.error('Login unhandled error:', error?.message, error?.stack?.substring(0, 200))
     return NextResponse.json({
-      error: 'Error interno del servidor. Detalles: ' + (error?.message ?? 'desconocido')
+      error: 'Error interno. Detalles: ' + (error?.message ?? 'desconocido')
     }, { status: 500 })
   }
 }
