@@ -76,3 +76,4 @@ export const DASHBOARD: Record<RolUsuario, string> = {
 
 export const ok  = (d: unknown, s = 200) => NextResponse.json(d, { status: s })
 export const err = (m: string,  s = 400) => NextResponse.json({ error: m }, { status: s })
+
