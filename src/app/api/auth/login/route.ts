@@ -1,10 +1,20 @@
 // src/app/api/auth/login/route.ts
-// CORRECCIÓN: Supabase NO soporta .catch() encadenado — usar try/catch
+// FIX CRÍTICO: .catch() no funciona en Supabase — usar try/catch
+// FIX: Redirección correcta para todos los roles
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabase'
-import { signToken, DASHBOARD, COOKIE } from '@/lib/auth'
+import { signToken, COOKIE } from '@/lib/auth'
 import type { RolUsuario } from '@/types'
+
+const DASH: Record<string, string> = {
+  administrador:        '/dashboard/admin',
+  tecnico:              '/dashboard/tecnico',
+  director:             '/dashboard/director',
+  coordinador_digeex:   '/dashboard/coordinador',
+  enlace_institucional: '/dashboard/enlace',
+  estudiante:           '/dashboard/estudiante',
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -12,126 +22,63 @@ export async function POST(req: NextRequest) {
     const correo     = (body?.correo     ?? '').toLowerCase().trim()
     const contrasena =  body?.contrasena ?? ''
 
-    if (!correo || !contrasena) {
+    if (!correo || !contrasena)
       return NextResponse.json({ error: 'Correo y contraseña requeridos' }, { status: 400 })
-    }
 
-    // Configuración de intentos con try/catch (NO .catch() en supabase)
-    let maxInt  = 5
-    let minBloq = 15
+    let maxInt = 5, minBloq = 15
     try {
       const { data: cfgs } = await supabaseAdmin
-        .from('configuracion')
-        .select('parametro,valor')
-        .in('parametro', ['INTENTOS_LOGIN', 'MINUTOS_BLOQUEO_LOGIN'])
-      if (cfgs?.length) {
-        const mi = cfgs.find((c: any) => c.parametro === 'INTENTOS_LOGIN')?.valor
-        const mb = cfgs.find((c: any) => c.parametro === 'MINUTOS_BLOQUEO_LOGIN')?.valor
-        if (mi) maxInt  = parseInt(mi)
-        if (mb) minBloq = parseInt(mb)
-      }
-    } catch { /* usar defaults */ }
+        .from('configuracion').select('parametro,valor')
+        .in('parametro', ['INTENTOS_LOGIN','MINUTOS_BLOQUEO_LOGIN'])
+      cfgs?.forEach((c: any) => {
+        if (c.parametro === 'INTENTOS_LOGIN')        maxInt  = parseInt(c.valor)
+        if (c.parametro === 'MINUTOS_BLOQUEO_LOGIN') minBloq = parseInt(c.valor)
+      })
+    } catch { }
 
-    // Buscar usuario
-    const { data: u, error: uError } = await supabaseAdmin
+    const { data: u, error: uErr } = await supabaseAdmin
       .from('usuarios')
       .select('id,correo,contrasena_hash,rol,activo,intentos_fallidos,bloqueado_hasta,primer_ingreso')
-      .eq('correo', correo)
-      .single()
+      .eq('correo', correo).single()
 
-    if (uError || !u) {
+    if (uErr || !u)
       return NextResponse.json({ error: 'Correo o contraseña incorrectos' }, { status: 401 })
-    }
-
-    if (!u.activo) {
-      return NextResponse.json({ error: 'Tu cuenta está inactiva. Contacta al administrador.' }, { status: 403 })
-    }
-
+    if (!u.activo)
+      return NextResponse.json({ error: 'Cuenta inactiva. Contacta al administrador.' }, { status: 403 })
     if (u.bloqueado_hasta && new Date(u.bloqueado_hasta) > new Date()) {
       const mins = Math.ceil((new Date(u.bloqueado_hasta).getTime() - Date.now()) / 60000)
-      return NextResponse.json({ error: `Cuenta bloqueada por ${mins} minuto(s).` }, { status: 423 })
+      return NextResponse.json({ error: `Cuenta bloqueada por ${mins} min.` }, { status: 423 })
     }
 
-    // Verificar contraseña
     let valida = false
-    try {
-      valida = await bcrypt.compare(contrasena, u.contrasena_hash)
-    } catch (e: any) {
-      return NextResponse.json({ error: 'Error bcrypt: ' + e.message }, { status: 500 })
-    }
+    try { valida = await bcrypt.compare(contrasena, u.contrasena_hash) }
+    catch (e: any) { return NextResponse.json({ error: 'Error bcrypt: ' + e.message }, { status: 500 }) }
 
     if (!valida) {
       const intentos = (u.intentos_fallidos ?? 0) + 1
       const upd: any = { intentos_fallidos: intentos }
       if (intentos >= maxInt) {
-        upd.bloqueado_hasta   = new Date(Date.now() + minBloq * 60000).toISOString()
+        upd.bloqueado_hasta = new Date(Date.now() + minBloq * 60000).toISOString()
         upd.intentos_fallidos = 0
       }
-      try { await supabaseAdmin.from('usuarios').update(upd).eq('id', u.id) } catch { /* ignorar */ }
-      try {
-        await supabaseAdmin.from('auditoria').insert({
-          usuario_id: u.id, accion: 'LOGIN_FAIL',
-          tabla_afectada: 'usuarios', registro_id: u.id,
-          ip_address: req.headers.get('x-forwarded-for') ?? 'unknown',
-        })
-      } catch { /* ignorar si tabla no existe */ }
-
-      const restantes = maxInt - intentos
-      return NextResponse.json({
-        error: restantes > 0
-          ? `Contraseña incorrecta. ${restantes} intento(s) restante(s).`
-          : 'Contraseña incorrecta. Cuenta bloqueada temporalmente.'
-      }, { status: 401 })
+      try { await supabaseAdmin.from('usuarios').update(upd).eq('id', u.id) } catch { }
+      try { await supabaseAdmin.from('auditoria').insert({ usuario_id: u.id, accion: 'LOGIN_FAIL', tabla_afectada: 'usuarios', registro_id: u.id, ip_address: req.headers.get('x-forwarded-for') ?? 'unknown' }) } catch { }
+      const r = maxInt - intentos
+      return NextResponse.json({ error: r > 0 ? `Contraseña incorrecta. ${r} intento(s) restante(s).` : 'Cuenta bloqueada.' }, { status: 401 })
     }
 
-    // ── LOGIN EXITOSO ──────────────────────────────────────────
-    try {
-      await supabaseAdmin.from('usuarios').update({
-        intentos_fallidos: 0,
-        bloqueado_hasta:   null,
-        ultimo_acceso:     new Date().toISOString(),
-      }).eq('id', u.id)
-    } catch { /* ignorar */ }
-
-    try {
-      await supabaseAdmin.from('auditoria').insert({
-        usuario_id: u.id, accion: 'LOGIN_OK',
-        tabla_afectada: 'usuarios', registro_id: u.id,
-        ip_address: req.headers.get('x-forwarded-for') ?? 'unknown',
-      })
-    } catch { /* ignorar si tabla no existe */ }
+    try { await supabaseAdmin.from('usuarios').update({ intentos_fallidos: 0, bloqueado_hasta: null, ultimo_acceso: new Date().toISOString() }).eq('id', u.id) } catch { }
+    try { await supabaseAdmin.from('auditoria').insert({ usuario_id: u.id, accion: 'LOGIN_OK', tabla_afectada: 'usuarios', registro_id: u.id, ip_address: req.headers.get('x-forwarded-for') ?? 'unknown' }) } catch { }
 
     const rol       = u.rol as RolUsuario
-    const dashboard = DASHBOARD[rol] ?? '/dashboard'
+    const dashboard = DASH[rol] ?? '/dashboard/admin'
+    const token     = await signToken({ sub: u.id, correo: u.correo, rol, activo: u.activo })
 
-    const token = await signToken({
-      sub:    u.id,
-      correo: u.correo,
-      rol,
-      activo: u.activo,
-    })
-
-    // Crear response y añadir cookie directamente (SIN setSession)
-    const response = NextResponse.json({
-      ok:             true,
-      rol,
-      redireccion:    dashboard,
-      primer_ingreso: u.primer_ingreso ?? false,
-    }, { status: 200 })
-
-    response.cookies.set(COOKIE, token, {
-      httpOnly: true,
-      secure:   process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge:   60 * 60 * 24 * 7,
-      path:     '/',
-    })
-
+    const response = NextResponse.json({ ok: true, rol, redireccion: dashboard, primer_ingreso: u.primer_ingreso ?? false }, { status: 200 })
+    response.cookies.set(COOKIE, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', maxAge: 60 * 60 * 24 * 7, path: '/' })
     return response
 
-  } catch (error: any) {
-    return NextResponse.json({
-      error: 'Error interno. Detalles: ' + (error?.message ?? 'desconocido')
-    }, { status: 500 })
+  } catch (e: any) {
+    return NextResponse.json({ error: 'Error interno: ' + (e?.message ?? 'desconocido') }, { status: 500 })
   }
 }
