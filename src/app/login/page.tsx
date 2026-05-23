@@ -104,7 +104,7 @@ function LoginForm() {
           </form>
 
           <div className="mt-auto pt-6 text-center text-xs text-gray-300">
-            PRONEA Sacatepéquez © 2026 · v4.0
+            PRONEA Sacatepéquez © 2026 · v4.0 AUTOR MARCOS SIAN
           </div>
         </div>
 
@@ -135,10 +135,10 @@ function LoginForm() {
               <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📋 Contacto</div>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { icon: '👤', label: 'Director',  val: info.director_nombre ?? '—' },
-                  { icon: '📞', label: 'Teléfono',  val: info.telefono ?? '—' },
-                  { icon: '💬', label: 'WhatsApp',  val: info.whatsapp ?? '—' },
-                  { icon: '✉️', label: 'Correo',    val: info.correo ?? '—' },
+                  { icon: '👤', label: 'Director',  val: info.director_nombre ?? 'Mario Alfonso Toj Tepáz' },
+                  { icon: '📞', label: 'Teléfono',  val: info.telefono ?? '47109679 o al 57123828' },
+                  { icon: '💬', label: 'WhatsApp',  val: info.whatsapp ?? '47109679' },
+                  { icon: '✉️', label: 'Correo',    val: info.correo ?? 'sian2774@gmail.com' },
                 ].map(({ icon, label, val }) => (
                   <div key={label} className="bg-white/10 rounded-lg px-3 py-2">
                     <div className="text-white/50 text-[10px] font-bold">{icon} {label}</div>
