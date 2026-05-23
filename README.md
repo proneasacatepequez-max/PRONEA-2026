@@ -1,4 +1,4 @@
-# 🏫 PRONEA Sacatepéquez — Sistema de Gestión Educativa v4.0
+# 🏫 PRONEA Sacatepéquez — Sistema de Gestión Educativa v7.0 Marcos Sian
 
 **Stack:** Next.js 14 · Supabase (PostgreSQL) · Vercel · TypeScript · Tailwind CSS
 
