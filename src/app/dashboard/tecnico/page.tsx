@@ -1,78 +1,150 @@
+'use client'
 // src/app/dashboard/tecnico/page.tsx
-import { redirect } from 'next/navigation'
-import { getSession } from '@/lib/auth'
-import { supabaseAdmin } from '@/lib/supabase'
+// Dashboard principal del técnico — muestra todo lo que necesita
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 
-export default async function TecnicoDashboard() {
-  const s = await getSession()
-  if (!s || s.rol !== 'tecnico') redirect('/login')
+export default function TecnicoDashboard() {
+  const [perfil,      setPerfil]      = useState<any>(null)
+  const [inscripciones, setInscripciones] = useState<any[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [ciclo,       setCiclo]       = useState('2026')
 
-  const { data:tec } = await supabaseAdmin.from('tecnicos')
-    .select('id,primer_nombre,primer_apellido,codigo_tecnico').eq('usuario_id',s.sub).single()
-  if (!tec) redirect('/login')
+  useEffect(() => {
+    const cargar = async () => {
+      setLoading(true)
+      const [p, i] = await Promise.all([
+        fetch('/api/tecnicos?mi_perfil=1').then(r => r.json()).catch(() => null),
+        fetch(`/api/inscripciones?ciclo=${ciclo}&estado=en_curso`).then(r => r.json()).catch(() => ({ data: [] })),
+      ])
+      setPerfil(p)
+      setInscripciones(i.data ?? [])
+      setLoading(false)
+    }
+    cargar()
+  }, [ciclo])
 
-  const [{ count:total },{ count:riesgo },{ count:grupos }] = await Promise.all([
-    supabaseAdmin.from('inscripciones').select('*',{count:'exact',head:true}).eq('tecnico_id',tec.id).eq('ciclo_escolar',2026).eq('estado','en_curso'),
-    supabaseAdmin.from('resumen_libro').select('inscripciones!inner(*)',{count:'exact',head:true}).eq('inscripciones.tecnico_id',tec.id).lt('nota_final',45),
-    supabaseAdmin.from('grupos_sireex').select('*',{count:'exact',head:true}).eq('tecnico_id',tec.id).eq('estado','abierto').eq('ciclo_escolar',2026),
-  ])
+  // Estadísticas
+  const porEtapa: Record<string, number> = {}
+  const porSede:  Record<string, number> = {}
+  inscripciones.forEach((i: any) => {
+    const etapa = (i.etapa as any)?.nombre ?? '—'
+    const sede  = (i.sede  as any)?.nombre ?? '—'
+    porEtapa[etapa] = (porEtapa[etapa] ?? 0) + 1
+    porSede[sede]   = (porSede[sede]   ?? 0) + 1
+  })
 
-  const { data:pv } = await supabaseAdmin.from('inscripciones').select('version_libro').eq('tecnico_id',tec.id).eq('ciclo_escolar',2026)
-  const vc = {nuevo:0,viejo:0}; pv?.forEach((i:any)=>{ vc[i.version_libro as 'nuevo'|'viejo']++ })
-
-  const { data:ultimas } = await supabaseAdmin.from('inscripciones')
-    .select('id,version_libro,fecha_inscripcion,tiene_ajuste_discapacidad,etapa:etapas(nombre),estudiante:estudiantes(primer_nombre,primer_apellido,codigo_estudiante)')
-    .eq('tecnico_id',tec.id).eq('ciclo_escolar',2026).order('creado_en',{ascending:false}).limit(5)
+  if (loading) return (
+    <div className="ap">
+      <header className="topbar"><div className="page-title">📊 Mi Dashboard</div></header>
+      <div className="pc flex justify-center py-20">
+        <div className="w-10 h-10 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
+      </div>
+    </div>
+  )
 
   return (
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">Hola, {tec.primer_nombre} 👋</div>
-          <div className="text-xs text-gray-400">Código: {tec.codigo_tecnico??'—'}</div>
+          <div className="page-title">
+            👋 Bienvenido, {perfil?.primer_nombre ?? 'Técnico'}
+          </div>
+          <div className="text-xs text-gray-400">
+            Código: {perfil?.codigo_tecnico ?? '—'} · Ciclo {ciclo}
+          </div>
         </div>
-        <div className="text-sm text-gray-400">{new Date().toLocaleDateString('es-GT',{weekday:'long',year:'numeric',month:'short',day:'numeric'})}</div>
+        <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
+          <option value="2026">2026</option>
+          <option value="2025">2025</option>
+        </select>
       </header>
+
       <div className="pc">
-        <div className="g4">
-          <div className="sc blue"><div className="text-3xl mb-1">🎓</div><div className="text-3xl font-extrabold text-gray-800">{total??0}</div><div className="text-sm text-gray-500 font-semibold">Mis estudiantes</div></div>
-          <div className="sc blue"><div className="text-3xl mb-1">📗</div><div className="text-3xl font-extrabold text-blue-700">{vc.nuevo}</div><div className="text-sm text-gray-500 font-semibold">Libro Nuevo</div></div>
-          <div className="sc yellow"><div className="text-3xl mb-1">📙</div><div className="text-3xl font-extrabold text-orange-600">{vc.viejo}</div><div className="text-sm text-gray-500 font-semibold">Libro Viejo</div></div>
-          <div className={`sc ${(riesgo??0)>0?'red':'green'}`}><div className="text-3xl mb-1">⚠️</div><div className="text-3xl font-extrabold text-gray-800">{riesgo??0}</div><div className="text-sm text-gray-500 font-semibold">En riesgo (&lt;45%)</div></div>
+        {/* KPIs */}
+        <div className="g4 mb-5">
+          {[
+            { label: 'Estudiantes activos', valor: inscripciones.length, icon: '🎓', color: 'blue' },
+            { label: 'Sedes',               valor: Object.keys(porSede).length, icon: '🏫', color: 'green' },
+            { label: 'Etapas',              valor: Object.keys(porEtapa).length, icon: '📚', color: 'purple' },
+            { label: 'Ciclo escolar',        valor: ciclo, icon: '📅', color: 'yellow' },
+          ].map(s => (
+            <div key={s.label} className={`sc ${s.color} text-center`}>
+              <div className="text-3xl mb-1">{s.icon}</div>
+              <div className="text-2xl font-extrabold text-gray-800">{s.valor}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+            </div>
+          ))}
         </div>
-        <div className="g2">
-          <div className="card">
-            <div className="card-title">⚡ Acciones rápidas</div>
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                {href:'/dashboard/tecnico/inscribir',  icon:'➕',label:'Inscribir',cls:'btn-p'},
-                {href:'/dashboard/tecnico/notas',      icon:'📝',label:'Notas',   cls:'btn-s'},
-                {href:'/dashboard/tecnico/sireex',     icon:'📤',label:'SIREEX',  cls:'btn-g'},
-                {href:'/dashboard/tecnico/estudiantes',icon:'🎓',label:'Estudiantes',cls:'btn-g'},
-              ].map(({href,icon,label,cls})=>(
-                <Link key={href} href={href} className={`btn ${cls} justify-center py-3`}><span>{icon}</span><span>{label}</span></Link>
+
+        {/* Menú de módulos */}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
+          {[
+            { href: '/dashboard/tecnico/estudiantes', icon: '🎓', title: 'Mis Estudiantes', desc: 'Ver listado, datos e historial de inscripciones', color: 'border-blue-200 hover:border-blue-400' },
+            { href: '/dashboard/tecnico/inscribir',  icon: '📋', title: 'Inscribir Estudiante', desc: 'Registrar nuevo estudiante en el sistema', color: 'border-green-200 hover:border-green-400' },
+            { href: '/dashboard/tecnico/notas',      icon: '📝', title: 'Ingresar Notas', desc: 'Notas de tareas y exámenes por libro', color: 'border-purple-200 hover:border-purple-400' },
+            { href: '/dashboard/tecnico/escalas',    icon: '📊', title: 'Escalas Numéricas', desc: 'Generar y visualizar escalas de calificación', color: 'border-orange-200 hover:border-orange-400' },
+            { href: '/dashboard/tecnico/ajustes',    icon: '♿', title: 'Adecuaciones Curriculares', desc: 'Ajustes para estudiantes con discapacidad', color: 'border-yellow-200 hover:border-yellow-400' },
+            { href: '/dashboard/tecnico/dua',        icon: '📐', title: 'Planificación DUA', desc: 'Diseño Universal para el Aprendizaje', color: 'border-teal-200 hover:border-teal-400' },
+            { href: '/dashboard/tecnico/sireex',     icon: '📤', title: 'Grupos SIREEX', desc: 'Gestión de grupos para exportación SIREEX', color: 'border-red-200 hover:border-red-400' },
+            { href: '/dashboard/tecnico/sesiones',   icon: '🗓️', title: 'Sesiones de Tutoría', desc: 'Planificar y registrar sesiones de clase', color: 'border-indigo-200 hover:border-indigo-400' },
+            { href: '/dashboard/tecnico/recursos',   icon: '🎬', title: 'Recursos de Apoyo', desc: 'Material didáctico y videos educativos', color: 'border-pink-200 hover:border-pink-400' },
+          ].map(m => (
+            <Link key={m.href} href={m.href}
+              className={`card border-2 ${m.color} hover:shadow-md transition-all cursor-pointer block`}>
+              <div className="flex items-start gap-3">
+                <div className="text-3xl flex-shrink-0">{m.icon}</div>
+                <div>
+                  <div className="font-bold text-gray-800 text-sm">{m.title}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{m.desc}</div>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+
+        {/* Distribución por etapa */}
+        {inscripciones.length > 0 && (
+          <div className="g2">
+            <div className="card">
+              <div className="card-title">📚 Estudiantes por etapa</div>
+              {Object.entries(porEtapa).map(([etapa, count]) => (
+                <div key={etapa} className="flex items-center gap-2 mb-2">
+                  <span className="text-xs text-gray-600 w-36 truncate">{etapa}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className="bg-pronea-secondary h-2 rounded-full"
+                      style={{ width: `${inscripciones.length > 0 ? (count/inscripciones.length*100) : 0}%` }} />
+                  </div>
+                  <span className="text-xs font-bold w-5 text-right">{count}</span>
+                </div>
               ))}
             </div>
-          </div>
-          <div className="card">
-            <div className="card-title">🕐 Últimas inscripciones</div>
-            <div className="space-y-2">
-              {(ultimas??[]).map((i:any)=>(
-                <div key={i.id} className="flex items-center justify-between py-1.5 border-b border-gray-50 last:border-0">
-                  <div>
-                    <div className="text-sm font-bold text-gray-700">{(i.estudiante as any)?.primer_nombre} {(i.estudiante as any)?.primer_apellido}</div>
-                    <div className="text-xs text-gray-400">{(i.etapa as any)?.nombre}</div>
+            <div className="card">
+              <div className="card-title">🏫 Estudiantes por sede</div>
+              {Object.entries(porSede).map(([sede, count]) => (
+                <div key={sede} className="flex items-center gap-2 mb-2">
+                  <span className="text-xs text-gray-600 w-36 truncate">{sede}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className="bg-blue-400 h-2 rounded-full"
+                      style={{ width: `${inscripciones.length > 0 ? (count/inscripciones.length*100) : 0}%` }} />
                   </div>
-                  <div className="flex items-center gap-1">
-                    <span className={`badge ${i.version_libro==='nuevo'?'badge-blue':'badge-orange'}`}>{i.version_libro==='nuevo'?'📗':'📙'}</span>
-                    <Link href={`/dashboard/tecnico/notas?id=${i.id}`} className="btn btn-p btn-xs">📝</Link>
-                  </div>
+                  <span className="text-xs font-bold w-5 text-right">{count}</span>
                 </div>
               ))}
             </div>
           </div>
-        </div>
+        )}
+
+        {/* Sin estudiantes */}
+        {inscripciones.length === 0 && !loading && (
+          <div className="card text-center py-10 text-gray-400">
+            <div className="text-4xl mb-3">🎓</div>
+            <div className="font-semibold text-gray-600">Sin estudiantes inscritos en {ciclo}</div>
+            <Link href="/dashboard/tecnico/inscribir" className="btn btn-p mt-4 inline-block">
+              ＋ Inscribir primer estudiante
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   )
