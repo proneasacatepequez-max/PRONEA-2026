@@ -1,464 +1,341 @@
 'use client'
 // src/app/dashboard/tecnico/inscribir/page.tsx
-import { useState } from 'react'
-import { FormGroup, Input, Select, Alert, SelectorVersion, Steps, LoadingBtn } from '@/components/ui'
-import { ETAPAS_LISTA, MUNICIPIOS_SAC } from '@/types'
+// FIX: Dropdown cascada País → Departamento → Municipio
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 
-const DISC = [
-  {id:1,n:'Ninguna'},{id:2,n:'Intelectual Leve'},{id:3,n:'Intelectual Moderada'},
-  {id:4,n:'Intelectual Grave'},{id:5,n:'Intelectual Profunda'},{id:6,n:'TEA'},
-  {id:7,n:'Visual'},{id:8,n:'Baja Visión'},{id:9,n:'Auditiva'},
-  {id:10,n:'Pérdida Auditiva Leve'},{id:11,n:'Física o Motora'},{id:12,n:'Mental'},
-  {id:13,n:'Múltiple'},{id:14,n:'Gente Pequeña'},{id:15,n:'Problemas Aprendizaje'},
-  {id:16,n:'Pendiente'},
-]
-const SECC = ['A','A1','A2','A3','A4','A5','A6','AA','AB','B','C','C1','D','D1']
-const INSC0 = {
-  etapa_id:'', sede_id:'', modalidad_id:'1', seccion_id:'',
-  ciclo_escolar:'2026', repite_etapa:false, codigo_sireex:'',
-  version_libro:'nuevo' as 'nuevo'|'viejo',
-}
-type Modo = 'buscar' | 'encontrado' | 'nuevo'
+const GUATEMALA_ID = 1  // id del país Guatemala en tabla paises
 
-export default function InscribirPage() {
-  const [modo, setModo]             = useState<Modo>('buscar')
-  const [paso, setPaso]             = useState(1)
-  const [busq, setBusq]             = useState({ tipo:'cui', val:'' })
-  const [buscando, setBuscando]     = useState(false)
-  const [resultados, setResultados] = useState<any[]>([])
-  const [estSel, setEstSel]         = useState<any>(null)
-  const [errBusq, setErrBusq]       = useState('')
-  const [per, setPer] = useState({
-    primer_nombre:'', segundo_nombre:'', primer_apellido:'', segundo_apellido:'',
-    apellido_casada:'', cui:'', cui_pendiente:false, fecha_nacimiento:'',
-    genero:'', telefono:'', correo:'', correo_classroom:'',
-    municipio_id:'', discapacidad_id:'1', conflicto_ley:false, becado_por:'',
+export default function InscribirEstudiantePage() {
+  const router = useRouter()
+  const [step,  setStep]  = useState<1|2|3>(1) // 1=datos personales, 2=inscripción, 3=confirmación
+  const [saving, setSaving] = useState(false)
+  const [msg,    setMsg]   = useState('')
+
+  // Catálogos
+  const [paises,      setPaises]      = useState<any[]>([])
+  const [departamentos, setDepts]     = useState<any[]>([])
+  const [municipios,  setMunis]       = useState<any[]>([])
+  const [etapas,      setEtapas]      = useState<any[]>([])
+  const [sedes,       setSedes]       = useState<any[]>([])
+  const [discapacidades, setDiscap]   = useState<any[]>([])
+
+  // Form estudiante
+  const [est, setEst] = useState({
+    primer_nombre: '', segundo_nombre: '', primer_apellido: '', segundo_apellido: '',
+    cui: '', cui_pendiente: false,
+    fecha_nacimiento: '', genero: '',
+    telefono: '', telefono_alternativo: '', correo: '',
+    pais_id: String(GUATEMALA_ID),
+    departamento_id: '', municipio_id: '',
+    direccion: '', discapacidad_id: '',
+    es_extranjero: false, numero_documento: '', tipo_documento: 'DPI',
   })
-  const [insc, setInsc]   = useState(INSC0)
-  const [docs, setDocs]   = useState([
-    {tipo_documento_id:1, label:'DPI *',               url:'', req:true},
-    {tipo_documento_id:2, label:'Cert. nacimiento *',  url:'', req:true},
-    {tipo_documento_id:4, label:'Fotografía *',         url:'', req:true},
-    {tipo_documento_id:3, label:'Constancia estudios',  url:'', req:false},
-  ])
-  const [saving, setSaving]     = useState(false)
-  const [errorMsg, setErrorMsg] = useState('')
-  const [exito, setExito]       = useState<any>(null)
 
-  const reset = () => {
-    setModo('buscar'); setPaso(1); setResultados([])
-    setEstSel(null); setErrorMsg(''); setErrBusq('')
-    setBusq({ tipo:'cui', val:'' }); setInsc(INSC0)
-  }
+  // Form inscripción
+  const [insc, setInsc] = useState({
+    etapa_id: '', sede_id: '', version_libro: 'nuevo',
+    ciclo_escolar: '2026', modalidad_id: '',
+  })
 
-  const buscar = async () => {
-    if (!busq.val.trim()) { setErrBusq('Ingresa un valor'); return }
-    setBuscando(true); setErrBusq(''); setResultados([])
-    const p = new URLSearchParams()
-    p.set(busq.tipo === 'cui' ? 'cui' : busq.tipo === 'codigo' ? 'codigo' : 'nombre', busq.val)
-    const r = await fetch('/api/estudiantes/buscar?' + p).then(res => res.json())
-    if (r.encontrado) {
-      setResultados(r.estudiantes)
-    } else {
-      setModo('nuevo')
-      if (busq.tipo === 'cui') setPer(prev => ({ ...prev, cui: busq.val }))
-    }
-    setBuscando(false)
-  }
-
-  const guardarExistente = async () => {
-    if (!estSel || !insc.etapa_id || !insc.sede_id) {
-      setErrorMsg('Etapa y sede requeridos'); return
-    }
-    setSaving(true); setErrorMsg('')
-    const res = await fetch('/api/estudiantes/' + estSel.id + '/inscribir', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...insc,
-        etapa_id:      parseInt(insc.etapa_id),
-        ciclo_escolar: parseInt(insc.ciclo_escolar),
-        modalidad_id:  insc.modalidad_id ? parseInt(insc.modalidad_id) : null,
-        seccion_id:    insc.seccion_id   ? parseInt(insc.seccion_id)   : null,
-      }),
+  // Cargar catálogos
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/etapas').then(r => r.json()).catch(() => []),
+      fetch('/api/sedes').then(r => r.json()).catch(() => []),
+      fetch('/api/discapacidades').then(r => r.json()).catch(() => []),
+      fetch('/api/departamentos').then(r => r.json()).catch(() => []),
+    ]).then(([et, se, di, de]) => {
+      setEtapas(Array.isArray(et) ? et : [])
+      setSedes(Array.isArray(se) ? se : [])
+      setDiscap(Array.isArray(di) ? di : [])
+      setDepts(Array.isArray(de) ? de : [])
     })
-    const d = await res.json()
-    if (res.status === 409) { setErrorMsg(d.message); setSaving(false); return }
-    if (!res.ok)             { setErrorMsg(d.error ?? 'Error'); setSaving(false); return }
-    setExito({ codigo: d.codigo_estudiante, nombre: d.estudiante, tipo: 'existente' })
+  }, [])
+
+  // Cargar municipios cuando cambia departamento
+  useEffect(() => {
+    if (!est.departamento_id) { setMunis([]); return }
+    fetch(`/api/municipios?departamento_id=${est.departamento_id}`)
+      .then(r => r.json()).then(d => setMunis(Array.isArray(d) ? d : []))
+  }, [est.departamento_id])
+
+  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
+
+  const E = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>) =>
+    setEst(p => ({ ...p, [k]: e.target.value }))
+  const I = (k: string) => (e: React.ChangeEvent<HTMLSelectElement>) =>
+    setInsc(p => ({ ...p, [k]: e.target.value }))
+
+  const esGuatemala = est.pais_id === String(GUATEMALA_ID) || est.pais_id === 'Guatemala'
+
+  const inscribir = async () => {
+    if (!insc.etapa_id || !insc.sede_id) { flash('❌ Etapa y sede son requeridos'); return }
+    if (!est.primer_nombre || !est.primer_apellido || !est.telefono) {
+      flash('❌ Nombre, apellido y teléfono son requeridos'); return
+    }
+    if (!est.cui_pendiente && !est.cui && !est.numero_documento) {
+      flash('❌ Ingresa el CUI o marca "CUI pendiente"'); return
+    }
+    setSaving(true)
+    try {
+      // 1. Crear estudiante
+      const resEst = await fetch('/api/estudiantes', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...est,
+          pais_id:       est.pais_id       ? parseInt(est.pais_id)       : null,
+          municipio_id:  est.municipio_id  ? parseInt(est.municipio_id)  : null,
+          discapacidad_id: est.discapacidad_id ? parseInt(est.discapacidad_id) : null,
+        }),
+      })
+      const dEst = await resEst.json()
+      if (!resEst.ok) { flash('❌ Error al crear estudiante: ' + dEst.error); setSaving(false); return }
+
+      // 2. Inscribir
+      const resInsc = await fetch('/api/inscripciones', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          estudiante_id: dEst.id,
+          etapa_id:      parseInt(insc.etapa_id),
+          sede_id:       insc.sede_id,
+          version_libro: insc.version_libro,
+          ciclo_escolar: parseInt(insc.ciclo_escolar),
+        }),
+      })
+      const dInsc = await resInsc.json()
+      if (!resInsc.ok) { flash('❌ Error al inscribir: ' + dInsc.error); setSaving(false); return }
+
+      setStep(3)
+    } catch (e: any) {
+      flash('❌ Error: ' + e.message)
+    }
     setSaving(false)
   }
 
-  const guardarNuevo = async () => {
-    setSaving(true); setErrorMsg('')
-    const res = await fetch('/api/estudiantes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...per,
-        municipio_id:    per.municipio_id   ? parseInt(per.municipio_id)   : null,
-        discapacidad_id: parseInt(per.discapacidad_id),
-        ...insc,
-        etapa_id:      parseInt(insc.etapa_id),
-        ciclo_escolar: parseInt(insc.ciclo_escolar),
-        modalidad_id:  insc.modalidad_id ? parseInt(insc.modalidad_id) : null,
-        seccion_id:    insc.seccion_id   ? parseInt(insc.seccion_id)   : null,
-        documentos: docs
-          .filter(doc => doc.url)
-          .map(doc => ({ tipo_documento_id: doc.tipo_documento_id, url_google_drive: doc.url })),
-      }),
-    })
-    const d = await res.json()
-    if (!res.ok) { setErrorMsg(d.error ?? 'Error'); setSaving(false); return }
-    setExito({ codigo: d.codigo_estudiante, nombre: per.primer_nombre + ' ' + per.primer_apellido, tipo: 'nuevo' })
-    setSaving(false)
-  }
-
-  // ── Pantalla de éxito ──────────────────────────────────────
-  if (exito) {
-    return (
-      <div className="ap">
-        <header className="topbar">
-          <div className="page-title">Inscripción completada</div>
-        </header>
-        <div className="pc flex justify-center">
-          <div className="card max-w-sm text-center">
-            <div className="text-6xl mb-3">🎉</div>
-            <h2 className="text-lg font-extrabold text-gray-800 mb-1">
-              {exito.tipo === 'nuevo' ? 'Estudiante inscrito' : 'Inscripción creada'}
-            </h2>
-            <div className="bg-green-50 rounded-xl p-3 text-left mb-4">
-              <div className="text-sm font-bold text-green-800">{exito.nombre}</div>
-              <div className="text-xl font-extrabold text-green-700 mt-0.5">{exito.codigo}</div>
-            </div>
-            <div className="flex gap-2">
-              <button className="btn btn-p flex-1" onClick={() => { setExito(null); reset() }}>
-                Nueva inscripción
-              </button>
-              <a href="/dashboard/tecnico/estudiantes" className="btn btn-g flex-1">
-                Ver lista
-              </a>
-            </div>
+  if (step === 3) return (
+    <div className="ap">
+      <header className="topbar"><div className="page-title">✅ Inscripción exitosa</div></header>
+      <div className="pc max-w-lg text-center">
+        <div className="card py-10">
+          <div className="text-5xl mb-4">🎓</div>
+          <h2 className="text-xl font-extrabold text-green-600 mb-2">¡Estudiante inscrito!</h2>
+          <p className="text-gray-500 text-sm mb-5">
+            {est.primer_nombre} {est.primer_apellido} fue inscrito correctamente en el ciclo {insc.ciclo_escolar}.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button className="btn btn-g" onClick={() => { setStep(1); setEst({ primer_nombre:'',segundo_nombre:'',primer_apellido:'',segundo_apellido:'',cui:'',cui_pendiente:false,fecha_nacimiento:'',genero:'',telefono:'',telefono_alternativo:'',correo:'',pais_id:String(GUATEMALA_ID),departamento_id:'',municipio_id:'',direccion:'',discapacidad_id:'',es_extranjero:false,numero_documento:'',tipo_documento:'DPI' }); setInsc({ etapa_id:'',sede_id:'',version_libro:'nuevo',ciclo_escolar:'2026',modalidad_id:'' }) }}>
+              ＋ Inscribir otro
+            </button>
+            <button className="btn btn-p" onClick={() => router.push('/dashboard/tecnico/estudiantes')}>
+              Ver mis estudiantes
+            </button>
           </div>
         </div>
       </div>
-    )
-  }
+    </div>
+  )
 
-  // ── Pantalla principal ─────────────────────────────────────
   return (
     <div className="ap">
       <header className="topbar">
-        <div className="page-title">Inscribir Estudiante</div>
-        {modo !== 'buscar' && (
-          <button className="btn btn-g btn-sm" onClick={reset}>
-            Empezar de nuevo
-          </button>
-        )}
+        <div>
+          <div className="page-title">📋 Inscribir Estudiante</div>
+          <div className="text-xs text-gray-400">Paso {step} de 2</div>
+        </div>
       </header>
 
       <div className="pc max-w-3xl">
+        {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
 
-        {modo === 'buscar' && (
-          <div>
-            <div className="g2 mb-0">
-              <div className="card border-2 border-blue-100">
-                <div className="text-xl mb-1">🔍</div>
-                <div className="font-extrabold text-blue-800 text-sm">Estudiante existente</div>
-                <div className="text-xs text-blue-600">Solo crea la inscripción sin duplicar datos.</div>
-              </div>
-              <div className="card border-2 border-green-100">
-                <div className="text-xl mb-1">✨</div>
-                <div className="font-extrabold text-green-800 text-sm">Estudiante nuevo</div>
-                <div className="text-xs text-green-600">Formulario completo si no se encuentra.</div>
-              </div>
+        {/* Progreso */}
+        <div className="flex gap-3 mb-5">
+          {[{n:1,l:'Datos personales'},{n:2,l:'Datos de inscripción'}].map(s => (
+            <div key={s.n} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all ${step === s.n ? 'bg-pronea text-white' : step > s.n ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+              <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs bg-white/20">{step > s.n ? '✓' : s.n}</span>
+              {s.l}
             </div>
+          ))}
+        </div>
 
-            <div className="card mt-4">
-              <div className="card-title">Buscar primero</div>
-              <div className="flex gap-2 mb-3">
-                <div className="w-32">
-                  <label className="lbl">Tipo</label>
-                  <select className="inp" value={busq.tipo} onChange={e => setBusq(b => ({ ...b, tipo: e.target.value }))}>
-                    <option value="cui">CUI</option>
-                    <option value="codigo">Código</option>
-                    <option value="nombre">Nombre</option>
+        {/* ── PASO 1: Datos personales ── */}
+        {step === 1 && (
+          <div className="card">
+            <div className="card-title">👤 Datos personales del estudiante</div>
+            <div className="space-y-3">
+              <div className="fg2">
+                <div className="fg"><label className="lbl">Primer nombre *</label>
+                  <input className="inp" value={est.primer_nombre} onChange={E('primer_nombre')} /></div>
+                <div className="fg"><label className="lbl">Segundo nombre</label>
+                  <input className="inp" value={est.segundo_nombre} onChange={E('segundo_nombre')} /></div>
+                <div className="fg"><label className="lbl">Primer apellido *</label>
+                  <input className="inp" value={est.primer_apellido} onChange={E('primer_apellido')} /></div>
+                <div className="fg"><label className="lbl">Segundo apellido</label>
+                  <input className="inp" value={est.segundo_apellido} onChange={E('segundo_apellido')} /></div>
+              </div>
+
+              <div className="fg2">
+                <div className="fg">
+                  <label className="lbl">Tipo de documento *</label>
+                  <select className="inp" value={est.tipo_documento} onChange={E('tipo_documento')}>
+                    <option value="DPI">DPI (CUI)</option>
+                    <option value="Pasaporte">Pasaporte</option>
+                    <option value="Documento Consular">Documento Consular</option>
+                    <option value="Carnet Refugiado">Carnet Refugiado</option>
+                    <option value="Otro">Otro</option>
                   </select>
                 </div>
-                <div className="flex-1">
-                  <label className="lbl">Valor</label>
-                  <input
-                    className="inp"
-                    value={busq.val}
-                    onChange={e => setBusq(b => ({ ...b, val: e.target.value }))}
-                    onKeyDown={e => { if (e.key === 'Enter') buscar() }}
-                    placeholder={busq.tipo === 'cui' ? '2456 78901 0101' : 'Buscar...'}
-                  />
-                </div>
-                <div className="pt-5">
-                  <LoadingBtn loading={buscando} className="btn btn-p" onClick={buscar}>
-                    Buscar
-                  </LoadingBtn>
+                <div className="fg">
+                  <label className="lbl">
+                    {est.tipo_documento === 'DPI' ? 'CUI' : 'Número de documento'}
+                    {!est.cui_pendiente && ' *'}
+                  </label>
+                  <input className="inp" value={est.cui} onChange={E('cui')}
+                    disabled={est.cui_pendiente} placeholder={est.cui_pendiente ? 'Pendiente' : '...'} />
                 </div>
               </div>
 
-              {errBusq && <Alert type="error">{errBusq}</Alert>}
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-gray-600">
+                <input type="checkbox" checked={est.cui_pendiente}
+                  onChange={e => setEst(p => ({ ...p, cui_pendiente: e.target.checked, cui: e.target.checked ? '' : p.cui }))}
+                  className="w-4 h-4" />
+                <span>CUI pendiente (en trámite)</span>
+              </label>
 
-              {resultados.length > 0 && (
-                <div>
-                  <div className="text-sm font-bold text-gray-700 mb-2">
-                    {resultados.length} resultado(s):
-                  </div>
-                  {resultados.map((e: any) => (
-                    <div
-                      key={e.id}
-                      onClick={() => { setEstSel(e); setResultados([]); setModo('encontrado') }}
-                      className="border border-gray-100 rounded-xl p-3 mb-2 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-all"
-                    >
-                      <div className="font-bold text-gray-800">{e.primer_nombre} {e.primer_apellido}</div>
-                      <div className="text-xs text-gray-400">
-                        Código: {e.codigo_estudiante} · CUI: {e.cui_pendiente ? 'Pendiente' : (e.cui ?? '—')}
-                      </div>
-                    </div>
-                  ))}
-                  <div className="flex justify-between pt-2 border-t border-gray-100">
-                    <span className="text-xs text-gray-400">No es ninguno de estos</span>
-                    <button className="btn btn-g btn-sm" onClick={() => { setResultados([]); setModo('nuevo') }}>
-                      Crear nuevo
-                    </button>
-                  </div>
+              <div className="fg2">
+                <div className="fg"><label className="lbl">Fecha de nacimiento</label>
+                  <input type="date" className="inp" value={est.fecha_nacimiento} onChange={E('fecha_nacimiento')} /></div>
+                <div className="fg"><label className="lbl">Género</label>
+                  <select className="inp" value={est.genero} onChange={E('genero')}>
+                    <option value="">— Seleccionar —</option>
+                    <option value="masculino">Masculino</option>
+                    <option value="femenino">Femenino</option>
+                  </select>
                 </div>
-              )}
+              </div>
 
-              <div className="flex justify-between mt-3 pt-3 border-t border-gray-100">
-                <span className="text-xs text-gray-400">Ingresar sin buscar</span>
-                <button className="btn btn-g btn-sm" onClick={() => setModo('nuevo')}>
-                  Nuevo estudiante
-                </button>
+              <div className="fg2">
+                <div className="fg"><label className="lbl">Teléfono *</label>
+                  <input className="inp" value={est.telefono} onChange={E('telefono')} placeholder="5555-1234" /></div>
+                <div className="fg"><label className="lbl">Teléfono alternativo</label>
+                  <input className="inp" value={est.telefono_alternativo} onChange={E('telefono_alternativo')} /></div>
+              </div>
+
+              <div className="fg"><label className="lbl">Correo electrónico</label>
+                <input type="email" className="inp" value={est.correo} onChange={E('correo')} /></div>
+
+              {/* ── UBICACIÓN CON CASCADA ── */}
+              <div className="border-t pt-3 mt-1">
+                <div className="text-sm font-bold text-gray-600 mb-3">📍 Lugar de residencia</div>
+
+                {/* País */}
+                <div className="fg mb-2">
+                  <label className="lbl">País *</label>
+                  <select className="inp" value={est.pais_id} onChange={e => setEst(p => ({ ...p, pais_id: e.target.value, departamento_id: '', municipio_id: '' }))}>
+                    <option value={String(GUATEMALA_ID)}>Guatemala</option>
+                    <option value="otro">Otro país</option>
+                  </select>
+                </div>
+
+                {esGuatemala ? (
+                  <div className="fg2">
+                    <div className="fg">
+                      <label className="lbl">Departamento</label>
+                      <select className="inp" value={est.departamento_id}
+                        onChange={e => setEst(p => ({ ...p, departamento_id: e.target.value, municipio_id: '' }))}>
+                        <option value="">— Seleccionar —</option>
+                        {departamentos.map((d: any) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div className="fg">
+                      <label className="lbl">Municipio</label>
+                      <select className="inp" value={est.municipio_id} onChange={E('municipio_id')} disabled={!est.departamento_id}>
+                        <option value="">— Seleccionar departamento primero —</option>
+                        {municipios.map((m: any) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="fg2">
+                    <div className="fg"><label className="lbl">Estado / Departamento</label>
+                      <input className="inp" placeholder="Ingresa el estado o departamento..." onChange={e => setEst(p => ({ ...p, departamento_id: e.target.value }))} /></div>
+                    <div className="fg"><label className="lbl">Ciudad / Municipio</label>
+                      <input className="inp" placeholder="Ingresa la ciudad o municipio..." onChange={e => setEst(p => ({ ...p, municipio_id: e.target.value }))} /></div>
+                  </div>
+                )}
+              </div>
+
+              <div className="fg"><label className="lbl">Dirección</label>
+                <textarea className="inp" rows={2} value={est.direccion} onChange={E('direccion')} /></div>
+
+              <div className="fg"><label className="lbl">Discapacidad</label>
+                <select className="inp" value={est.discapacidad_id} onChange={E('discapacidad_id')}>
+                  <option value="">Sin discapacidad</option>
+                  {discapacidades.map((d: any) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                </select>
               </div>
             </div>
-          </div>
-        )}
 
-        {modo === 'encontrado' && estSel && (
-          <div>
-            <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-4 flex items-start justify-between">
-              <div>
-                <div className="text-xs text-blue-500 font-bold uppercase mb-1">Seleccionado</div>
-                <div className="font-extrabold text-blue-900">{estSel.primer_nombre} {estSel.primer_apellido}</div>
-                <div className="text-xs text-blue-600">Código: {estSel.codigo_estudiante}</div>
-              </div>
-              <button className="btn btn-g btn-sm" onClick={() => { setModo('buscar'); setEstSel(null) }}>
-                Cambiar
+            <div className="mf mt-4">
+              <button className="btn btn-p" onClick={() => {
+                if (!est.primer_nombre || !est.primer_apellido || !est.telefono) {
+                  flash('❌ Nombre, apellido y teléfono son requeridos'); return
+                }
+                setStep(2)
+              }}>
+                Continuar → Datos de inscripción
               </button>
             </div>
+          </div>
+        )}
 
-            {errorMsg && <Alert type="error">{errorMsg}</Alert>}
-
-            <div className="card">
-              <div className="card-title">Nueva inscripción</div>
+        {/* ── PASO 2: Datos de inscripción ── */}
+        {step === 2 && (
+          <div className="card">
+            <div className="card-title">📋 Datos de inscripción</div>
+            <div className="space-y-3">
+              <div className="fg">
+                <label className="lbl">Etapa *</label>
+                <select className="inp" value={insc.etapa_id} onChange={I('etapa_id')}>
+                  <option value="">— Seleccionar etapa —</option>
+                  {etapas.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              </div>
+              <div className="fg">
+                <label className="lbl">Sede *</label>
+                <select className="inp" value={insc.sede_id} onChange={I('sede_id')}>
+                  <option value="">— Seleccionar sede —</option>
+                  {sedes.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                </select>
+              </div>
               <div className="fg2">
-                <FormGroup label="Etapa" required>
-                  <Select value={insc.etapa_id} onChange={e => setInsc(i => ({ ...i, etapa_id: e.target.value }))}>
-                    <option value="">— Seleccionar —</option>
-                    {ETAPAS_LISTA.map(e => (
-                      <option key={e.id} value={e.id}>{e.nombre}</option>
-                    ))}
-                  </Select>
-                </FormGroup>
-                <FormGroup label="Ciclo escolar">
-                  <Input type="number" value={insc.ciclo_escolar} onChange={e => setInsc(i => ({ ...i, ciclo_escolar: e.target.value }))} />
-                </FormGroup>
-                <FormGroup label="Sede (UUID)" required>
-                  <Input value={insc.sede_id} onChange={e => setInsc(i => ({ ...i, sede_id: e.target.value }))} placeholder="UUID" />
-                </FormGroup>
-                <FormGroup label="Sección">
-                  <Select value={insc.seccion_id} onChange={e => setInsc(i => ({ ...i, seccion_id: e.target.value }))}>
-                    <option value="">—</option>
-                    {SECC.map((c, idx) => <option key={c} value={idx + 1}>{c}</option>)}
-                  </Select>
-                </FormGroup>
+                <div className="fg">
+                  <label className="lbl">Versión de libro</label>
+                  <select className="inp" value={insc.version_libro} onChange={I('version_libro')}>
+                    <option value="nuevo">📗 Nuevo (versión actualizada)</option>
+                    <option value="viejo">📙 Viejo (versión anterior)</option>
+                  </select>
+                </div>
+                <div className="fg">
+                  <label className="lbl">Ciclo escolar</label>
+                  <select className="inp" value={insc.ciclo_escolar} onChange={I('ciclo_escolar')}>
+                    <option value="2026">2026</option>
+                    <option value="2025">2025</option>
+                  </select>
+                </div>
               </div>
-              <FormGroup label="Versión del libro">
-                <SelectorVersion value={insc.version_libro} onChange={v => setInsc(i => ({ ...i, version_libro: v }))} />
-              </FormGroup>
-              <div className="flex justify-end mt-3">
-                <LoadingBtn loading={saving} className="btn btn-s" onClick={guardarExistente}>
-                  Crear inscripción
-                </LoadingBtn>
-              </div>
+            </div>
+
+            <div className="mf mt-4">
+              <button className="btn btn-g" onClick={() => setStep(1)}>← Volver</button>
+              <button className="btn btn-p" onClick={inscribir} disabled={saving}>
+                {saving
+                  ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Inscribiendo...</span>
+                  : '✅ Confirmar inscripción'}
+              </button>
             </div>
           </div>
         )}
-
-        {modo === 'nuevo' && (
-          <div>
-            <div className="bg-green-50 border border-green-200 rounded-xl p-3 mb-4 flex gap-2">
-              <span className="text-xl">✨</span>
-              <div>
-                <div className="font-bold text-green-800 text-sm">Nuevo estudiante</div>
-                <div className="text-xs text-green-600">Se crearán registros en: usuarios, estudiantes, inscripciones</div>
-              </div>
-            </div>
-
-            <Steps steps={['Datos personales', 'Inscripción', 'Documentos']} current={paso - 1} />
-            {errorMsg && <Alert type="error">{errorMsg}</Alert>}
-
-            <div className="card">
-              {paso === 1 && (
-                <div>
-                  <div className="text-sm font-extrabold text-gray-700 mb-3">Datos personales</div>
-                  <div className="fg2">
-                    <FormGroup label="Primer nombre" required>
-                      <Input value={per.primer_nombre} onChange={e => setPer(p => ({ ...p, primer_nombre: e.target.value }))} />
-                    </FormGroup>
-                    <FormGroup label="Segundo nombre">
-                      <Input value={per.segundo_nombre} onChange={e => setPer(p => ({ ...p, segundo_nombre: e.target.value }))} />
-                    </FormGroup>
-                    <FormGroup label="Primer apellido" required>
-                      <Input value={per.primer_apellido} onChange={e => setPer(p => ({ ...p, primer_apellido: e.target.value }))} />
-                    </FormGroup>
-                    <FormGroup label="Segundo apellido">
-                      <Input value={per.segundo_apellido} onChange={e => setPer(p => ({ ...p, segundo_apellido: e.target.value }))} />
-                    </FormGroup>
-                    <div className="col-span-2 flex gap-3 items-end">
-                      <FormGroup label="CUI" required={!per.cui_pendiente} className="flex-1 mb-0">
-                        <Input
-                          value={per.cui}
-                          onChange={e => setPer(p => ({ ...p, cui: e.target.value }))}
-                          disabled={per.cui_pendiente}
-                          placeholder="2456 78901 0101"
-                        />
-                      </FormGroup>
-                      <label className="flex items-center gap-2 text-xs font-semibold text-gray-600 cursor-pointer pb-2 whitespace-nowrap">
-                        <input
-                          type="checkbox"
-                          checked={per.cui_pendiente}
-                          onChange={e => setPer(p => ({ ...p, cui_pendiente: e.target.checked, cui: '' }))}
-                          className="w-4 h-4"
-                        />
-                        Sin CUI
-                      </label>
-                    </div>
-                    <FormGroup label="Fecha de nacimiento">
-                      <Input type="date" value={per.fecha_nacimiento} onChange={e => setPer(p => ({ ...p, fecha_nacimiento: e.target.value }))} />
-                    </FormGroup>
-                    <FormGroup label="Teléfono" required>
-                      <Input value={per.telefono} onChange={e => setPer(p => ({ ...p, telefono: e.target.value }))} placeholder="5555-1234" />
-                    </FormGroup>
-                    <FormGroup label="Correo">
-                      <Input type="email" value={per.correo} onChange={e => setPer(p => ({ ...p, correo: e.target.value }))} />
-                    </FormGroup>
-                    <FormGroup label="Municipio">
-                      <Select value={per.municipio_id} onChange={e => setPer(p => ({ ...p, municipio_id: e.target.value }))}>
-                        <option value="">— Seleccionar —</option>
-                        {MUNICIPIOS_SAC.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                      </Select>
-                    </FormGroup>
-                    <FormGroup label="Discapacidad">
-                      <Select value={per.discapacidad_id} onChange={e => setPer(p => ({ ...p, discapacidad_id: e.target.value }))}>
-                        {DISC.map(d => <option key={d.id} value={d.id}>{d.n}</option>)}
-                      </Select>
-                    </FormGroup>
-                  </div>
-                  <div className="flex justify-between mt-4">
-                    <button className="btn btn-g btn-sm" onClick={() => setModo('buscar')}>Volver</button>
-                    <button
-                      className="btn btn-p"
-                      onClick={() => {
-                        if (!per.primer_nombre || !per.primer_apellido || !per.telefono) {
-                          setErrorMsg('Nombre y teléfono son requeridos'); return
-                        }
-                        if (!per.cui_pendiente && !per.cui) {
-                          setErrorMsg('Ingresa el CUI o marca Sin CUI'); return
-                        }
-                        setErrorMsg(''); setPaso(2)
-                      }}
-                    >
-                      Siguiente
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {paso === 2 && (
-                <div>
-                  <div className="text-sm font-extrabold text-gray-700 mb-3">Datos de inscripción</div>
-                  <div className="fg2">
-                    <FormGroup label="Etapa" required>
-                      <Select value={insc.etapa_id} onChange={e => setInsc(i => ({ ...i, etapa_id: e.target.value }))}>
-                        <option value="">— Seleccionar —</option>
-                        {ETAPAS_LISTA.map(e => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-                      </Select>
-                    </FormGroup>
-                    <FormGroup label="Ciclo escolar">
-                      <Input type="number" value={insc.ciclo_escolar} onChange={e => setInsc(i => ({ ...i, ciclo_escolar: e.target.value }))} />
-                    </FormGroup>
-                    <FormGroup label="Sede (UUID)" required>
-                      <Input value={insc.sede_id} onChange={e => setInsc(i => ({ ...i, sede_id: e.target.value }))} placeholder="UUID" />
-                    </FormGroup>
-                    <FormGroup label="Sección">
-                      <Select value={insc.seccion_id} onChange={e => setInsc(i => ({ ...i, seccion_id: e.target.value }))}>
-                        <option value="">—</option>
-                        {SECC.map((c, idx) => <option key={c} value={idx + 1}>{c}</option>)}
-                      </Select>
-                    </FormGroup>
-                    <FormGroup label="Código SIREEX">
-                      <Input value={insc.codigo_sireex} onChange={e => setInsc(i => ({ ...i, codigo_sireex: e.target.value }))} placeholder="Opcional" />
-                    </FormGroup>
-                  </div>
-                  <FormGroup label="Versión del libro">
-                    <SelectorVersion value={insc.version_libro} onChange={v => setInsc(i => ({ ...i, version_libro: v }))} />
-                  </FormGroup>
-                  <div className="flex justify-between mt-4">
-                    <button className="btn btn-g" onClick={() => setPaso(1)}>Anterior</button>
-                    <button
-                      className="btn btn-p"
-                      onClick={() => {
-                        if (!insc.etapa_id || !insc.sede_id) {
-                          setErrorMsg('Etapa y sede son requeridos'); return
-                        }
-                        setErrorMsg(''); setPaso(3)
-                      }}
-                    >
-                      Siguiente
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {paso === 3 && (
-                <div>
-                  <div className="text-sm font-extrabold text-gray-700 mb-2">Documentos</div>
-                  <div className="alert al-i mb-3 text-xs">
-                    Ingresa la URL pública de Google Drive de cada documento.
-                  </div>
-                  {docs.map((d, idx) => (
-                    <FormGroup key={d.tipo_documento_id} label={d.label} required={d.req}>
-                      <Input
-                        type="url"
-                        value={d.url}
-                        onChange={e => {
-                          const nd = [...docs]
-                          nd[idx].url = e.target.value
-                          setDocs(nd)
-                        }}
-                        placeholder="https://drive.google.com/..."
-                      />
-                    </FormGroup>
-                  ))}
-                  <div className="flex justify-between mt-4">
-                    <button className="btn btn-g" onClick={() => setPaso(2)}>Anterior</button>
-                    <LoadingBtn loading={saving} className="btn btn-s" onClick={guardarNuevo}>
-                      Guardar inscripción
-                    </LoadingBtn>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
       </div>
     </div>
   )
