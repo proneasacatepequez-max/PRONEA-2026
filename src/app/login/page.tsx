@@ -65,19 +65,15 @@ function LoginForm() {
         {/* ── FORMULARIO ── */}
         <div className="w-full md:w-96 flex-shrink-0 flex flex-col p-8 md:p-10">
           <div className="flex items-center gap-3 mb-8">
-            {info.logo_url ? (
-              <img src={info.logo_url} alt="PRONEA" className="h-12 w-auto object-contain" />
-            ) : (
-              <div className="relative w-12 h-12">
-                <Image
-                  src="/images/logo-pronea.png"
-                  alt="PRONEA"
-                  fill
-                  className="object-contain"
-                  priority
-                />
-              </div>
-            )}
+            <div className="relative w-12 h-12">
+              <Image
+                src="/images/logo-pronea.png"
+                alt="PRONEA"
+                fill
+                className="object-contain"
+                priority
+              />
+            </div>
             <div>
               <div className="text-pronea font-extrabold text-xl leading-none">{info.nombre_corto ?? 'PRONEA'}</div>
               <div className="text-gray-400 text-xs font-bold tracking-widest uppercase">{info.departamento ?? 'Sacatepéquez'}</div>
@@ -141,14 +137,13 @@ function LoginForm() {
             </button>
           </form>
 
-          <div className="mt-auto pt-6 text-center text-xs text-gray-300">
-            PRONEA Sacatepéquez © 2026 · v4.0 AUTOR MARCOS SIAN
+          <div className="mt-auto pt-6 text-center text-xs text-blue-600 font-semibold">
+            PRONEA Sacatepéquez © 2026 · v4.0 | AUTOR: MARCOS SIAN
           </div>
         </div>
 
         {/* ── PANEL INFORMATIVO ── */}
         <div className="flex-1 bg-gradient-to-br from-pronea to-pronea-dark text-white overflow-y-auto relative">
-          {/* Slider de fondo */}
           {slider.map((img: any, i: number) => (
             <div key={img.id ?? i} className={`absolute inset-0 transition-opacity duration-1000 ${i === sliderIdx ? 'opacity-100' : 'opacity-0'}`}>
               <img src={img.url_imagen} alt="" className="w-full h-full object-cover opacity-20" />
@@ -156,7 +151,6 @@ function LoginForm() {
           ))}
 
           <div className="relative p-6 md:p-7 space-y-5">
-            {/* Encabezado con logo */}
             <div className="flex items-center gap-3 pb-4 border-b border-white/15">
               <div className="relative w-10 h-10 bg-white/15 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden p-1.5">
                 <Image
@@ -174,7 +168,6 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* Contacto */}
             <div>
               <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📋 Contacto</div>
               <div className="grid grid-cols-2 gap-2">
@@ -192,7 +185,6 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* Horario */}
             {info.horario_atencion && (
               <div>
                 <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">🕐 Horario</div>
@@ -200,7 +192,6 @@ function LoginForm() {
               </div>
             )}
 
-            {/* Modalidades */}
             <div>
               <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📚 Modalidades de estudio</div>
               <div className="space-y-2">
@@ -221,7 +212,6 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* Avisos */}
             {avisos.length > 0 && (
               <div>
                 <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📢 Avisos</div>
