@@ -53,9 +53,9 @@ function LoginForm() {
 
   // Etapas con edades (configuradas en el sistema)
   const ETAPAS_INFO = [
-    { nombre: 'Primaria Acelerada', edad: '13 años en adelante', icono: '📗' },
-    { nombre: 'Básico',             edad: '15 años en adelante', icono: '📘' },
-    { nombre: 'Bachillerato',       edad: '17 años en adelante', icono: '📙' },
+    { nombre: 'Primaria Acelerada', edad: 'Semipresencial, A distancia y Virtual          13 años en adelante', icono: '📗' },
+    { nombre: 'Básico',             edad: 'Semipresencial, A distancia y Virtual          15 años en adelante', icono: '📘' },
+    { nombre: 'Bachillerato',       edad: 'Semipresencial, A distancia y Virtual          17 años en adelante', icono: '📙' },
   ]
 
   return (
@@ -138,7 +138,7 @@ function LoginForm() {
                   { icon: '👤', label: 'Director',  val: info.director_nombre ?? 'Mario Alfonso Toj Tepáz' },
                   { icon: '📞', label: 'Teléfono',  val: info.telefono ?? '47109679 o al 57123828' },
                   { icon: '💬', label: 'WhatsApp',  val: info.whatsapp ?? '47109679' },
-                  { icon: '✉️', label: 'Correo',    val: info.correo ?? 'sian2774@gmail.com' },
+                  { icon: '✉️', label: 'Correo',    val: info.correo ?? 'proneasacatepequez@gmail.com' },
                 ].map(({ icon, label, val }) => (
                   <div key={label} className="bg-white/10 rounded-lg px-3 py-2">
                     <div className="text-white/50 text-[10px] font-bold">{icon} {label}</div>
