@@ -52,10 +52,35 @@ function LoginForm() {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
   })
 
-  const ETAPAS_INFO = [
-    { nombre: 'Primaria Acelerada', edad: '13 años en adelante', descripcion: 'Semipresencial, A distancia y Virtual', icono: '📗' },
-    { nombre: 'Básico', edad: '15 años en adelante', descripcion: 'Semipresencial, A distancia y Virtual', icono: '📘' },
-    { nombre: 'Bachillerato', edad: '17 años en adelante', descripcion: 'Semipresencial, A distancia y Virtual', icono: '📙' },
+  // ESTRUCTURA COMPLETA DE ETAPAS EDUCATIVAS
+  const ETAPAS_EDUCATIVAS = [
+    {
+      nivel: 'Primaria Acelerada',
+      icono: '📗',
+      color: 'from-green-500/20 to-green-600/20',
+      etapas: [
+        { nombre: '1ra. Etapa Primaria', grados: '1ero, 2do y 3ero Primaria', edad: '13 años en adelante' },
+        { nombre: '2da. Etapa Primaria', grados: '4to, 5to y 6to Primaria', edad: '13 años en adelante' }
+      ]
+    },
+    {
+      nivel: 'Básico',
+      icono: '📘',
+      color: 'from-blue-500/20 to-blue-600/20',
+      etapas: [
+        { nombre: '1ra. Etapa Básico', grados: '1ero y 2do Básico', edad: '15 años en adelante' },
+        { nombre: '2da. Etapa Básico', grados: '3ero Básico', edad: '15 años en adelante' }
+      ]
+    },
+    {
+      nivel: 'Bachillerato',
+      icono: '📙',
+      color: 'from-purple-500/20 to-purple-600/20',
+      etapas: [
+        { nombre: '4to. Bachillerato', grados: 'Cuarto Bachillerato', edad: '17 años en adelante' },
+        { nombre: '5to. Bachillerato', grados: 'Quinto Bachillerato', edad: '17 años en adelante' }
+      ]
+    }
   ]
 
   return (
@@ -64,8 +89,8 @@ function LoginForm() {
 
         {/* ── FORMULARIO ── */}
         <div className="w-full md:w-96 flex-shrink-0 flex flex-col p-8 md:p-10">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="relative w-12 h-12">
+          <div className="flex items-center gap-4 mb-8">
+            <div className="relative w-24 h-24">
               <Image
                 src="/images/logo-pronea.png"
                 alt="PRONEA"
@@ -76,7 +101,7 @@ function LoginForm() {
             </div>
             <div>
               <div className="text-pronea font-extrabold text-xl leading-none">{info.nombre_corto ?? 'PRONEA'}</div>
-              <div className="text-gray-400 text-xs font-bold tracking-widest uppercase">{info.departamento ?? 'Sacatepéquez'}</div>
+              <div className="text-blue-600 text-xs font-bold tracking-widest uppercase">{info.departamento ?? 'Sacatepéquez'}</div>
             </div>
           </div>
 
@@ -152,7 +177,7 @@ function LoginForm() {
 
           <div className="relative p-6 md:p-7 space-y-5">
             <div className="flex items-center gap-3 pb-4 border-b border-white/15">
-              <div className="relative w-10 h-10 bg-white/15 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden p-1.5">
+              <div className="relative w-16 h-16 bg-white/15 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden p-2">
                 <Image
                   src="/images/logo-pronea.png"
                   alt="PRONEA"
@@ -168,6 +193,7 @@ function LoginForm() {
               </div>
             </div>
 
+            {/* Contacto */}
             <div>
               <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📋 Contacto</div>
               <div className="grid grid-cols-2 gap-2">
@@ -185,6 +211,7 @@ function LoginForm() {
               </div>
             </div>
 
+            {/* Horario */}
             {info.horario_atencion && (
               <div>
                 <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">🕐 Horario</div>
@@ -192,26 +219,37 @@ function LoginForm() {
               </div>
             )}
 
+            {/* Modalidades de Estudio - ESTRUCTURA COMPLETA */}
             <div>
-              <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📚 Modalidades de estudio</div>
-              <div className="space-y-2">
-                {ETAPAS_INFO.map(e => (
-                  <div key={e.nombre} className="bg-white/10 rounded-lg p-3 hover:bg-white/15 transition-all">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-lg">{e.icono}</span>
-                        <span className="text-sm font-bold">{e.nombre}</span>
-                      </div>
-                      <span className="text-[10px] text-white/80 bg-white/20 px-2 py-0.5 rounded-full font-semibold">
-                        {e.edad}
-                      </span>
+              <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-3">📚 Modalidades de estudio</div>
+              <div className="space-y-4">
+                {ETAPAS_EDUCATIVAS.map((nivel) => (
+                  <div key={nivel.nivel} className={`bg-gradient-to-r ${nivel.color} rounded-xl overflow-hidden border border-white/10`}>
+                    {/* Cabecera del nivel */}
+                    <div className="bg-white/15 px-4 py-2 flex items-center gap-2">
+                      <span className="text-xl">{nivel.icono}</span>
+                      <span className="font-bold text-sm">{nivel.nivel}</span>
                     </div>
-                    <p className="text-xs text-white/70 pl-7">{e.descripcion}</p>
+                    {/* Etapas */}
+                    <div className="p-3 space-y-2">
+                      {nivel.etapas.map((etapa, idx) => (
+                        <div key={idx} className="bg-white/5 rounded-lg p-2 hover:bg-white/10 transition-all">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs font-semibold">{etapa.nombre}</span>
+                            <span className="text-[9px] bg-white/20 px-2 py-0.5 rounded-full">
+                              {etapa.edad}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-white/70 pl-2">{etapa.grados}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
+            {/* Avisos */}
             {avisos.length > 0 && (
               <div>
                 <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📢 Avisos</div>
