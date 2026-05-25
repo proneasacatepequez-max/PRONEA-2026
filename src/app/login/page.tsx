@@ -89,9 +89,9 @@ function LoginForm() {
 
         {/* ── FORMULARIO ── */}
         <div className="w-full md:w-96 flex-shrink-0 flex flex-col p-8 md:p-10 bg-white">
-          {/* Logo centrado y Sacatepéquez abajo */}
+          {/* Logo y Sacatepéquez - Espacio reducido */}
           <div className="flex flex-col items-center mb-8">
-            <div className="relative w-32 h-32 mb-3">
+            <div className="relative w-32 h-32 mb-1">
               <Image
                 src="/images/logo-pronea.png"
                 alt="PRONEA"
@@ -167,7 +167,7 @@ function LoginForm() {
           </div>
         </div>
 
-        {/* ── PANEL INFORMATIVO ── */}
+        {/* ── PANEL INFORMATIVO CON JERARQUÍA VISUAL ── */}
         <div className="flex-1 bg-gradient-to-br from-blue-800 to-blue-950 text-white overflow-y-auto relative">
           {slider.map((img: any, i: number) => (
             <div key={img.id ?? i} className={`absolute inset-0 transition-opacity duration-1000 ${i === sliderIdx ? 'opacity-100' : 'opacity-0'}`}>
@@ -175,8 +175,9 @@ function LoginForm() {
             </div>
           ))}
 
-          <div className="relative p-6 md:p-7 space-y-5">
-            {/* Encabezado con logo pequeño */}
+          <div className="relative p-6 md:p-7 space-y-6">
+            
+            {/* TÍTULO PRINCIPAL - Grande */}
             <div className="flex items-center gap-3 pb-4 border-b border-white/20">
               <div className="relative w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden p-2">
                 <Image
@@ -187,17 +188,17 @@ function LoginForm() {
                 />
               </div>
               <div>
-                <h2 className="font-extrabold text-sm leading-tight text-white">
+                <h1 className="text-lg font-black leading-tight text-white">
                   {info.nombre_completo ?? 'Programa Nacional de Educación Alternativa'}
-                </h2>
-                <p className="text-blue-200 text-xs mt-0.5">Dirección General de Educación Extraescolar — DIGEEX</p>
+                </h1>
+                <p className="text-xs text-blue-200 mt-0.5">Dirección General de Educación Extraescolar — DIGEEX</p>
               </div>
             </div>
 
-            {/* Contacto - Mejor visibilidad */}
+            {/* SECCIÓN CONTACTO */}
             <div>
-              <div className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-2">📋 Contacto</div>
-              <div className="grid grid-cols-2 gap-2">
+              <h3 className="text-sm font-bold text-blue-300 uppercase tracking-wider mb-3">📋 Contacto</h3>
+              <div className="grid grid-cols-2 gap-3">
                 {[
                   { icon: '👤', label: 'Director', val: info.director_nombre ?? 'Mario Alfonso Toj Tepáz' },
                   { icon: '📞', label: 'Teléfono', val: info.telefono ?? '47109679 o al 57123828' },
@@ -205,41 +206,46 @@ function LoginForm() {
                   { icon: '✉️', label: 'Correo', val: info.correo ?? 'proneasacatepequez@gmail.com' },
                 ].map(({ icon, label, val }) => (
                   <div key={label} className="bg-white/10 rounded-lg px-3 py-2 hover:bg-white/15 transition-all">
-                    <div className="text-blue-300 text-[10px] font-bold">{icon} {label}</div>
-                    <div className="text-sm font-semibold mt-0.5 truncate text-white">{val}</div>
+                    <div className="text-blue-300 text-xs font-semibold">{icon} {label}</div>
+                    <div className="text-sm font-medium mt-0.5 truncate text-white">{val}</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Horario */}
+            {/* SECCIÓN HORARIO */}
             {info.horario_atencion && (
               <div>
-                <div className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-2">🕐 Horario</div>
+                <h3 className="text-sm font-bold text-blue-300 uppercase tracking-wider mb-2">🕐 Horario de Atención</h3>
                 <div className="bg-white/10 rounded-lg px-3 py-2 text-sm text-white">{info.horario_atencion}</div>
               </div>
             )}
 
-            {/* Modalidades de Estudio - Mejor visibilidad */}
+            {/* SECCIÓN MODALIDADES - JERARQUÍA CLARA */}
             <div>
-              <div className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-3">📚 Modalidades de estudio</div>
+              <h3 className="text-sm font-bold text-blue-300 uppercase tracking-wider mb-3">📚 Modalidades de Estudio</h3>
               <div className="space-y-3">
                 {ETAPAS_EDUCATIVAS.map((nivel) => (
                   <div key={nivel.nivel} className={`bg-gradient-to-r ${nivel.color} rounded-xl overflow-hidden border border-white/15`}>
-                    <div className="bg-white/20 px-4 py-2 flex items-center gap-2">
+                    {/* Título del nivel - Grande */}
+                    <div className="bg-white/20 px-4 py-2.5 flex items-center gap-2">
                       <span className="text-xl">{nivel.icono}</span>
-                      <span className="font-bold text-sm text-white">{nivel.nivel}</span>
+                      <span className="font-bold text-base text-white">{nivel.nivel}</span>
                     </div>
+                    {/* Subtítulos y contenido */}
                     <div className="p-3 space-y-2">
                       {nivel.etapas.map((etapa, idx) => (
-                        <div key={idx} className="bg-white/10 rounded-lg p-2 hover:bg-white/15 transition-all">
+                        <div key={idx} className="bg-white/10 rounded-lg p-2.5 hover:bg-white/15 transition-all">
                           <div className="flex items-center justify-between mb-1">
+                            {/* Subtítulo - Mediano */}
                             <span className="text-sm font-semibold text-white">{etapa.nombre}</span>
+                            {/* Texto pequeño - Edad */}
                             <span className="text-[10px] bg-blue-500/30 px-2 py-0.5 rounded-full text-blue-100">
                               {etapa.edad}
                             </span>
                           </div>
-                          <p className="text-xs text-blue-200 pl-2">{etapa.grados}</p>
+                          {/* Texto descriptivo - Pequeño */}
+                          <p className="text-xs text-blue-200 pl-1">{etapa.grados}</p>
                         </div>
                       ))}
                     </div>
@@ -248,13 +254,13 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* Avisos */}
+            {/* SECCIÓN AVISOS */}
             {avisos.length > 0 && (
               <div>
-                <div className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-2">📢 Avisos</div>
+                <h3 className="text-sm font-bold text-blue-300 uppercase tracking-wider mb-2">📢 Avisos Importantes</h3>
                 {avisos.map((a: any) => (
-                  <div key={a.id} className="border-l-2 border-yellow-400 bg-yellow-400/15 rounded-r-lg px-3 py-2 mb-2 text-xs font-semibold text-white">
-                    ⚡ {a.mensaje}
+                  <div key={a.id} className="border-l-2 border-yellow-400 bg-yellow-400/15 rounded-r-lg px-3 py-2.5 mb-2">
+                    <p className="text-xs font-semibold text-white">⚡ {a.mensaje}</p>
                   </div>
                 ))}
               </div>
