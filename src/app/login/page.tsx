@@ -84,13 +84,14 @@ function LoginForm() {
   ]
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-pronea-dark to-pronea flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center p-4">
       <div className="w-full max-w-6xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col md:flex-row min-h-[600px]">
 
         {/* ── FORMULARIO ── */}
-        <div className="w-full md:w-96 flex-shrink-0 flex flex-col p-8 md:p-10">
-          <div className="flex items-center gap-4 mb-8">
-            <div className="relative w-24 h-24">
+        <div className="w-full md:w-96 flex-shrink-0 flex flex-col p-8 md:p-10 bg-white">
+          {/* Logo centrado y Sacatepéquez abajo */}
+          <div className="flex flex-col items-center mb-8">
+            <div className="relative w-32 h-32 mb-3">
               <Image
                 src="/images/logo-pronea.png"
                 alt="PRONEA"
@@ -99,17 +100,16 @@ function LoginForm() {
                 priority
               />
             </div>
-            <div>
-              <div className="text-pronea font-extrabold text-xl leading-none">{info.nombre_corto ?? 'PRONEA'}</div>
-              <div className="text-blue-600 text-xs font-bold tracking-widest uppercase">{info.departamento ?? 'Sacatepéquez'}</div>
+            <div className="text-blue-700 text-sm font-bold tracking-widest uppercase text-center">
+              {info.departamento ?? 'Sacatepéquez'}
             </div>
           </div>
 
           <h2 className="text-2xl font-extrabold text-gray-800 mb-1">Bienvenido</h2>
-          <p className="text-sm text-gray-400 mb-6 capitalize">{hoy}</p>
+          <p className="text-sm text-gray-500 mb-6 capitalize">{hoy}</p>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm font-semibold rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
+            <div className="bg-red-50 border-l-4 border-red-500 text-red-700 text-sm font-semibold rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
               <span>⚠️</span><span>{error}</span>
             </div>
           )}
@@ -119,7 +119,7 @@ function LoginForm() {
               <label className="block text-sm font-bold text-gray-700 mb-2">Correo electrónico</label>
               <input 
                 type="email" 
-                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-pronea focus:ring-2 focus:ring-pronea/20 transition-all outline-none"
+                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none text-gray-800"
                 placeholder="usuario@correo.com"
                 value={correo} 
                 onChange={e => setCorreo(e.target.value)} 
@@ -132,7 +132,7 @@ function LoginForm() {
               <div className="relative">
                 <input 
                   type={showPassword ? "text" : "password"}
-                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-pronea focus:ring-2 focus:ring-pronea/20 transition-all outline-none pr-12"
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none pr-12 text-gray-800"
                   placeholder="••••••••"
                   value={pass} 
                   onChange={e => setPass(e.target.value)} 
@@ -142,7 +142,7 @@ function LoginForm() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-pronea transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 transition-colors"
                 >
                   {showPassword ? '👁️' : '👁️‍🗨️'}
                 </button>
@@ -151,7 +151,7 @@ function LoginForm() {
             <button 
               type="submit" 
               disabled={loading}
-              className="bg-gradient-to-r from-pronea to-pronea-dark hover:opacity-90 text-white font-bold py-3 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50"
+              className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900 text-white font-bold py-3 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50"
             >
               {loading ? (
                 <span className="flex items-center justify-center gap-2">
@@ -168,34 +168,35 @@ function LoginForm() {
         </div>
 
         {/* ── PANEL INFORMATIVO ── */}
-        <div className="flex-1 bg-gradient-to-br from-pronea to-pronea-dark text-white overflow-y-auto relative">
+        <div className="flex-1 bg-gradient-to-br from-blue-800 to-blue-950 text-white overflow-y-auto relative">
           {slider.map((img: any, i: number) => (
             <div key={img.id ?? i} className={`absolute inset-0 transition-opacity duration-1000 ${i === sliderIdx ? 'opacity-100' : 'opacity-0'}`}>
-              <img src={img.url_imagen} alt="" className="w-full h-full object-cover opacity-20" />
+              <img src={img.url_imagen} alt="" className="w-full h-full object-cover opacity-10" />
             </div>
           ))}
 
           <div className="relative p-6 md:p-7 space-y-5">
-            <div className="flex items-center gap-3 pb-4 border-b border-white/15">
-              <div className="relative w-16 h-16 bg-white/15 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden p-2">
+            {/* Encabezado con logo pequeño */}
+            <div className="flex items-center gap-3 pb-4 border-b border-white/20">
+              <div className="relative w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden p-2">
                 <Image
                   src="/images/logo-pronea.png"
                   alt="PRONEA"
                   fill
-                  className="object-contain p-1 brightness-0 invert"
+                  className="object-contain brightness-0 invert"
                 />
               </div>
               <div>
-                <h2 className="font-extrabold text-sm leading-tight">
+                <h2 className="font-extrabold text-sm leading-tight text-white">
                   {info.nombre_completo ?? 'Programa Nacional de Educación Alternativa'}
                 </h2>
-                <p className="text-white/60 text-xs mt-0.5">Dirección General de Educación Extraescolar — DIGEEX</p>
+                <p className="text-blue-200 text-xs mt-0.5">Dirección General de Educación Extraescolar — DIGEEX</p>
               </div>
             </div>
 
-            {/* Contacto */}
+            {/* Contacto - Mejor visibilidad */}
             <div>
-              <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📋 Contacto</div>
+              <div className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-2">📋 Contacto</div>
               <div className="grid grid-cols-2 gap-2">
                 {[
                   { icon: '👤', label: 'Director', val: info.director_nombre ?? 'Mario Alfonso Toj Tepáz' },
@@ -204,8 +205,8 @@ function LoginForm() {
                   { icon: '✉️', label: 'Correo', val: info.correo ?? 'proneasacatepequez@gmail.com' },
                 ].map(({ icon, label, val }) => (
                   <div key={label} className="bg-white/10 rounded-lg px-3 py-2 hover:bg-white/15 transition-all">
-                    <div className="text-white/50 text-[10px] font-bold">{icon} {label}</div>
-                    <div className="text-xs font-semibold mt-0.5 truncate">{val}</div>
+                    <div className="text-blue-300 text-[10px] font-bold">{icon} {label}</div>
+                    <div className="text-sm font-semibold mt-0.5 truncate text-white">{val}</div>
                   </div>
                 ))}
               </div>
@@ -214,33 +215,31 @@ function LoginForm() {
             {/* Horario */}
             {info.horario_atencion && (
               <div>
-                <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">🕐 Horario</div>
-                <div className="bg-white/10 rounded-lg px-3 py-2 text-xs">{info.horario_atencion}</div>
+                <div className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-2">🕐 Horario</div>
+                <div className="bg-white/10 rounded-lg px-3 py-2 text-sm text-white">{info.horario_atencion}</div>
               </div>
             )}
 
-            {/* Modalidades de Estudio - ESTRUCTURA COMPLETA */}
+            {/* Modalidades de Estudio - Mejor visibilidad */}
             <div>
-              <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-3">📚 Modalidades de estudio</div>
-              <div className="space-y-4">
+              <div className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-3">📚 Modalidades de estudio</div>
+              <div className="space-y-3">
                 {ETAPAS_EDUCATIVAS.map((nivel) => (
-                  <div key={nivel.nivel} className={`bg-gradient-to-r ${nivel.color} rounded-xl overflow-hidden border border-white/10`}>
-                    {/* Cabecera del nivel */}
-                    <div className="bg-white/15 px-4 py-2 flex items-center gap-2">
+                  <div key={nivel.nivel} className={`bg-gradient-to-r ${nivel.color} rounded-xl overflow-hidden border border-white/15`}>
+                    <div className="bg-white/20 px-4 py-2 flex items-center gap-2">
                       <span className="text-xl">{nivel.icono}</span>
-                      <span className="font-bold text-sm">{nivel.nivel}</span>
+                      <span className="font-bold text-sm text-white">{nivel.nivel}</span>
                     </div>
-                    {/* Etapas */}
                     <div className="p-3 space-y-2">
                       {nivel.etapas.map((etapa, idx) => (
-                        <div key={idx} className="bg-white/5 rounded-lg p-2 hover:bg-white/10 transition-all">
+                        <div key={idx} className="bg-white/10 rounded-lg p-2 hover:bg-white/15 transition-all">
                           <div className="flex items-center justify-between mb-1">
-                            <span className="text-xs font-semibold">{etapa.nombre}</span>
-                            <span className="text-[9px] bg-white/20 px-2 py-0.5 rounded-full">
+                            <span className="text-sm font-semibold text-white">{etapa.nombre}</span>
+                            <span className="text-[10px] bg-blue-500/30 px-2 py-0.5 rounded-full text-blue-100">
                               {etapa.edad}
                             </span>
                           </div>
-                          <p className="text-[10px] text-white/70 pl-2">{etapa.grados}</p>
+                          <p className="text-xs text-blue-200 pl-2">{etapa.grados}</p>
                         </div>
                       ))}
                     </div>
@@ -252,9 +251,9 @@ function LoginForm() {
             {/* Avisos */}
             {avisos.length > 0 && (
               <div>
-                <div className="text-white/50 text-[10px] font-bold uppercase tracking-widest mb-2">📢 Avisos</div>
+                <div className="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-2">📢 Avisos</div>
                 {avisos.map((a: any) => (
-                  <div key={a.id} className="border-l-2 border-yellow-400 bg-yellow-400/10 rounded-r-lg px-3 py-2 mb-2 text-xs font-semibold">
+                  <div key={a.id} className="border-l-2 border-yellow-400 bg-yellow-400/15 rounded-r-lg px-3 py-2 mb-2 text-xs font-semibold text-white">
                     ⚡ {a.mensaje}
                   </div>
                 ))}
@@ -270,7 +269,7 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <Suspense fallback={
-      <div className="min-h-screen bg-gradient-to-br from-pronea-dark to-pronea flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
         <div className="text-center text-white">
           <div className="w-12 h-12 border-2 border-white/30 border-t-white rounded-full animate-spin mx-auto mb-4" />
           <div className="text-sm font-semibold opacity-75">Cargando PRONEA...</div>
