@@ -59,7 +59,7 @@ function LoginForm() {
       icono: '📗',
       color: 'from-green-500/20 to-green-600/20',
       etapas: [
-        { nombre: '1ra. Etapa Primaria', grados: '---1ero, 2do y 3ero Primaria---', edad: '13 años en adelante' },
+        { nombre: '1ra. Etapa Primaria', grados: '1ero, 2do y 3ero Primaria', edad: '13 años en adelante' },
         { nombre: '2da. Etapa Primaria', grados: '4to, 5to y 6to Primaria', edad: '13 años en adelante' }
       ]
     },
