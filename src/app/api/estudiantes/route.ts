@@ -1,47 +1,57 @@
 // src/app/api/estudiantes/route.ts
+// FIX: incluye codigo_estudiante + campos de catálogos nuevos
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
 
-// Generar código de estudiante único
 async function generarCodigo(): Promise<string> {
   const { count } = await supabaseAdmin.from('estudiantes').select('*', { count: 'exact', head: true })
-  const num = String((count ?? 0) + 1).padStart(5, '0')
-  return `EST-2026-${num}`
+  return `EST-2026-${String((count ?? 0) + 1).padStart(5, '0')}`
 }
 
 export async function GET(req: NextRequest) {
   const s = await getSession(req); if (!s) return err('No autorizado', 401)
   const p = req.nextUrl.searchParams
-  const ciclo  = p.get('ciclo') ?? '2026'
+  const ciclo   = p.get('ciclo') ?? '2026'
   const detalle = p.get('detalle') === '1'
+  const id      = p.get('id')
+
+  // Un estudiante específico
+  if (id) {
+    const { data, error } = await supabaseAdmin.from('estudiantes')
+      .select(`
+        *,
+        municipio:municipios(nombre),
+        discapacidad:tipos_discapacidad(nombre),
+        estado_civil:catalogo_estado_civil(nombre),
+        pueblo:catalogo_pueblos(nombre),
+        idioma:catalogo_idiomas(nombre),
+        tipo_vivienda:catalogo_tipo_vivienda(nombre)
+      `).eq('id', id).single()
+    if (error) return err(error.message, 500)
+    return ok(data)
+  }
 
   let select = detalle
-    ? `id,codigo_estudiante,primer_nombre,primer_apellido,segundo_nombre,segundo_apellido,
-       cui,telefono,fecha_nacimiento,genero,municipio_id,departamento,
+    ? `id,codigo_estudiante,primer_nombre,segundo_nombre,primer_apellido,segundo_apellido,
+       cui,cui_pendiente,telefono,fecha_nacimiento,genero,municipio_id,departamento,
        municipio:municipios(nombre),
        discapacidad:tipos_discapacidad(nombre),
-       inscripciones!inner(id,ciclo_escolar,version_libro,estado,
-         etapa:etapas(id,nombre),
+       inscripciones!inner(id,ciclo_escolar,version_libro,estado,tiene_ajuste_discapacidad,
+         etapa:etapas(id,nombre,nivel),
          sede:sedes(id,nombre),
-         tecnico:tecnicos(id,primer_nombre,primer_apellido))`
-    : `id,codigo_estudiante,primer_nombre,primer_apellido,telefono,cui`
+         tecnico:tecnicos(id,primer_nombre,primer_apellido,codigo_tecnico))`
+    : `id,codigo_estudiante,primer_nombre,primer_apellido,segundo_apellido,telefono,cui,cui_pendiente,activo`
 
   let q = supabaseAdmin.from('estudiantes').select(select).eq('activo', true)
-
   if (detalle) q = (q as any).eq('inscripciones.ciclo_escolar', parseInt(ciclo))
-
   const { data, error } = await q.order('primer_apellido')
   if (error) return err(error.message, 500)
 
-  // Aplanar inscripciones para el coordinador
   if (detalle) {
     const flat = (data ?? []).flatMap((est: any) =>
-      (est.inscripciones ?? []).map((insc: any) => ({
-        ...insc,
-        estudiante: { ...est, inscripciones: undefined },
-      }))
+      (est.inscripciones ?? []).map((insc: any) => ({ ...insc, estudiante: { ...est, inscripciones: undefined } }))
     )
     return ok({ data: flat, total: flat.length })
   }
@@ -51,67 +61,61 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const s = await getSession(req)
-  if (!s || !['tecnico', 'administrador', 'enlace_institucional'].includes(s.rol)) {
-    return err('Sin permiso', 403)
-  }
+  if (!s || !['tecnico', 'administrador', 'enlace_institucional'].includes(s.rol)) return err('Sin permiso', 403)
 
   const b = await req.json().catch(() => ({}))
   const {
-    primer_nombre, primer_apellido, segundo_nombre, segundo_apellido,
+    primer_nombre, primer_apellido, segundo_nombre = '', segundo_apellido = '',
     cui, cui_pendiente = false, numero_documento,
-    fecha_nacimiento, genero,
-    telefono, telefono_alternativo = '', correo = '',
+    fecha_nacimiento, genero, telefono,
+    telefono_alternativo = '', correo = '',
     pais_id, municipio_id, departamento_id, direccion = '',
-    discapacidad_id,
-    tipo_documento = 'DPI', es_extranjero = false,
+    discapacidad_id, tipo_documento = 'DPI', es_extranjero = false,
+    // Nuevos campos catálogos
+    estado_civil_id, pueblo_id, idioma_id, tipo_vivienda_id,
+    sabe_leer_escribir, trabaja_actualmente, ocupacion,
+    contacto_emergencia_nombre, contacto_emergencia_tel, contacto_emergencia_parent,
+    ultimo_grado_aprobado, motivo_abandono, meta_estudio,
+    cantidad_hijos, posee_enfermedad, descripcion_enfermedad,
+    toma_medicamento, alergias, personas_vivienda,
+    posee_internet, posee_computadora, observaciones_generales,
   } = b
 
-  if (!primer_nombre || !primer_apellido || !telefono) {
+  if (!primer_nombre || !primer_apellido || !telefono)
     return err('Nombre, apellido y teléfono son requeridos')
-  }
+  if (!cui_pendiente && !cui && !numero_documento)
+    return err('Ingresa el CUI o marca "CUI pendiente"')
 
-  if (!cui_pendiente && !cui && !numero_documento) {
-    return err('Debes ingresar el CUI o marcar "CUI pendiente"')
-  }
-
-  // CUI o documento temporal
   const cuiFinal = cui?.trim() || (cui_pendiente ? null : numero_documento?.trim())
 
-  // Verificar CUI duplicado si no es pendiente
   if (cuiFinal && !cui_pendiente) {
     const { data: dup } = await supabaseAdmin.from('estudiantes')
-      .select('id, codigo_estudiante').eq('cui', cuiFinal).maybeSingle()
-    if (dup) return err(`Ya existe un estudiante con CUI ${cuiFinal} (${dup.codigo_estudiante})`, 409)
+      .select('id,codigo_estudiante').eq('cui', cuiFinal).maybeSingle()
+    if (dup) return err(`Ya existe un estudiante con ese CUI (${dup.codigo_estudiante})`, 409)
   }
 
-  // Generar código
   const codigoEstudiante = await generarCodigo()
-
-  // Crear usuario para el estudiante
-  const correoUser = correo || `${codigoEstudiante.toLowerCase()}@pronea.edu.gt`
+  const correoUser = correo || `${codigoEstudiante.toLowerCase().replace(/-/g, '')}@pronea.edu.gt`
   const hash = await bcrypt.hash('Pronea2026', 10)
 
+  let v_uid: string | null = null
   const { data: usu, error: eU } = await supabaseAdmin.from('usuarios').insert({
-    correo:          correoUser,
-    contrasena_hash: hash,
-    rol:             'estudiante',
-    activo:          true,
-    primer_ingreso:  true,
+    correo: correoUser, contrasena_hash: hash, rol: 'estudiante', activo: true, primer_ingreso: true,
   }).select('id').single()
 
   if (eU) {
-    // Si el correo ya existe, crear uno único
-    const correoAlt = `${codigoEstudiante.toLowerCase()}@pronea-${Date.now()}.edu.gt`
+    const correoAlt = `${codigoEstudiante.toLowerCase().replace(/-/g, '')}.${Date.now()}@pronea.edu.gt`
     const { data: usu2, error: eU2 } = await supabaseAdmin.from('usuarios').insert({
       correo: correoAlt, contrasena_hash: hash, rol: 'estudiante', activo: true, primer_ingreso: true,
     }).select('id').single()
-    if (eU2) return err('Error creando usuario del estudiante: ' + eU2.message, 500)
-    Object.assign(usu!, usu2)
+    if (eU2) return err('Error creando usuario: ' + eU2.message, 500)
+    v_uid = usu2.id
+  } else {
+    v_uid = usu.id
   }
 
-  // Crear estudiante
   const { data, error } = await supabaseAdmin.from('estudiantes').insert({
-    usuario_id:         (usu as any).id,
+    usuario_id:         v_uid,
     codigo_estudiante:  codigoEstudiante,
     primer_nombre:      primer_nombre.trim(),
     segundo_nombre:     segundo_nombre?.trim() || null,
@@ -133,7 +137,30 @@ export async function POST(req: NextRequest) {
     pais_id:            pais_id ? parseInt(String(pais_id)) : 1,
     es_extranjero,
     activo:             true,
-  }).select('id, codigo_estudiante').single()
+    // Nuevos campos
+    estado_civil_id:    estado_civil_id || null,
+    pueblo_id:          pueblo_id       || null,
+    idioma_id:          idioma_id       || null,
+    tipo_vivienda_id:   tipo_vivienda_id || null,
+    sabe_leer_escribir: sabe_leer_escribir ?? true,
+    trabaja_actualmente: trabaja_actualmente ?? false,
+    ocupacion:          ocupacion || null,
+    contacto_emergencia_nombre: contacto_emergencia_nombre || null,
+    contacto_emergencia_tel:    contacto_emergencia_tel    || null,
+    contacto_emergencia_parent: contacto_emergencia_parent || null,
+    ultimo_grado_aprobado:      ultimo_grado_aprobado      || null,
+    motivo_abandono:    motivo_abandono || null,
+    meta_estudio:       meta_estudio    || null,
+    cantidad_hijos:     cantidad_hijos  ?? 0,
+    posee_enfermedad:   posee_enfermedad ?? false,
+    descripcion_enfermedad: descripcion_enfermedad || null,
+    toma_medicamento:   toma_medicamento ?? false,
+    alergias:           alergias || null,
+    personas_vivienda:  personas_vivienda || null,
+    posee_internet:     posee_internet    ?? false,
+    posee_computadora:  posee_computadora ?? false,
+    observaciones_generales: observaciones_generales || null,
+  }).select('id,codigo_estudiante').single()
 
   if (error) return err('Error creando estudiante: ' + error.message, 500)
 
