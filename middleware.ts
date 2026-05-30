@@ -1,10 +1,18 @@
 // middleware.ts
-// FIX CRÍTICO: técnico no redirige al dashboard después del login
+// CORRECCIÓN: usa JWT_SECRET sin fallback inseguro (igual que src/lib/auth.ts)
 import { NextRequest, NextResponse } from 'next/server'
 import { jwtVerify } from 'jose'
 
-const secret  = new TextEncoder().encode(process.env.JWT_SECRET ?? 'pronea-fallback-2026')
-const COOKIE  = 'pronea_session'
+function getSecret() {
+  const key = process.env.JWT_SECRET
+  if (!key || key.length < 32) {
+    // En producción esto detiene el middleware — intencional
+    throw new Error('JWT_SECRET no configurado o demasiado corto')
+  }
+  return new TextEncoder().encode(key)
+}
+
+const COOKIE = 'pronea_session'
 
 const DASH: Record<string, string> = {
   administrador:        '/dashboard/admin',
@@ -15,30 +23,39 @@ const DASH: Record<string, string> = {
   estudiante:           '/dashboard/estudiante',
 }
 
-// Rutas públicas — no requieren sesión
-const PUBLICAS = ['/login', '/api/auth/login', '/api/auth/logout',
-                  '/api/public', '/api/diagnostico', '/_next', '/favicon']
+const PUBLICAS = [
+  '/login', '/api/auth/login', '/api/auth/logout',
+  '/api/public', '/api/diagnostico', '/_next', '/favicon',
+  '/images', '/icons',
+]
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
-  // Permitir rutas públicas
+  // Rutas públicas y assets
   if (PUBLICAS.some(p => pathname.startsWith(p))) return NextResponse.next()
+  if (pathname.match(/\.(ico|png|jpg|jpeg|svg|css|js|woff|woff2|webp)$/)) return NextResponse.next()
 
-  // Assets — siempre permitir
-  if (pathname.match(/\.(ico|png|jpg|jpeg|svg|css|js|woff|woff2)$/)) return NextResponse.next()
-
-  // Rutas de API — dejar pasar, la API valida su propia sesión
+  // Rutas de API — la API valida su propia sesión
   if (pathname.startsWith('/api/')) return NextResponse.next()
+
+  let secret: Uint8Array
+  try {
+    secret = getSecret()
+  } catch {
+    // JWT_SECRET no configurado — redirigir al login con error
+    if (pathname !== '/login') return NextResponse.redirect(new URL('/login?error=config', req.url))
+    return NextResponse.next()
+  }
+
+  const token = req.cookies.get(COOKIE)?.value
 
   // Raíz → redirigir según sesión
   if (pathname === '/') {
-    const token = req.cookies.get(COOKIE)?.value
     if (token) {
       try {
         const { payload } = await jwtVerify(token, secret)
-        const dest = DASH[payload.rol as string] ?? '/dashboard/admin'
-        return NextResponse.redirect(new URL(dest, req.url))
+        return NextResponse.redirect(new URL(DASH[payload.rol as string] ?? '/login', req.url))
       } catch { /* token inválido */ }
     }
     return NextResponse.redirect(new URL('/login', req.url))
@@ -46,10 +63,7 @@ export async function middleware(req: NextRequest) {
 
   // Rutas del dashboard — verificar sesión
   if (pathname.startsWith('/dashboard')) {
-    const token = req.cookies.get(COOKIE)?.value
-
     if (!token) {
-      // Sin cookie → al login
       const url = req.nextUrl.clone()
       url.pathname = '/login'
       url.searchParams.set('redirect', pathname)
@@ -61,23 +75,18 @@ export async function middleware(req: NextRequest) {
       const rol  = payload.rol as string
       const base = DASH[rol] ?? '/dashboard/admin'
 
-      // Redirigir /dashboard → dashboard del rol
-      if (pathname === '/dashboard') {
-        return NextResponse.redirect(new URL(base, req.url))
-      }
+      if (pathname === '/dashboard') return NextResponse.redirect(new URL(base, req.url))
 
-      // Verificar que el rol puede acceder a esa ruta
-      const permitido = pathname.startsWith(base) ||
-                        pathname.startsWith('/dashboard/admin') && rol === 'administrador'
+      // Verificar acceso: el rol solo puede entrar a su propio dashboard
+      // Admin puede entrar a cualquier dashboard (para soporte)
+      const esAdmin   = rol === 'administrador'
+      const permitido = pathname.startsWith(base) || esAdmin
 
-      if (!permitido) {
-        // No tiene acceso → su propio dashboard
-        return NextResponse.redirect(new URL(base, req.url))
-      }
+      if (!permitido) return NextResponse.redirect(new URL(base, req.url))
 
       return NextResponse.next()
     } catch {
-      // Token inválido → limpiar cookie y login
+      // Token inválido o expirado → limpiar y login
       const url = req.nextUrl.clone()
       url.pathname = '/login'
       const res = NextResponse.redirect(url)
@@ -90,5 +99,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/', '/dashboard/:path*', '/login'],
+  matcher: ['/', '/dashboard/:path*', '/login', '/api/:path*'],
 }
