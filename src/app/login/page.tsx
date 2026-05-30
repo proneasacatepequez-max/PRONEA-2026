@@ -1,21 +1,31 @@
 'use client'
 // src/app/login/page.tsx
+// CORRECCIÓN: si primer_ingreso=true, muestra modal de cambio de contraseña ANTES de entrar
 import { Suspense, useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 
 function LoginForm() {
   const router = useRouter()
-  const sp = useSearchParams()
-  const [correo, setCorreo] = useState('')
-  const [pass, setPass] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const [info, setInfo] = useState<any>({})
-  const [avisos, setAvisos] = useState<any[]>([])
-  const [slider, setSlider] = useState<any[]>([])
-  const [sliderIdx, setSliderIdx] = useState(0)
+  const sp     = useSearchParams()
+
+  const [correo,       setCorreo]       = useState('')
+  const [pass,         setPass]         = useState('')
+  const [loading,      setLoading]      = useState(false)
+  const [error,        setError]        = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [info,         setInfo]         = useState<any>({})
+  const [avisos,       setAvisos]       = useState<any[]>([])
+  const [slider,       setSlider]       = useState<any[]>([])
+  const [sliderIdx,    setSliderIdx]    = useState(0)
+
+  // Estado del modal de primer ingreso
+  const [primerIngreso,    setPrimerIngreso]    = useState(false)
+  const [redireccion,      setRedireccion]      = useState('')
+  const [nuevaPass,        setNuevaPass]        = useState('')
+  const [confirmarPass,    setConfirmarPass]    = useState('')
+  const [guardandoPass,    setGuardandoPass]    = useState(false)
+  const [errorPass,        setErrorPass]        = useState('')
 
   useEffect(() => {
     fetch('/api/public/info-login').then(r => r.json()).then(d => {
@@ -38,49 +48,68 @@ function LoginForm() {
     setLoading(true)
     try {
       const res = await fetch('/api/auth/login', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ correo, contrasena: pass }),
+        body:    JSON.stringify({ correo, contrasena: pass }),
       })
       const d = await res.json()
       if (!res.ok) { setError(d.error ?? 'Credenciales incorrectas'); return }
-      router.push(sp.get('redirect') ?? d.redireccion)
+
+      if (d.primer_ingreso) {
+        // Bloquear acceso hasta que cambie la contraseña
+        setRedireccion(sp.get('redirect') ?? d.redireccion)
+        setPrimerIngreso(true)
+      } else {
+        router.push(sp.get('redirect') ?? d.redireccion)
+      }
     } catch { setError('Error de conexión') } finally { setLoading(false) }
   }
 
+  const cambiarContrasena = async () => {
+    setErrorPass('')
+    if (!nuevaPass || !confirmarPass) { setErrorPass('Ingresa y confirma tu nueva contraseña'); return }
+    if (nuevaPass.length < 8)         { setErrorPass('Mínimo 8 caracteres'); return }
+    if (nuevaPass !== confirmarPass)  { setErrorPass('Las contraseñas no coinciden'); return }
+
+    setGuardandoPass(true)
+    const res = await fetch('/api/mi-perfil', {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ contrasena_actual: pass, contrasena_nueva: nuevaPass }),
+    })
+    const d = await res.json()
+    if (!res.ok) { setErrorPass(d.error ?? 'Error al cambiar contraseña'); setGuardandoPass(false); return }
+
+    // Contraseña cambiada — ahora sí redirigir
+    router.push(redireccion)
+  }
+
   const hoy = new Date().toLocaleDateString('es-GT', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
   })
 
-  // ESTRUCTURA COMPLETA DE ETAPAS EDUCATIVAS
   const ETAPAS_EDUCATIVAS = [
     {
-      nivel: 'Primaria Acelerada',
-      icono: '📗',
-      color: 'from-green-500/20 to-green-600/20',
+      nivel: 'Primaria Acelerada', icono: '📗', color: 'from-green-500/20 to-green-600/20',
       etapas: [
         { nombre: '1ra. Etapa Primaria', grados: '1ero, 2do y 3ero Primaria', edad: '13 años en adelante' },
-        { nombre: '2da. Etapa Primaria', grados: '4to, 5to y 6to Primaria', edad: '13 años en adelante' }
-      ]
+        { nombre: '2da. Etapa Primaria', grados: '4to, 5to y 6to Primaria',   edad: '13 años en adelante' },
+      ],
     },
     {
-      nivel: 'Básico',
-      icono: '📘',
-      color: 'from-blue-500/20 to-blue-600/20',
+      nivel: 'Básico', icono: '📘', color: 'from-blue-500/20 to-blue-600/20',
       etapas: [
         { nombre: '1ra. Etapa Básico', grados: '1ero y 2do Básico', edad: '15 años en adelante' },
-        { nombre: '2da. Etapa Básico', grados: '3ero Básico', edad: '15 años en adelante' }
-      ]
+        { nombre: '2da. Etapa Básico', grados: '3ero Básico',       edad: '15 años en adelante' },
+      ],
     },
     {
-      nivel: 'Bachillerato',
-      icono: '📙',
-      color: 'from-purple-500/20 to-purple-600/20',
+      nivel: 'Bachillerato', icono: '📙', color: 'from-purple-500/20 to-purple-600/20',
       etapas: [
         { nombre: '4to. Bachillerato', grados: 'Cuarto Bachillerato', edad: '17 años en adelante' },
-        { nombre: '5to. Bachillerato', grados: 'Quinto Bachillerato', edad: '17 años en adelante' }
-      ]
-    }
+        { nombre: '5to. Bachillerato', grados: 'Quinto Bachillerato', edad: '17 años en adelante' },
+      ],
+    },
   ]
 
   return (
@@ -89,16 +118,9 @@ function LoginForm() {
 
         {/* ── FORMULARIO ── */}
         <div className="w-full md:w-96 flex-shrink-0 flex flex-col p-8 md:p-10 bg-white">
-          {/* Logo y Sacatepéquez - Espacio reducido */}
           <div className="flex flex-col items-center mb-8">
             <div className="relative w-32 h-32 mb-1">
-              <Image
-                src="/images/logo-pronea.png"
-                alt="PRONEA"
-                fill
-                className="object-contain"
-                priority
-              />
+              <Image src="/images/logo-pronea.png" alt="PRONEA" fill className="object-contain" priority />
             </div>
             <div className="text-blue-700 text-sm font-bold tracking-widest uppercase text-center">
               {info.departamento ?? 'Sacatepéquez'}
@@ -117,48 +139,31 @@ function LoginForm() {
           <form onSubmit={login} className="flex flex-col gap-4">
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Correo electrónico</label>
-              <input 
-                type="email" 
+              <input type="email" value={correo} onChange={e => setCorreo(e.target.value)} required autoComplete="email"
                 className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none text-gray-800"
-                placeholder="usuario@correo.com"
-                value={correo} 
-                onChange={e => setCorreo(e.target.value)} 
-                required 
-                autoComplete="email" 
-              />
+                placeholder="usuario@correo.com" />
             </div>
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">Contraseña</label>
               <div className="relative">
-                <input 
-                  type={showPassword ? "text" : "password"}
+                <input type={showPassword ? 'text' : 'password'} value={pass}
+                  onChange={e => setPass(e.target.value)} required autoComplete="current-password"
                   className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:ring-2 focus:ring-blue-200 transition-all outline-none pr-12 text-gray-800"
-                  placeholder="••••••••"
-                  value={pass} 
-                  onChange={e => setPass(e.target.value)} 
-                  required 
-                  autoComplete="current-password" 
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 transition-colors"
-                >
+                  placeholder="••••••••" />
+                <button type="button" onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-blue-600 transition-colors">
                   {showPassword ? '👁️' : '👁️‍🗨️'}
                 </button>
               </div>
             </div>
-            <button 
-              type="submit" 
-              disabled={loading}
-              className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900 text-white font-bold py-3 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50"
-            >
-              {loading ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Verificando...
-                </span>
-              ) : 'Ingresar al Sistema'}
+            <button type="submit" disabled={loading}
+              className="bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900 text-white font-bold py-3 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg disabled:opacity-50">
+              {loading
+                ? <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    Verificando...
+                  </span>
+                : 'Ingresar al Sistema'}
             </button>
           </form>
 
@@ -167,25 +172,17 @@ function LoginForm() {
           </div>
         </div>
 
-        {/* ── PANEL INFORMATIVO CON JERARQUÍA VISUAL ── */}
+        {/* ── PANEL INFORMATIVO ── */}
         <div className="flex-1 bg-gradient-to-br from-blue-800 to-blue-950 text-white overflow-y-auto relative">
           {slider.map((img: any, i: number) => (
             <div key={img.id ?? i} className={`absolute inset-0 transition-opacity duration-1000 ${i === sliderIdx ? 'opacity-100' : 'opacity-0'}`}>
               <img src={img.url_imagen} alt="" className="w-full h-full object-cover opacity-10" />
             </div>
           ))}
-
           <div className="relative p-6 md:p-7 space-y-6">
-            
-            {/* TÍTULO PRINCIPAL - Grande */}
             <div className="flex items-center gap-3 pb-4 border-b border-white/20">
               <div className="relative w-12 h-12 bg-white/10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden p-2">
-                <Image
-                  src="/images/logo-pronea.png"
-                  alt="PRONEA"
-                  fill
-                  className="object-contain brightness-0 invert"
-                />
+                <Image src="/images/logo-pronea.png" alt="PRONEA" fill className="object-contain brightness-0 invert" />
               </div>
               <div>
                 <h1 className="text-lg font-black leading-tight text-white">
@@ -195,15 +192,14 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* SECCIÓN CONTACTO */}
             <div>
               <h3 className="text-sm font-bold text-blue-300 uppercase tracking-wider mb-3">📋 Contacto</h3>
               <div className="grid grid-cols-2 gap-3">
                 {[
-                  { icon: '👤', label: 'Director', val: info.director_nombre ?? 'Mario Alfonso Toj Tepáz' },
-                  { icon: '📞', label: 'Teléfono', val: info.telefono ?? '47109679 o al 57123828' },
-                  { icon: '💬', label: 'WhatsApp', val: info.whatsapp ?? '47109679' },
-                  { icon: '✉️', label: 'Correo', val: info.correo ?? 'proneasacatepequez@gmail.com' },
+                  { icon: '👤', label: 'Director',  val: info.director_nombre ?? 'Mario Alfonso Toj Tepáz' },
+                  { icon: '📞', label: 'Teléfono',  val: info.telefono        ?? '47109679 o al 57123828'  },
+                  { icon: '💬', label: 'WhatsApp',  val: info.whatsapp        ?? '47109679'                },
+                  { icon: '✉️', label: 'Correo',    val: info.correo          ?? 'proneasacatepequez@gmail.com' },
                 ].map(({ icon, label, val }) => (
                   <div key={label} className="bg-white/10 rounded-lg px-3 py-2 hover:bg-white/15 transition-all">
                     <div className="text-blue-300 text-xs font-semibold">{icon} {label}</div>
@@ -213,7 +209,6 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* SECCIÓN HORARIO */}
             {info.horario_atencion && (
               <div>
                 <h3 className="text-sm font-bold text-blue-300 uppercase tracking-wider mb-2">🕐 Horario de Atención</h3>
@@ -221,30 +216,22 @@ function LoginForm() {
               </div>
             )}
 
-            {/* SECCIÓN MODALIDADES - JERARQUÍA CLARA */}
             <div>
               <h3 className="text-sm font-bold text-blue-300 uppercase tracking-wider mb-3">📚 Modalidades de Estudio</h3>
               <div className="space-y-3">
-                {ETAPAS_EDUCATIVAS.map((nivel) => (
+                {ETAPAS_EDUCATIVAS.map(nivel => (
                   <div key={nivel.nivel} className={`bg-gradient-to-r ${nivel.color} rounded-xl overflow-hidden border border-white/15`}>
-                    {/* Título del nivel - Grande */}
                     <div className="bg-white/20 px-4 py-2.5 flex items-center gap-2">
                       <span className="text-xl">{nivel.icono}</span>
                       <span className="font-bold text-base text-white">{nivel.nivel}</span>
                     </div>
-                    {/* Subtítulos y contenido */}
                     <div className="p-3 space-y-2">
                       {nivel.etapas.map((etapa, idx) => (
                         <div key={idx} className="bg-white/10 rounded-lg p-2.5 hover:bg-white/15 transition-all">
                           <div className="flex items-center justify-between mb-1">
-                            {/* Subtítulo - Mediano */}
                             <span className="text-sm font-semibold text-white">{etapa.nombre}</span>
-                            {/* Texto pequeño - Edad */}
-                            <span className="text-[10px] bg-blue-500/30 px-2 py-0.5 rounded-full text-blue-100">
-                              {etapa.edad}
-                            </span>
+                            <span className="text-[10px] bg-blue-500/30 px-2 py-0.5 rounded-full text-blue-100">{etapa.edad}</span>
                           </div>
-                          {/* Texto descriptivo - Pequeño */}
                           <p className="text-xs text-blue-200 pl-1">{etapa.grados}</p>
                         </div>
                       ))}
@@ -254,7 +241,6 @@ function LoginForm() {
               </div>
             </div>
 
-            {/* SECCIÓN AVISOS */}
             {avisos.length > 0 && (
               <div>
                 <h3 className="text-sm font-bold text-blue-300 uppercase tracking-wider mb-2">📢 Avisos Importantes</h3>
@@ -268,6 +254,81 @@ function LoginForm() {
           </div>
         </div>
       </div>
+
+      {/* ── MODAL PRIMER INGRESO ── */}
+      {primerIngreso && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-8">
+            <div className="text-center mb-6">
+              <div className="text-5xl mb-3">🔐</div>
+              <h2 className="text-xl font-extrabold text-gray-800">Bienvenido — Primer Ingreso</h2>
+              <p className="text-sm text-gray-500 mt-2">
+                Por seguridad, debes cambiar tu contraseña temporal antes de continuar.
+                No podrás acceder al sistema hasta hacerlo.
+              </p>
+            </div>
+
+            {errorPass && (
+              <div className="bg-red-50 border-l-4 border-red-500 text-red-700 text-sm font-semibold rounded-lg px-4 py-3 mb-4">
+                ⚠️ {errorPass}
+              </div>
+            )}
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Nueva contraseña</label>
+                <input
+                  type="password"
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none text-gray-800 transition-all"
+                  placeholder="Mínimo 8 caracteres"
+                  value={nuevaPass}
+                  onChange={e => setNuevaPass(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">Confirmar nueva contraseña</label>
+                <input
+                  type="password"
+                  className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 outline-none text-gray-800 transition-all"
+                  placeholder="Repite la contraseña"
+                  value={confirmarPass}
+                  onChange={e => setConfirmarPass(e.target.value)}
+                />
+              </div>
+
+              {/* Indicador de fortaleza */}
+              {nuevaPass.length > 0 && (
+                <div className="space-y-1">
+                  {[
+                    { ok: nuevaPass.length >= 8,            label: 'Mínimo 8 caracteres'         },
+                    { ok: /[A-Z]/.test(nuevaPass),          label: 'Al menos una mayúscula'       },
+                    { ok: /[0-9]/.test(nuevaPass),          label: 'Al menos un número'           },
+                    { ok: nuevaPass === confirmarPass && !!confirmarPass, label: 'Las contraseñas coinciden' },
+                  ].map(({ ok, label }) => (
+                    <div key={label} className={`flex items-center gap-2 text-xs ${ok ? 'text-green-600' : 'text-gray-400'}`}>
+                      <span>{ok ? '✅' : '○'}</span>
+                      <span>{label}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={cambiarContrasena}
+                disabled={guardandoPass}
+                className="w-full bg-gradient-to-r from-blue-600 to-blue-800 hover:from-blue-700 hover:to-blue-900 text-white font-bold py-3 rounded-xl transition-all disabled:opacity-50 mt-2"
+              >
+                {guardandoPass
+                  ? <span className="flex items-center justify-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Guardando...
+                    </span>
+                  : '🔒 Cambiar contraseña y continuar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
