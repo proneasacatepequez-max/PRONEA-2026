@@ -1,7 +1,6 @@
 {
   "name": "pronea-sacatepequez",
   "version": "4.0.0",
-  "description": "Sistema Gestión Educativa PRONEA Sacatepéquez — v4.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -37,3 +36,4 @@
     "eslint-config-next": "15.3.9"
   }
 }
+
