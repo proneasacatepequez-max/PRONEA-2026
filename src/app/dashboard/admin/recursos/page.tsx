@@ -1,6 +1,4 @@
 'use client'
-// src/app/dashboard/admin/recursos/page.tsx — NUEVA PÁGINA
-// Admin gestiona recursos: videos, PDFs, enlaces de exámenes externos
 import { useState, useEffect } from 'react'
 
 const TIPO_ICON: Record<string, string> = {
@@ -17,7 +15,6 @@ export default function AdminRecursosPage() {
   const [saving,    setSaving]    = useState(false)
   const [msg,       setMsg]       = useState('')
   const [filtro,    setFiltro]    = useState({ tipo: '', etapa: '', buscar: '' })
-
   const [form, setForm] = useState({
     titulo: '', url: '', descripcion: '', tipo_contenido: 'link',
     etapa_id: '', area_id: '', es_publico: true, destacado: false, orden: '0',
@@ -125,7 +122,6 @@ export default function AdminRecursosPage() {
       <div className="pc">
         {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
 
-        {/* Filtros */}
         <div className="card mb-4">
           <div className="flex gap-3 flex-wrap">
             <div className="flex-1 min-w-36">
@@ -169,8 +165,9 @@ export default function AdminRecursosPage() {
           <div className="card">
             <div className="card-title">
               {filtrados.length} recurso(s)
-              {filtro.buscar || filtro.tipo || filtro.etapa
-                ? <span className="text-xs font-normal text-gray-400"> (filtrados)</span> : ''}
+              {(filtro.buscar || filtro.tipo || filtro.etapa) && (
+                <span className="text-xs font-normal text-gray-400"> (filtrados)</span>
+              )}
             </div>
             <div className="tw">
               <table className="tbl">
@@ -191,7 +188,9 @@ export default function AdminRecursosPage() {
                       <td className="text-xl text-center">{TIPO_ICON[r.tipo_contenido] ?? '🔗'}</td>
                       <td>
                         <div className="font-semibold text-sm">{r.titulo}</div>
-                        {r.descripcion && <div className="text-xs text-gray-400 truncate max-w-xs">{r.descripcion}</div>}
+                        {r.descripcion && (
+                          <div className="text-xs text-gray-400 truncate max-w-xs">{r.descripcion}</div>
+                        )}
                         <a href={r.url} target="_blank" rel="noreferrer"
                           className="text-xs text-blue-500 hover:underline truncate block max-w-xs">
                           {r.url}
@@ -225,13 +224,12 @@ export default function AdminRecursosPage() {
         )}
       </div>
 
-      {/* Modal crear/editar */}
       {modal && (
         <div className="mo" onClick={e => e.target === e.currentTarget && setModal(false)}>
           <div className="mb max-w-lg">
             <div className="mh">
               <h3 className="text-base font-extrabold">{editando ? '✏️ Editar recurso' : '＋ Nuevo recurso'}</h3>
-              <button onClick={() => setModal(false)} className="text-gray-400 text-2xl">×</button>
+              <button onClick={() => setModal(false)} className="text-gray-400 text-2xl leading-none">×</button>
             </div>
             <div className="mbd space-y-3">
               <div className="fg">
@@ -254,7 +252,7 @@ export default function AdminRecursosPage() {
                   </select>
                 </div>
                 <div className="fg">
-                  <label className="lbl">Orden (número)</label>
+                  <label className="lbl">Orden</label>
                   <input type="number" className="inp" value={form.orden} onChange={F('orden')} />
                 </div>
               </div>
@@ -291,3 +289,20 @@ export default function AdminRecursosPage() {
                 </label>
               </div>
             </div>
+            <div className="mf">
+              <button className="btn btn-g" onClick={() => setModal(false)}>Cancelar</button>
+              <button className="btn btn-p" onClick={guardar} disabled={saving}>
+                {saving
+                  ? <span className="flex items-center gap-2">
+                      <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      Guardando...
+                    </span>
+                  : editando ? '💾 Actualizar' : 'Crear recurso'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
