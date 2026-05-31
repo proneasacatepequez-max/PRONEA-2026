@@ -5,16 +5,23 @@ const nextConfig = {
       { protocol: 'https', hostname: '**.supabase.co' },
       { protocol: 'https', hostname: '**.googleusercontent.com' },
       { protocol: 'https', hostname: 'api.qrserver.com' },
+      { protocol: 'https', hostname: '**.googleapis.com' },
+      { protocol: 'https', hostname: '**.drive.google.com' },
     ],
   },
+  // CORRECCIÓN: removidos ignoreBuildErrors e ignoreDuringBuilds
+  // Los errores de TypeScript y ESLint ahora detienen el build correctamente
+  // Esto evita que errores reales lleguen a producción sin aviso
   typescript: {
-    // Permite que el build pase aunque haya errores de tipos
-    // Los errores de runtime se evitan con la lógica del código
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   eslint: {
-    // Permite que el build pase aunque haya warnings de ESLint
-    ignoreDuringBuilds: true,
+    ignoreDuringBuilds: false,
+  },
+  // Optimizaciones de producción
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'recharts'],
   },
 }
+
 module.exports = nextConfig
