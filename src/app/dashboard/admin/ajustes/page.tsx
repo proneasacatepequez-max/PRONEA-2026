@@ -1,19 +1,21 @@
 'use client'
 // src/app/dashboard/admin/ajustes/page.tsx
-// FIX: Botón editar + eliminar + activar/desactivar + dropdown discapacidades
-import { useState, useEffect } from 'react'
+// CORRECCIÓN: modal con margen superior visible, tabla horizontal, CRUD funcional
+import { useState, useEffect, useCallback } from 'react'
 
 export default function AjustesAdminPage() {
-  const [tipos,         setTipos]         = useState<any[]>([])
+  const [tipos,          setTipos]          = useState<any[]>([])
   const [discapacidades, setDiscapacidades] = useState<any[]>([])
-  const [loading,       setLoading]       = useState(true)
-  const [modal,         setModal]         = useState(false)
-  const [editando,      setEditando]      = useState<any>(null)
-  const [saving,        setSaving]        = useState(false)
-  const [msg,           setMsg]           = useState('')
-  const [form, setForm] = useState({ nombre: '', descripcion: '', discapacidad_id: '' })
+  const [loading,        setLoading]        = useState(true)
+  const [modal,          setModal]          = useState(false)
+  const [editando,       setEditando]       = useState<any>(null)
+  const [saving,         setSaving]         = useState(false)
+  const [msg,            setMsg]            = useState('')
+  const [form, setForm]  = useState({ nombre: '', descripcion: '' })
 
-  const cargar = async () => {
+  const flash   = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500) }
+
+  const cargar = useCallback(async () => {
     setLoading(true)
     const [t, d] = await Promise.all([
       fetch('/api/tipos-ajuste').then(r => r.json()).catch(() => []),
@@ -22,19 +24,17 @@ export default function AjustesAdminPage() {
     setTipos(Array.isArray(t) ? t : [])
     setDiscapacidades(Array.isArray(d) ? d : [])
     setLoading(false)
-  }
+  }, [])
 
-  useEffect(() => { cargar() }, [])
-
-  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500) }
+  useEffect(() => { cargar() }, [cargar])
 
   const abrirModal = (tipo?: any) => {
     if (tipo) {
       setEditando(tipo)
-      setForm({ nombre: tipo.nombre, descripcion: tipo.descripcion ?? '', discapacidad_id: tipo.discapacidad_id ?? '' })
+      setForm({ nombre: tipo.nombre ?? '', descripcion: tipo.descripcion ?? '' })
     } else {
       setEditando(null)
-      setForm({ nombre: '', descripcion: '', discapacidad_id: '' })
+      setForm({ nombre: '', descripcion: '' })
     }
     setModal(true)
   }
@@ -42,18 +42,17 @@ export default function AjustesAdminPage() {
   const guardar = async () => {
     if (!form.nombre.trim()) { flash('❌ Nombre requerido'); return }
     setSaving(true)
-    const res = editando
-      ? await fetch('/api/tipos-ajuste', {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: editando.id, ...form, discapacidad_id: form.discapacidad_id || null }),
-        })
-      : await fetch('/api/tipos-ajuste', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...form, discapacidad_id: form.discapacidad_id || null }),
-        })
-    const d = await res.json()
-    flash(res.ok ? `✅ Tipo de ajuste ${editando ? 'actualizado' : 'creado'}` : '❌ ' + d.error)
-    if (res.ok) { setModal(false); cargar() }
+
+    const url    = '/api/tipos-ajuste'
+    const method = editando ? 'PATCH' : 'POST'
+    const body   = editando
+      ? JSON.stringify({ id: editando.id, nombre: form.nombre.trim(), descripcion: form.descripcion || null })
+      : JSON.stringify({ nombre: form.nombre.trim(), descripcion: form.descripcion || null })
+
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body })
+    const d   = await res.json()
+    flash(res.ok ? `✅ Tipo de ajuste ${editando ? 'actualizado' : 'creado'}` : '❌ ' + (d.error ?? 'Error'))
+    if (res.ok) { setModal(false); await cargar() }
     setSaving(false)
   }
 
@@ -62,125 +61,123 @@ export default function AjustesAdminPage() {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: tipo.id, activo: !tipo.activo }),
     })
-    flash(res.ok ? `✅ Tipo ${tipo.activo ? 'desactivado' : 'activado'}` : '❌ Error')
-    cargar()
+    if (res.ok) { await cargar(); flash(tipo.activo ? '⚠️ Tipo desactivado' : '✅ Tipo activado') }
+    else flash('❌ Error')
   }
 
-  const eliminar = async (id: string, nombre: string) => {
-    if (!confirm(`¿Desactivar el tipo "${nombre}"?`)) return
+  const eliminar = async (id: number, nombre: string) => {
+    if (!confirm(`¿Desactivar el tipo de ajuste "${nombre}"?`)) return
     const res = await fetch(`/api/tipos-ajuste?id=${id}`, { method: 'DELETE' })
-    flash(res.ok ? '✅ Tipo desactivado' : '❌ Error')
-    cargar()
+    if (res.ok) { await cargar(); flash('✅ Desactivado') }
+    else flash('❌ Error al eliminar')
   }
-
-  const discNombre = (id: number | null) => discapacidades.find((d: any) => d.id === id)?.nombre ?? null
 
   return (
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">♿ Ajustes por Discapacidad</div>
-          <div className="text-xs text-gray-400">Tipos de ajuste curricular para estudiantes con discapacidad</div>
+          <div className="page-title">♿ Tipos de Ajuste por Discapacidad</div>
+          <div className="text-xs text-gray-400">Categorías de adecuación curricular para estudiantes con discapacidad</div>
         </div>
-        <button className="btn btn-p" onClick={() => abrirModal()}>＋ Nuevo tipo de ajuste</button>
+        <button className="btn btn-p" onClick={() => abrirModal()}>＋ Nuevo tipo</button>
       </header>
 
       <div className="pc">
-        {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
-
-        <div className="alert al-i mb-4">
-          <div className="text-xs">
-            <b>📋 ¿Cómo funcionan?</b> El técnico aplica un ajuste a cada estudiante con discapacidad al inscribirlo.
-            Los ajustes pueden modificar: número de tareas requeridas, puntaje máximo y porcentaje de exámenes.
-          </div>
-        </div>
+        {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : msg.startsWith('⚠️') ? 'al-w' : 'al-e'}`}>{msg}</div>}
 
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="card">
-            <div className="card-title">
-              Tipos de ajuste registrados
-              <span className="text-xs text-gray-400 font-normal">{tipos.length} tipo(s)</span>
-            </div>
+          <div className="card overflow-hidden">
             {tipos.length === 0 ? (
-              <div className="text-center py-10 text-gray-400">
-                <div className="text-4xl mb-3">♿</div>
-                <div className="font-semibold">Sin tipos de ajuste</div>
-                <button className="btn btn-p mt-4" onClick={() => abrirModal()}>＋ Crear el primero</button>
+              <div className="text-center py-12 text-gray-400">
+                <div className="text-5xl mb-3">♿</div>
+                <div className="font-semibold text-gray-600">Sin tipos de ajuste registrados</div>
+                <div className="text-sm mt-1">Crea categorías de adecuación curricular para usarlas en las inscripciones</div>
+                <button className="btn btn-p mt-4" onClick={() => abrirModal()}>＋ Crear primer tipo</button>
               </div>
             ) : (
-              <div className="space-y-2">
-                {tipos.map((t: any) => (
-                  <div key={t.id}
-                    className={`flex items-center justify-between p-3 rounded-xl border transition-all ${t.activo ? 'border-gray-100 hover:bg-gray-50' : 'border-gray-100 bg-gray-50 opacity-60'}`}>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-gray-800">{t.nombre}</div>
-                      {t.descripcion && <div className="text-xs text-gray-400 mt-0.5">{t.descripcion}</div>}
-                      {t.discapacidad_id && (
-                        <div className="text-xs text-blue-600 mt-0.5">
-                          Discapacidad: {discNombre(t.discapacidad_id) ?? `ID ${t.discapacidad_id}`}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                      <span className={`badge ${t.activo ? 'badge-green' : 'badge-gray'}`}>
-                        {t.activo ? 'Activo' : 'Inactivo'}
-                      </span>
-                      <button className="btn btn-g btn-sm" onClick={() => abrirModal(t)}>✏️</button>
-                      <button
-                        className={`btn btn-sm ${t.activo ? 'btn-d' : 'btn-s'}`}
-                        onClick={() => toggleActivo(t)}>
-                        {t.activo ? 'Desactivar' : 'Activar'}
-                      </button>
-                      <button className="btn btn-sm btn-d" onClick={() => eliminar(t.id, t.nombre)}>🗑️</button>
-                    </div>
-                  </div>
-                ))}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse min-w-[600px]">
+                  <thead>
+                    <tr className="bg-gradient-to-r from-amber-600 to-amber-700 text-white text-left">
+                      {['#', 'Código', 'Nombre del Tipo', 'Descripción', 'Estado', 'Acciones'].map(h => (
+                        <th key={h} className="px-3 py-3 text-xs font-bold uppercase tracking-wide whitespace-nowrap border-r border-amber-500 last:border-0">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tipos.map((t: any, idx: number) => (
+                      <tr key={t.id}
+                        className={`border-b hover:bg-amber-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-amber-50/20'} ${!t.activo ? 'opacity-60' : ''}`}>
+                        <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-500">{t.codigo}</td>
+                        <td className="px-3 py-2.5 font-semibold text-gray-800">{t.nombre}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500 max-w-xs">{t.descripcion ?? '—'}</td>
+                        <td className="px-3 py-2.5">
+                          <span className={`badge text-xs ${t.activo ? 'badge-green' : 'badge-gray'}`}>
+                            {t.activo ? 'Activo' : 'Inactivo'}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex gap-1 flex-nowrap">
+                            <button onClick={() => abrirModal(t)} className="btn btn-p btn-sm" title="Editar">✏️</button>
+                            <button onClick={() => toggleActivo(t)} className={`btn btn-sm ${t.activo ? 'btn-d' : 'btn-s'}`}
+                              title={t.activo ? 'Desactivar' : 'Activar'}>
+                              {t.activo ? '🔴' : '🟢'}
+                            </button>
+                            <button onClick={() => eliminar(t.id, t.nombre)} className="btn btn-d btn-sm" title="Eliminar">🗑️</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
         )}
       </div>
 
+      {/* Modal con margen superior visible */}
       {modal && (
-        <div className="mo" onClick={e => e.target === e.currentTarget && setModal(false)}>
-          <div className="mb max-w-md">
-            <div className="mh">
-              <h3 className="text-base font-extrabold">{editando ? '✏️ Editar tipo de ajuste' : '＋ Nuevo tipo de ajuste'}</h3>
-              <button onClick={() => setModal(false)} className="text-gray-400 text-2xl">×</button>
-            </div>
-            <div className="mbd space-y-3">
-              <div className="fg">
-                <label className="lbl">Nombre del ajuste *</label>
-                <input className="inp" value={form.nombre}
-                  onChange={e => setForm(f => ({ ...f, nombre: e.target.value }))}
-                  placeholder="Ej: Discapacidad Intelectual Leve..." />
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 pt-16">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <h3 className="text-base font-extrabold">
+                  {editando ? '✏️ Editar tipo de ajuste' : '＋ Nuevo tipo de ajuste'}
+                </h3>
+                <button onClick={() => setModal(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-xl">×</button>
               </div>
-              <div className="fg">
-                <label className="lbl">Tipo de discapacidad relacionada</label>
-                <select className="inp" value={form.discapacidad_id}
-                  onChange={e => setForm(f => ({ ...f, discapacidad_id: e.target.value }))}>
-                  <option value="">— Sin relación específica —</option>
-                  {discapacidades.map((d: any) => (
-                    <option key={d.id} value={d.id}>{d.nombre}</option>
-                  ))}
-                </select>
+              <div className="px-6 py-5 space-y-4">
+                <div className="fg">
+                  <label className="lbl">Nombre del tipo de ajuste *</label>
+                  <input className="inp" value={form.nombre}
+                    onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))}
+                    placeholder="Ej: Tiempo extendido, Material en braille, Evaluación oral..." />
+                </div>
+                <div className="fg">
+                  <label className="lbl">Descripción</label>
+                  <textarea className="inp" rows={3} value={form.descripcion}
+                    onChange={e => setForm(p => ({ ...p, descripcion: e.target.value }))}
+                    placeholder="Describe en qué consiste este tipo de adecuación..." />
+                </div>
               </div>
-              <div className="fg">
-                <label className="lbl">Descripción del ajuste</label>
-                <textarea className="inp" rows={3} value={form.descripcion}
-                  onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))}
-                  placeholder="Describe qué implica este ajuste curricular..." />
+              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+                <button className="btn btn-g" onClick={() => setModal(false)}>Cancelar</button>
+                <button className="btn btn-p" onClick={guardar} disabled={saving}>
+                  {saving
+                    ? <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Guardando...
+                      </span>
+                    : editando ? '💾 Actualizar' : '✅ Crear tipo'}
+                </button>
               </div>
-            </div>
-            <div className="mf">
-              <button className="btn btn-g" onClick={() => setModal(false)}>Cancelar</button>
-              <button className="btn btn-p" onClick={guardar} disabled={saving}>
-                {saving ? 'Guardando...' : editando ? 'Actualizar' : 'Crear'}
-              </button>
             </div>
           </div>
         </div>
@@ -188,3 +185,4 @@ export default function AjustesAdminPage() {
     </div>
   )
 }
+
