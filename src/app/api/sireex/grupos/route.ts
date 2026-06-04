@@ -1,11 +1,14 @@
 // src/app/api/sireex/grupos/route.ts
-// CORRECCIONES:
-// 1. PATCH para actualizar codigo_mineduc y estado
-// 2. Count usa estudiantes_grupo_sireex (no inscripcion_grupo_sireex)
-// 3. Race condition en código: usa timestamp para evitar duplicados
+// FIX CRÍTICO: tecnico_id NUNCA usa s.sub como fallback (s.sub es usuario_id, no tecnico_id)
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
+
+async function getTecnicoId(usuarioId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from('tecnicos').select('id').eq('usuario_id', usuarioId).single()
+  return data?.id ?? null
+}
 
 export async function GET(req: NextRequest) {
   const s = await getSession(req)
@@ -18,7 +21,7 @@ export async function GET(req: NextRequest) {
   let q = supabaseAdmin.from('grupos_sireex')
     .select(`
       id, codigo, codigo_mineduc, nombre, estado, ciclo_escolar,
-      fecha_apertura, fecha_cierre, observaciones, ingresado_por,
+      fecha_apertura, fecha_cierre, observaciones,
       tecnico:tecnicos(id, primer_nombre, primer_apellido, codigo_tecnico),
       etapa:etapas(id, nombre, codigo),
       sede:sedes(id, nombre)
@@ -27,9 +30,9 @@ export async function GET(req: NextRequest) {
     .order('creado_en', { ascending: false })
 
   if (s.rol === 'tecnico') {
-    const { data: tec } = await supabaseAdmin.from('tecnicos')
-      .select('id').eq('usuario_id', s.sub).single()
-    if (tec) q = q.eq('tecnico_id', tec.id)
+    const tecnicoId = await getTecnicoId(s.sub)
+    if (!tecnicoId) return err('Perfil de técnico no encontrado. Contacta al administrador para que configure tu perfil.', 404)
+    q = q.eq('tecnico_id', tecnicoId)
   }
 
   if (estado) q = q.eq('estado', estado)
@@ -52,33 +55,51 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
-  if (!['tecnico', 'administrador', 'director'].includes(s.rol)) return err('Sin permiso', 403)
+  if (!['tecnico', 'administrador', 'director'].includes(s.rol))
+    return err('Sin permiso', 403)
 
-  const b = await req.json()
-  if (!b.etapa_id || !b.sede_id || !b.ciclo_escolar) {
+  const b = await req.json().catch(() => ({}))
+
+  if (!b.etapa_id || !b.sede_id || !b.ciclo_escolar)
     return err('etapa_id, sede_id y ciclo_escolar son requeridos')
+
+  // ─────────────────────────────────────────────────────────
+  // FIX: obtener tecnico_id REAL — NUNCA usar s.sub como fallback
+  // s.sub es usuario_id, no tecnico_id — son tablas diferentes
+  // ─────────────────────────────────────────────────────────
+  let tecnicoId: string | null = b.tecnico_id ?? null
+
+  if (!tecnicoId && s.rol === 'tecnico') {
+    tecnicoId = await getTecnicoId(s.sub)
+    if (!tecnicoId) {
+      return err(
+        'Tu perfil de técnico no está configurado. Contacta al administrador para que registre tus datos en el sistema antes de crear grupos.',
+        404
+      )
+    }
   }
 
-  // Código único usando timestamp — evita race condition del count+1
-  const ts     = Date.now()
-  const ciclo  = parseInt(b.ciclo_escolar)
-  const codigo = b.codigo ?? `SIREEX-${ciclo}-${String(ts).slice(-5)}`
+  if (!tecnicoId) {
+    return err('tecnico_id requerido para crear un grupo SIREEX', 400)
+  }
 
-  const { data: tec } = await supabaseAdmin.from('tecnicos')
-    .select('id').eq('usuario_id', s.sub).single()
+  const ciclo  = parseInt(b.ciclo_escolar)
+  const ts     = Date.now()
+  const codigo = b.codigo ?? `SR-${ciclo}-${String(ts).slice(-5)}`
 
   const { data, error } = await supabaseAdmin.from('grupos_sireex').insert({
     codigo,
     nombre:         b.nombre         ?? null,
-    codigo_mineduc: b.codigo_mineduc ?? null,
-    tecnico_id:     b.tecnico_id     ?? (tec?.id ?? null),
+    codigo_mineduc: b.codigo_mineduc  ?? null,
+    tecnico_id:     tecnicoId,          // ← siempre el ID real de la tabla tecnicos
     etapa_id:       parseInt(b.etapa_id),
     sede_id:        b.sede_id,
     ciclo_escolar:  ciclo,
     estado:        'abierto',
-    observaciones:  b.observaciones  ?? null,
+    observaciones:  b.observaciones   ?? null,
     creado_por:     s.sub,
     ingresado_por:  s.sub,
+    fecha_apertura: new Date().toISOString().split('T')[0],
   }).select('id, codigo').single()
 
   if (error) return err(error.message, 500)
@@ -100,13 +121,13 @@ export async function PATCH(req: NextRequest) {
   const b = await req.json().catch(() => ({}))
   if (!b.id) return err('id requerido')
 
-  // Verificar que sea el técnico dueño o admin/director
+  // Verificar que sea el técnico dueño del grupo o admin
   if (s.rol === 'tecnico') {
-    const { data: tec } = await supabaseAdmin.from('tecnicos')
-      .select('id').eq('usuario_id', s.sub).single()
-    const { data: g } = await supabaseAdmin.from('grupos_sireex')
-      .select('tecnico_id').eq('id', b.id).single()
-    if (tec?.id !== g?.tecnico_id) return err('Sin permiso para editar este grupo', 403)
+    const tecnicoId = await getTecnicoId(s.sub)
+    const { data: g } = await supabaseAdmin
+      .from('grupos_sireex').select('tecnico_id').eq('id', b.id).single()
+    if (tecnicoId !== g?.tecnico_id)
+      return err('Sin permiso para editar este grupo', 403)
   }
 
   const upd: any = {}
@@ -118,17 +139,9 @@ export async function PATCH(req: NextRequest) {
 
   if (Object.keys(upd).length === 0) return err('Nada que actualizar')
 
-  const { error } = await supabaseAdmin.from('grupos_sireex').update(upd).eq('id', b.id)
+  const { error } = await supabaseAdmin
+    .from('grupos_sireex').update(upd).eq('id', b.id)
+
   if (error) return err(error.message, 500)
-
-  if (b.estado === 'cerrado') {
-    await supabaseAdmin.from('grupos_sireex_historial').insert({
-      grupo_sireex_id: b.id,
-      accion:          'CERRADO',
-      usuario_id:      s.sub,
-    }).catch(() => {})
-  }
-
   return ok({ ok: true })
 }
-
