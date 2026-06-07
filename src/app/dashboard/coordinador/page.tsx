@@ -1,73 +1,55 @@
 'use client'
 // src/app/dashboard/coordinador/page.tsx
-// FIX: Listado por municipio, etapa, edad + comparación residencia vs inscripción
-import { useState, useEffect } from 'react'
+// FIX: conteo real de estudiantes, listado funciona con búsqueda
+import { useState, useEffect, useCallback } from 'react'
 
 export default function CoordinadorPage() {
-  const [data,    setData]    = useState<any>(null)
-  const [loading, setLoading] = useState(true)
-  const [filtro,  setFiltro]  = useState({ municipio: '', etapa: '' })
+  const [stats,     setStats]     = useState({ estudiantes: 0, tecnicos: 0, municipios_insc: 0, municipios_res: 0 })
+  const [tecnicos,  setTecnicos]  = useState<any[]>([])
+  const [inscrips,  setInscrips]  = useState<any[]>([])
+  const [loading,   setLoading]   = useState(true)
+  const [ciclo,     setCiclo]     = useState('2026')
+  const [buscar,    setBuscar]    = useState('')
+  const [filtroMun, setFiltroMun] = useState('')
+  const [filtroEt,  setFiltroEt]  = useState('')
+  const [etapas,    setEtapas]    = useState<any[]>([])
 
-  useEffect(() => {
-    Promise.all([
-      fetch('/api/estudiantes?ciclo=2026&detalle=1').then(r => r.json()).catch(() => ({ data: [], total: 0 })),
-      fetch('/api/mis-tecnicos').then(r => r.json()).catch(() => []),
-    ]).then(([est, tec]) => {
-      setData({ estudiantes: est.data ?? [], tecnicos: Array.isArray(tec) ? tec : [] })
-    }).finally(() => setLoading(false))
-  }, [])
+  const cargar = useCallback(async () => {
+    setLoading(true)
+    const [ins, tec, et] = await Promise.all([
+      fetch(`/api/inscripciones?ciclo=${ciclo}&estado=en_curso`).then(r => r.json()).catch(() => ({ data: [] })),
+      fetch(`/api/mis-tecnicos?ciclo=${ciclo}`).then(r => r.json()).catch(() => []),
+      fetch('/api/etapas').then(r => r.json()).catch(() => []),
+    ])
 
-  if (loading || !data) return (
-    <div className="ap">
-      <header className="topbar"><div className="page-title">📋 Coordinador DIGEEX</div></header>
-      <div className="pc flex justify-center py-20"><div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" /></div>
-    </div>
-  )
+    const data = ins.data ?? []
+    setInscrips(data)
+    setTecnicos(Array.isArray(tec) ? tec : [])
+    setEtapas(Array.isArray(et) ? et : [])
 
-  const { estudiantes, tecnicos } = data
+    // Stats reales
+    const munsInsc = new Set(data.map((i: any) => (i.sede as any)?.id).filter(Boolean))
+    const munsRes  = new Set(data.map((i: any) => (i.estudiante as any)?.municipio?.nombre).filter(Boolean))
 
-  // Cálculos
-  const municipiosAtendidos = new Set(
-    tecnicos.flatMap((t: any) => []).length > 0 ? [] :
-    estudiantes.map((i: any) => (i.estudiante as any)?.municipio_id).filter(Boolean)
-  ).size
+    setStats({
+      estudiantes:     data.length,
+      tecnicos:        Array.isArray(tec) ? tec.length : 0,
+      municipios_insc: munsInsc.size,
+      municipios_res:  munsRes.size,
+    })
+    setLoading(false)
+  }, [ciclo])
 
-  const municipioResidencia  = new Set(estudiantes.map((i: any) => (i.estudiante as any)?.municipio_id).filter(Boolean)).size
-  const municipioInscripcion = new Set(estudiantes.map((i: any) => i.sede?.municipio_id).filter(Boolean)).size
+  useEffect(() => { cargar() }, [cargar])
 
-  // Estadísticas por municipio (inscripción)
-  const porMunicipio: Record<string, number> = {}
-  estudiantes.forEach((i: any) => {
-    const mun = i.sede?.municipio?.nombre ?? i.sede?.municipio ?? 'Sin municipio'
-    porMunicipio[mun] = (porMunicipio[mun] ?? 0) + 1
-  })
-
-  // Por etapa
-  const porEtapa: Record<string, number> = {}
-  estudiantes.forEach((i: any) => {
-    const etapa = (i.etapa as any)?.nombre ?? 'Sin etapa'
-    porEtapa[etapa] = (porEtapa[etapa] ?? 0) + 1
-  })
-
-  // Por edad aproximada (año actual - año nacimiento)
-  const anioActual = new Date().getFullYear()
-  const porEdad: Record<string, number> = { '13-17':0, '18-25':0, '26-35':0, '36-45':0, '46+':0, 'Sin dato':0 }
-  estudiantes.forEach((i: any) => {
-    const fn = (i.estudiante as any)?.fecha_nacimiento
-    if (!fn) { porEdad['Sin dato']++; return }
-    const edad = anioActual - new Date(fn).getFullYear()
-    if (edad < 18)      porEdad['13-17']++
-    else if (edad < 26) porEdad['18-25']++
-    else if (edad < 36) porEdad['26-35']++
-    else if (edad < 46) porEdad['36-45']++
-    else                porEdad['46+']++
-  })
-
-  const filtrados = estudiantes.filter((i: any) => {
-    const mun   = i.sede?.municipio?.nombre ?? i.sede?.municipio ?? ''
-    const etapa = (i.etapa as any)?.nombre ?? ''
-    return (!filtro.municipio || mun.toLowerCase().includes(filtro.municipio.toLowerCase()))
-        && (!filtro.etapa     || etapa.toLowerCase().includes(filtro.etapa.toLowerCase()))
+  const filtrados = inscrips.filter(i => {
+    const e   = i.estudiante as any
+    const txt = `${e?.primer_nombre ?? ''} ${e?.primer_apellido ?? ''} ${e?.codigo_estudiante ?? ''} ${e?.cui ?? ''}`.toLowerCase()
+    const mun = (e?.municipio as any)?.nombre ?? ''
+    const et  = (i.etapa as any)?.nombre ?? ''
+    return (!buscar    || txt.includes(buscar.toLowerCase()))
+        && (!filtroMun || mun.toLowerCase().includes(filtroMun.toLowerCase()))
+        && (!filtroEt  || et === filtroEt)
   })
 
   return (
@@ -75,135 +57,132 @@ export default function CoordinadorPage() {
       <header className="topbar">
         <div>
           <div className="page-title">📋 Coordinador DIGEEX — Sacatepéquez</div>
-          <div className="text-xs text-gray-400">Vista de solo lectura · Ciclo 2026</div>
+          <div className="text-xs text-gray-400">Vista de solo lectura · Ciclo {ciclo}</div>
         </div>
+        <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
+          <option value="2026">2026</option>
+          <option value="2025">2025</option>
+        </select>
       </header>
-      <div className="pc">
 
-        {/* KPIs */}
-        <div className="g4 mb-5">
+      <div className="pc">
+        {/* Stats */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
           {[
-            { label: 'Estudiantes inscritos', valor: estudiantes.length, icon: '🎓', color: 'blue' },
-            { label: 'Técnicos activos',      valor: tecnicos.length,    icon: '👨‍🏫', color: 'green' },
-            { label: 'Municipios (inscripción)', valor: municipioInscripcion, icon: '📍', color: 'purple' },
-            { label: 'Municipios (residencia)',  valor: municipioResidencia,  icon: '🏠', color: 'yellow' },
-          ].map(s => (
-            <div key={s.label} className={`sc ${s.color} text-center`}>
-              <div className="text-2xl mb-1">{s.icon}</div>
-              <div className="text-2xl font-extrabold text-gray-800">{s.valor}</div>
-              <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+            { icon:'🎓', label:'Estudiantes inscritos', val: stats.estudiantes, color:'border-t-blue-500' },
+            { icon:'👨‍🏫', label:'Técnicos activos',      val: stats.tecnicos,    color:'border-t-green-500' },
+            { icon:'📍', label:'Municipios (inscripción)',val: stats.municipios_insc, color:'border-t-orange-400' },
+            { icon:'🏠', label:'Municipios (residencia)', val: stats.municipios_res,  color:'border-t-purple-400' },
+          ].map(({ icon, label, val, color }) => (
+            <div key={label} className={`card border-t-4 ${color} text-center py-4`}>
+              <div className="text-4xl mb-1">{icon}</div>
+              <div className="text-3xl font-extrabold text-gray-800">{val}</div>
+              <div className="text-xs text-gray-500 mt-1">{label}</div>
             </div>
           ))}
         </div>
 
-        {/* Gráficas rápidas */}
-        <div className="g2 mb-5">
-          {/* Por etapa */}
-          <div className="card">
-            <div className="card-title">📚 Por etapa</div>
-            {Object.entries(porEtapa).map(([etapa, count]) => (
-              <div key={etapa} className="flex items-center gap-2 mb-2">
-                <span className="text-xs text-gray-600 w-32 truncate">{etapa}</span>
-                <div className="flex-1 bg-gray-100 rounded-full h-2">
-                  <div className="bg-pronea-secondary h-2 rounded-full" style={{ width: `${estudiantes.length > 0 ? (count/estudiantes.length*100) : 0}%` }} />
-                </div>
-                <span className="text-xs font-bold w-6 text-right">{count}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Por edad */}
-          <div className="card">
-            <div className="card-title">🎂 Por rango de edad</div>
-            {Object.entries(porEdad).filter(([,v]) => v > 0).map(([rango, count]) => (
-              <div key={rango} className="flex items-center gap-2 mb-2">
-                <span className="text-xs text-gray-600 w-16">{rango} años</span>
-                <div className="flex-1 bg-gray-100 rounded-full h-2">
-                  <div className="bg-blue-400 h-2 rounded-full" style={{ width: `${estudiantes.length > 0 ? (count/estudiantes.length*100) : 0}%` }} />
-                </div>
-                <span className="text-xs font-bold w-6 text-right">{count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Técnicos y municipios */}
-        <div className="card mb-5">
-          <div className="card-title">👨‍🏫 Técnicos activos y municipios que atienden</div>
-          {tecnicos.length === 0 ? (
-            <div className="text-center py-6 text-gray-400">Sin técnicos</div>
-          ) : (
-            <div className="tw">
-              <table className="tbl">
-                <thead><tr><th>Técnico</th><th>Código</th><th>Estudiantes activos</th><th>Sedes</th></tr></thead>
+        {/* Técnicos */}
+        {tecnicos.length > 0 && (
+          <div className="card mb-5">
+            <div className="card-title">👨‍🏫 Técnicos activos y municipios que atienden</div>
+            <div className="overflow-x-auto">
+              <table className="tbl w-full min-w-[600px]">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-3 py-2 text-xs">Técnico</th>
+                    <th className="px-3 py-2 text-xs">Código</th>
+                    <th className="px-3 py-2 text-xs text-center">Estudiantes activos</th>
+                    <th className="px-3 py-2 text-xs text-center">Sedes</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {tecnicos.map((t: any) => (
-                    <tr key={t.id}>
-                      <td className="font-semibold">{t.primer_nombre} {t.primer_apellido}</td>
-                      <td className="font-mono text-xs">{t.codigo_tecnico ?? '—'}</td>
-                      <td className="text-center"><span className="badge badge-green">{t.total_estudiantes}</span></td>
-                      <td className="text-center"><span className="badge badge-blue">{t.total_sedes}</span></td>
+                    <tr key={t.id} className="border-b hover:bg-gray-50">
+                      <td className="px-3 py-2 font-semibold text-sm">{t.primer_nombre} {t.primer_apellido}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-gray-500">{t.codigo_tecnico}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-extrabold text-sm">
+                          {t.total_estudiantes ?? 0}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-center">
+                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-gray-100 text-gray-700 font-extrabold text-sm">
+                          {t.total_sedes ?? 0}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
-        </div>
-
-        {/* Listado estudiantes con filtros */}
-        <div className="card">
-          <div className="card-title">🎓 Listado de estudiantes</div>
-          <div className="flex gap-3 mb-4 flex-wrap">
-            <input className="inp flex-1 min-w-40" placeholder="Filtrar por municipio..." value={filtro.municipio} onChange={e => setFiltro(f => ({ ...f, municipio: e.target.value }))} />
-            <input className="inp flex-1 min-w-40" placeholder="Filtrar por etapa..." value={filtro.etapa} onChange={e => setFiltro(f => ({ ...f, etapa: e.target.value }))} />
-            <button className="btn btn-g" onClick={() => setFiltro({ municipio:'', etapa:'' })}>Limpiar</button>
           </div>
-          <div className="text-xs text-gray-400 mb-2">{filtrados.length} resultado(s)</div>
-          {filtrados.length === 0 ? (
-            <div className="text-center py-6 text-gray-400">Sin resultados</div>
+        )}
+
+        {/* Listado de estudiantes */}
+        <div className="card">
+          <div className="card-title">🎓 Listado de estudiantes — {filtrados.length} resultado(s)</div>
+
+          {/* Filtros */}
+          <div className="flex gap-3 flex-wrap mb-4">
+            <div className="flex-1 min-w-44">
+              <input className="inp" placeholder="🔍 Buscar nombre, código, CUI..."
+                value={buscar} onChange={e => setBuscar(e.target.value)} />
+            </div>
+            <div className="w-44">
+              <input className="inp" placeholder="Filtrar por municipio..."
+                value={filtroMun} onChange={e => setFiltroMun(e.target.value)} />
+            </div>
+            <div className="w-44">
+              <select className="inp" value={filtroEt} onChange={e => setFiltroEt(e.target.value)}>
+                <option value="">Todas las etapas</option>
+                {etapas.map((e: any) => <option key={e.id} value={e.nombre}>{e.nombre}</option>)}
+              </select>
+            </div>
+            <button className="btn btn-g" onClick={() => { setBuscar(''); setFiltroMun(''); setFiltroEt('') }}>
+              Limpiar
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <div className="w-7 h-7 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtrados.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              {buscar || filtroMun || filtroEt ? 'Sin resultados para los filtros aplicados' : 'Sin estudiantes inscritos'}
+            </div>
           ) : (
-            <div className="tw">
-              <table className="tbl">
+            <div className="overflow-x-auto">
+              <table className="tbl w-full min-w-[900px]">
                 <thead>
-                  <tr>
-                    <th>Código</th><th>Estudiante</th><th>Etapa</th>
-                    <th>Mun. inscripción</th><th>Mun. residencia</th>
-                    <th>Edad aprox.</th><th>Técnico</th>
+                  <tr className="bg-gradient-to-r from-blue-700 to-blue-800 text-white text-left">
+                    {['Código MINEDUC','Nombre','CUI','Etapa','Municipio','Sede','Técnico'].map(h => (
+                      <th key={h} className="px-3 py-2.5 text-xs font-bold uppercase whitespace-nowrap border-r border-blue-600 last:border-0">{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {filtrados.slice(0, 100).map((i: any) => {
-                    const e   = i.estudiante as any
-                    const edad = e?.fecha_nacimiento
-                      ? `${anioActual - new Date(e.fecha_nacimiento).getFullYear()} años`
-                      : '—'
-                    const munInsc = i.sede?.municipio?.nombre ?? i.sede?.municipio ?? '—'
-                    const munRes  = e?.municipio?.nombre ?? e?.municipio ?? '—'
-                    const mismaMun = munInsc === munRes && munInsc !== '—'
+                  {filtrados.map((i: any, idx: number) => {
+                    const e = i.estudiante as any
                     return (
-                      <tr key={i.id}>
-                        <td className="font-mono text-xs">{e?.codigo_estudiante}</td>
-                        <td className="font-semibold text-sm">{e?.primer_nombre} {e?.primer_apellido}</td>
-                        <td className="text-xs">{(i.etapa as any)?.nombre}</td>
-                        <td className="text-xs">{munInsc}</td>
-                        <td className="text-xs">
-                          <span className={mismaMun ? 'text-green-600' : 'text-orange-600 font-semibold'}>
-                            {munRes}
-                          </span>
+                      <tr key={i.id} className={`border-b hover:bg-blue-50 ${idx%2===0?'bg-white':'bg-sky-50/20'}`}>
+                        <td className="px-3 py-2 font-mono text-xs text-blue-700 font-bold">{e?.codigo_estudiante ?? '—'}</td>
+                        <td className="px-3 py-2 text-sm font-semibold whitespace-nowrap">
+                          {e?.primer_apellido} {e?.segundo_apellido}, {e?.primer_nombre}
                         </td>
-                        <td className="text-xs text-gray-500">{edad}</td>
-                        <td className="text-xs">{(i.tecnico as any)?.primer_nombre} {(i.tecnico as any)?.primer_apellido}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-500">{e?.cui ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">{(i.etapa as any)?.nombre}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500">{(e?.municipio as any)?.nombre ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{(i.sede as any)?.nombre ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          {(i.tecnico as any)?.primer_nombre} {(i.tecnico as any)?.primer_apellido}
+                        </td>
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
-              {filtrados.length > 100 && (
-                <div className="text-center text-xs text-gray-400 mt-2 py-2 border-t">
-                  Mostrando primeros 100 de {filtrados.length}. Usa los filtros para reducir resultados.
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -211,3 +190,4 @@ export default function CoordinadorPage() {
     </div>
   )
 }
+
