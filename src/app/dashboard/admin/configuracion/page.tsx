@@ -1,109 +1,75 @@
 'use client'
 // src/app/dashboard/admin/configuracion/page.tsx
-// CORRECCIÓN: incluye sección de perfil personal del administrador
+// FIX CRÍTICO: perfil del administrador (persona) separado de datos del establecimiento (director)
 import { useState, useEffect } from 'react'
 
-const BOOLEAN_PARAMS = [
-  'documentos_obligatorios','documentos_visibles','documentos_visibles_estudiante',
-  'documentos_visibles_tecnico','permisos_delegados_activos','asistencia_qr_activa',
-  'sireex_codigo_manual','coordinador_filtro_depto',
-]
-
-const PARAM_LABELS: Record<string, { label: string; desc: string; seccion: string }> = {
-  INTENTOS_LOGIN:                 { label: 'Intentos de login',            desc: 'Intentos fallidos antes de bloquear la cuenta',             seccion: 'Seguridad' },
-  MINUTOS_BLOQUEO_LOGIN:          { label: 'Minutos de bloqueo',           desc: 'Tiempo de bloqueo tras agotar intentos fallidos',            seccion: 'Seguridad' },
-  ciclo_escolar_actual:           { label: 'Ciclo escolar actual',         desc: 'Año del ciclo escolar vigente — afecta todo el sistema',     seccion: 'Académico' },
-  porcentaje_tareas:              { label: '% Ponderación tareas',         desc: 'Porcentaje que valen las tareas (defecto: 60)',              seccion: 'Académico' },
-  porcentaje_examenes:            { label: '% Ponderación exámenes',       desc: 'Porcentaje que valen los exámenes (defecto: 40)',            seccion: 'Académico' },
-  nota_minima_promocion:          { label: 'Nota mínima promoción',        desc: 'Nota mínima para promover por área (defecto: 60)',           seccion: 'Académico' },
-  puntos_max_tareas:              { label: 'Puntos máx. tareas',           desc: 'Puntos máximos de tareas por área por libro (defecto: 30)', seccion: 'Académico' },
-  puntos_max_examen:              { label: 'Puntos máx. examen',           desc: 'Puntos máximos de examen por área por libro (defecto: 20)', seccion: 'Académico' },
-  documentos_obligatorios:        { label: 'Documentos obligatorios',      desc: 'Requiere documentos para inscribir estudiante',             seccion: 'Inscripción' },
-  documentos_visibles:            { label: 'Documentos visibles',          desc: 'Documentos visibles en el portal',                          seccion: 'Inscripción' },
-  documentos_visibles_estudiante: { label: 'Documentos visibles al estudiante', desc: 'El estudiante puede ver sus documentos',             seccion: 'Inscripción' },
-  documentos_visibles_tecnico:    { label: 'Documentos visibles al técnico',    desc: 'El técnico puede ver documentos de sus estudiantes', seccion: 'Inscripción' },
-  asistencia_qr_activa:           { label: 'Asistencia QR activa',         desc: 'Habilita asistencia por código QR',                         seccion: 'Asistencia' },
-  asistencia_radio_default_m:     { label: 'Radio GPS asistencia (metros)', desc: 'Distancia máxima desde la sede para marcar asistencia',   seccion: 'Asistencia' },
-  dua_max_estudiantes:            { label: 'Máx. estudiantes por grupo DUA', desc: 'Número máximo de estudiantes en un grupo DUA',           seccion: 'DUA' },
-  sireex_codigo_manual:           { label: 'Código SIREEX manual',         desc: 'El técnico ingresa el código SIREEX de MINEDUC manualmente', seccion: 'SIREEX' },
-  coordinador_filtro_depto:       { label: 'Filtro departamental coordinador', desc: 'Los coordinadores solo ven datos de su departamento',  seccion: 'Coordinadores' },
-  permisos_delegados_activos:     { label: 'Permisos delegados activos',   desc: 'Sistema de delegación de permisos a enlaces',              seccion: 'Permisos' },
-}
-
 export default function ConfiguracionPage() {
-  const [config,  setConfig]  = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saving,  setSaving]  = useState<string | null>(null)
-  const [msg,     setMsg]     = useState('')
+  const [config,       setConfig]       = useState<any[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [saving,       setSaving]       = useState<string | null>(null)
+  const [msg,          setMsg]          = useState('')
+  const [tab,          setTab]          = useState<'sistema'|'establecimiento'>('sistema')
 
-  // Perfil del admin
-  const [perfil,        setPerfil]        = useState<any>({})
-  const [savingPerfil,  setSavingPerfil]  = useState(false)
-  const [pwd, setPwd] = useState({ actual: '', nueva: '', confirmar: '' })
-  const [savingPwd,     setSavingPwd]     = useState(false)
+  // Datos del establecimiento (director/institución)
+  const [estab,        setEstab]        = useState<any>({})
+  const [savingEstab,  setSavingEstab]  = useState(false)
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500) }
 
   useEffect(() => {
     Promise.all([
       fetch('/api/configuracion').then(r => r.json()).catch(() => []),
-      fetch('/api/mi-perfil').then(r => r.json()).catch(() => ({})),
-    ]).then(([cfg, prf]) => {
+      fetch('/api/establecimiento').then(r => r.json()).catch(() => ({})),
+    ]).then(([cfg, est]) => {
       setConfig(Array.isArray(cfg) ? cfg : [])
-      setPerfil(prf?.perfil ?? {})
+      setEstab(est ?? {})
     }).finally(() => setLoading(false))
   }, [])
 
   const actualizarParam = async (parametro: string, valor: string) => {
     setSaving(parametro)
-    await fetch('/api/configuracion', {
+    const res = await fetch('/api/configuracion', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ parametro, valor }),
     })
-    setConfig(prev => prev.map(c => c.parametro === parametro ? { ...c, valor } : c))
+    if (res.ok) {
+      setConfig(prev => prev.map(c => c.parametro === parametro ? { ...c, valor } : c))
+      flash('✅ Parámetro actualizado')
+    } else flash('❌ Error al actualizar')
     setSaving(null)
-    flash('✅ Parámetro actualizado')
   }
 
-  const guardarPerfil = async () => {
-    setSavingPerfil(true)
-    await fetch('/api/establecimiento', {
+  const guardarEstab = async () => {
+    setSavingEstab(true)
+    const res = await fetch('/api/establecimiento', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        director_nombre: perfil.director_nombre,
-        director_titulo: perfil.director_titulo,
-        telefono:        perfil.telefono,
-        whatsapp:        perfil.whatsapp,
-        correo:          perfil.correo,
-      }),
+      body: JSON.stringify(estab),
     })
-    flash('✅ Datos del responsable actualizados')
-    setSavingPerfil(false)
+    flash(res.ok ? '✅ Datos del establecimiento actualizados' : '❌ Error al guardar')
+    setSavingEstab(false)
   }
 
-  const cambiarPassword = async () => {
-    if (!pwd.actual || !pwd.nueva || !pwd.confirmar) { flash('❌ Todos los campos requeridos'); return }
-    if (pwd.nueva !== pwd.confirmar) { flash('❌ Las contraseñas no coinciden'); return }
-    if (pwd.nueva.length < 8) { flash('❌ Mínimo 8 caracteres'); return }
-    setSavingPwd(true)
-    const res = await fetch('/api/mi-perfil', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contrasena_actual: pwd.actual, contrasena_nueva: pwd.nueva }),
-    })
-    const d = await res.json()
-    flash(res.ok ? '✅ Contraseña actualizada' : '❌ ' + (d.error ?? 'Error'))
-    if (res.ok) setPwd({ actual: '', nueva: '', confirmar: '' })
-    setSavingPwd(false)
+  const PARAM_LABELS: Record<string, { label: string; desc: string; seccion: string }> = {
+    ciclo_escolar_actual:  { label: 'Ciclo escolar actual', desc: 'Afecta todo el sistema', seccion: 'Académico' },
+    porcentaje_tareas:     { label: '% Tareas (zona)',      desc: 'Ponderación de tareas (defecto: 60)', seccion: 'Académico' },
+    porcentaje_examenes:   { label: '% Exámenes',           desc: 'Ponderación de exámenes (defecto: 40)', seccion: 'Académico' },
+    nota_minima_promocion: { label: 'Nota mínima',          desc: 'Para promover por área (defecto: 60)', seccion: 'Académico' },
+    puntos_max_tareas:     { label: 'Puntos máx. tareas',   desc: 'Por área por libro (defecto: 30)', seccion: 'Académico' },
+    puntos_max_examen:     { label: 'Puntos máx. examen',   desc: 'Por área por libro (defecto: 20)', seccion: 'Académico' },
+    INTENTOS_LOGIN:        { label: 'Intentos de login',    desc: 'Antes de bloquear la cuenta', seccion: 'Seguridad' },
+    MINUTOS_BLOQUEO_LOGIN: { label: 'Minutos de bloqueo',   desc: 'Tiempo de bloqueo tras intentos fallidos', seccion: 'Seguridad' },
   }
 
-  // Agrupar parámetros por sección
   const porSeccion: Record<string, any[]> = {}
   config.forEach(c => {
     const info = PARAM_LABELS[c.parametro]
-    const sec = info?.seccion ?? 'Otros'
+    const sec  = info?.seccion ?? 'Otros'
     if (!porSeccion[sec]) porSeccion[sec] = []
     porSeccion[sec].push({ ...c, info })
   })
+
+  const E = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+    setEstab((p: any) => ({ ...p, [k]: e.target.value }))
 
   if (loading) return (
     <div className="ap">
@@ -119,118 +85,122 @@ export default function ConfiguracionPage() {
       <header className="topbar">
         <div className="page-title">⚙️ Configuración del Sistema</div>
       </header>
-      <div className="pc max-w-3xl space-y-5">
-        {msg && <div className={`alert ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
+      <div className="pc max-w-4xl">
+        {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
 
-        {/* ── PERFIL DEL RESPONSABLE ── */}
-        <div className="card">
-          <div className="card-title">👤 Datos del Responsable / Administrador</div>
-          <div className="text-xs text-gray-400 mb-4">
-            Correo de acceso: <span className="font-mono font-bold">{perfil.correo ?? '—'}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { k: 'director_nombre', label: 'Nombre del director / responsable', placeholder: 'Nombre completo' },
-              { k: 'director_titulo', label: 'Título o cargo',                    placeholder: 'Director(a) PRONEA' },
-              { k: 'telefono',        label: 'Teléfono institucional',             placeholder: '2222-3333' },
-              { k: 'whatsapp',        label: 'WhatsApp',                          placeholder: '5555-1234' },
-            ].map(({ k, label, placeholder }) => (
-              <div key={k} className="fg">
-                <label className="lbl">{label}</label>
-                <input className="inp" value={perfil[k] ?? ''} placeholder={placeholder}
-                  onChange={e => setPerfil((p: any) => ({ ...p, [k]: e.target.value }))} />
+        {/* Tabs */}
+        <div className="flex gap-2 mb-5 border-b">
+          {[
+            { k:'sistema',        l:'⚙️ Parámetros del Sistema' },
+            { k:'establecimiento', l:'🏛️ Datos del Establecimiento' },
+          ].map(t => (
+            <button key={t.k}
+              onClick={() => setTab(t.k as any)}
+              className={`px-4 py-2 text-sm font-bold rounded-t-lg border-b-2 transition-colors ${tab===t.k ? 'border-pronea text-pronea bg-blue-50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {t.l}
+            </button>
+          ))}
+        </div>
+
+        {/* Tab: Sistema */}
+        {tab === 'sistema' && (
+          <div className="space-y-4">
+            {Object.entries(porSeccion).map(([seccion, params]) => (
+              <div key={seccion} className="card">
+                <div className="card-title">{seccion}</div>
+                <div className="space-y-3">
+                  {params.map((c: any) => (
+                    <div key={c.parametro}
+                      className="flex items-start justify-between gap-4 py-2 border-b last:border-0">
+                      <div className="flex-1">
+                        <div className="text-sm font-bold text-gray-800">{c.info?.label ?? c.parametro}</div>
+                        <div className="text-xs text-gray-400">{c.info?.desc}</div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <input
+                          className="inp w-28 text-right font-mono text-sm"
+                          defaultValue={c.valor}
+                          onBlur={e => { if (e.target.value !== c.valor) actualizarParam(c.parametro, e.target.value) }}
+                          onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                        />
+                        {saving === c.parametro && (
+                          <span className="w-4 h-4 border-2 border-pronea border-t-transparent rounded-full animate-spin inline-block" />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ))}
-          </div>
-          <div className="mt-3">
-            <button className="btn btn-p" onClick={guardarPerfil} disabled={savingPerfil}>
-              {savingPerfil ? '...' : '💾 Guardar datos del responsable'}
-            </button>
-          </div>
-        </div>
-
-        {/* ── CAMBIAR CONTRASEÑA ── */}
-        <div className="card">
-          <div className="card-title">🔒 Cambiar Contraseña</div>
-          <div className="space-y-3">
-            <div className="fg">
-              <label className="lbl">Contraseña actual</label>
-              <input type="password" className="inp" value={pwd.actual}
-                onChange={e => setPwd(p => ({ ...p, actual: e.target.value }))} />
-            </div>
-            <div className="fg2">
-              <div className="fg">
-                <label className="lbl">Nueva contraseña</label>
-                <input type="password" className="inp" value={pwd.nueva}
-                  onChange={e => setPwd(p => ({ ...p, nueva: e.target.value }))} />
+            {config.length === 0 && (
+              <div className="card text-center py-8 text-gray-400">
+                <div className="text-3xl mb-2">⚙️</div>
+                <div>Sin parámetros. Ejecuta el SQL del Batch 1.</div>
               </div>
-              <div className="fg">
-                <label className="lbl">Confirmar nueva</label>
-                <input type="password" className="inp" value={pwd.confirmar}
-                  onChange={e => setPwd(p => ({ ...p, confirmar: e.target.value }))} />
-              </div>
-            </div>
-            <button className="btn btn-g" onClick={cambiarPassword} disabled={savingPwd}>
-              {savingPwd ? '...' : '🔒 Actualizar contraseña'}
-            </button>
+            )}
           </div>
-        </div>
+        )}
 
-        {/* ── PARÁMETROS DEL SISTEMA ── */}
-        {Object.entries(porSeccion).map(([seccion, params]) => (
-          <div key={seccion} className="card">
-            <div className="card-title">{seccion}</div>
+        {/* Tab: Establecimiento — datos del DIRECTOR, NO del admin */}
+        {tab === 'establecimiento' && (
+          <div className="card">
+            <div className="card-title">🏛️ Datos del Establecimiento PRONEA</div>
+            <div className="alert al-i mb-4 text-xs">
+              Estos datos aparecen en la pantalla de login y en los documentos generados.
+              Aquí va el nombre del <b>director del programa</b>, no del administrador del sistema.
+            </div>
             <div className="space-y-3">
-              {params.map((c: any) => {
-                const esBoolean = BOOLEAN_PARAMS.includes(c.parametro)
-                const valor = c.valor === 'true' ? true : c.valor === 'false' ? false : c.valor
-                return (
-                  <div key={c.parametro} className="flex items-start justify-between gap-4 py-2 border-b last:border-0">
-                    <div className="flex-1">
-                      <div className="text-sm font-bold text-gray-800">{c.info?.label ?? c.parametro}</div>
-                      <div className="text-xs text-gray-400">{c.info?.desc}</div>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      {esBoolean ? (
-                        <button
-                          onClick={() => actualizarParam(c.parametro, valor ? 'false' : 'true')}
-                          disabled={saving === c.parametro}
-                          className={`relative w-11 h-6 rounded-full transition-colors ${valor ? 'bg-green-500' : 'bg-gray-300'}`}
-                        >
-                          <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${valor ? 'translate-x-5' : ''}`} />
-                        </button>
-                      ) : (
-                        <div className="flex gap-2">
-                          <input
-                            className="inp w-28 text-right font-mono text-sm"
-                            defaultValue={c.valor}
-                            onBlur={e => {
-                              if (e.target.value !== c.valor) actualizarParam(c.parametro, e.target.value)
-                            }}
-                            onKeyDown={e => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-                          />
-                          {saving === c.parametro && (
-                            <span className="w-4 h-4 border-2 border-pronea border-t-transparent rounded-full animate-spin inline-block mt-1" />
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="fg"><label className="lbl">Nombre completo del establecimiento</label>
+                  <input className="inp" value={estab.nombre_completo ?? ''} onChange={E('nombre_completo')} /></div>
+                <div className="fg"><label className="lbl">Nombre corto</label>
+                  <input className="inp" value={estab.nombre_corto ?? ''} onChange={E('nombre_corto')} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="fg"><label className="lbl">Nombre del Director del Programa</label>
+                  <input className="inp" value={estab.director_nombre ?? ''} onChange={E('director_nombre')}
+                    placeholder="Ej: Mario Alfonso Toj Tepáz" /></div>
+                <div className="fg"><label className="lbl">Título del Director</label>
+                  <input className="inp" value={estab.director_titulo ?? ''} onChange={E('director_titulo')}
+                    placeholder="Ej: Director(a) PRONEA Sacatepéquez" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="fg"><label className="lbl">Departamento</label>
+                  <input className="inp" value={estab.departamento ?? ''} onChange={E('departamento')} /></div>
+                <div className="fg"><label className="lbl">Municipio</label>
+                  <input className="inp" value={estab.municipio ?? ''} onChange={E('municipio')} /></div>
+              </div>
+              <div className="fg"><label className="lbl">Dirección</label>
+                <input className="inp" value={estab.direccion ?? ''} onChange={E('direccion')} /></div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="fg"><label className="lbl">Teléfono</label>
+                  <input className="inp" value={estab.telefono ?? ''} onChange={E('telefono')} /></div>
+                <div className="fg"><label className="lbl">WhatsApp</label>
+                  <input className="inp" value={estab.whatsapp ?? ''} onChange={E('whatsapp')} /></div>
+                <div className="fg"><label className="lbl">Correo institucional</label>
+                  <input type="email" className="inp" value={estab.correo ?? ''} onChange={E('correo')} /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="fg"><label className="lbl">Horario de atención</label>
+                  <input className="inp" value={estab.horario_atencion ?? ''} onChange={E('horario_atencion')}
+                    placeholder="Lunes a viernes 8:00 a 16:00" /></div>
+                <div className="fg"><label className="lbl">Facebook</label>
+                  <input className="inp" value={estab.facebook ?? ''} onChange={E('facebook')} /></div>
+              </div>
+              <div className="flex justify-end mt-2">
+                <button className="btn btn-p" onClick={guardarEstab} disabled={savingEstab}>
+                  {savingEstab
+                    ? <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Guardando...
+                      </span>
+                    : '💾 Guardar datos del establecimiento'}
+                </button>
+              </div>
             </div>
-          </div>
-        ))}
-
-        {config.length === 0 && (
-          <div className="card text-center py-8 text-gray-400">
-            <div className="text-3xl mb-2">⚙️</div>
-            <div className="font-semibold">Sin parámetros de configuración</div>
-            <div className="text-sm mt-1">Ejecuta el SQL del Batch 1 para crear los parámetros base</div>
           </div>
         )}
       </div>
     </div>
   )
 }
-
