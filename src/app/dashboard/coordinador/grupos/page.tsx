@@ -1,8 +1,7 @@
 'use client'
 // src/app/dashboard/coordinador/grupos/page.tsx
-// CORRECCIÓN: usa /api/sireex/exportar (ruta correcta, no sireex-v5 que no existe)
-// También muestra código MINEDUC y permite exportar escalas
-import { useState, useEffect } from 'react'
+// FIX: eliminado botón exportar inferior redundante, usa /api/sireex/exportar (Excel, no CSV)
+import { useState, useEffect, useCallback } from 'react'
 
 export default function CoordinadorGruposPage() {
   const [grupos,      setGrupos]      = useState<any[]>([])
@@ -13,7 +12,7 @@ export default function CoordinadorGruposPage() {
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
 
-  useEffect(() => {
+  const cargar = useCallback(async () => {
     setLoading(true)
     fetch(`/api/sireex/grupos?ciclo=${ciclo}`)
       .then(r => r.json())
@@ -21,31 +20,25 @@ export default function CoordinadorGruposPage() {
       .finally(() => setLoading(false))
   }, [ciclo])
 
+  useEffect(() => { cargar() }, [cargar])
+
   const exportarExcel = async (grupoId: string, codigo: string) => {
     setDescargando(grupoId)
-    // CORRECCIÓN: ruta correcta /api/sireex/exportar (no sireex-v5)
+    // FIX: ruta correcta — no sireex-v5
     const res = await fetch(`/api/sireex/exportar?grupo_id=${grupoId}`)
-    if (!res.ok) {
-      const d = await res.json().catch(() => ({}))
-      flash('❌ ' + (d.error ?? 'Error al exportar'))
-      setDescargando(null)
-      return
-    }
+    if (!res.ok) { flash('❌ Error al exportar'); setDescargando(null); return }
     const blob = await res.blob()
-    const url  = URL.createObjectURL(blob)
     const a    = document.createElement('a')
-    a.href     = url
-    a.download = `SIREEX-${codigo}.xlsx`
+    a.href     = URL.createObjectURL(blob)
+    a.download = `SIREEX-${codigo}-notas.xlsx`
     a.click()
-    URL.revokeObjectURL(url)
+    URL.revokeObjectURL(a.href)
     setDescargando(null)
     flash(`✅ Excel descargado: ${codigo}`)
   }
 
-  const ESTADO_COLOR: Record<string, string> = {
-    abierto:   'badge-green',
-    cerrado:   'badge-yellow',
-    exportado: 'badge-blue',
+  const BADGE: Record<string, string> = {
+    abierto: 'badge-green', cerrado: 'badge-yellow', exportado: 'badge-blue',
   }
 
   return (
@@ -53,7 +46,7 @@ export default function CoordinadorGruposPage() {
       <header className="topbar">
         <div>
           <div className="page-title">📤 Grupos SIREEX</div>
-          <div className="text-xs text-gray-400">Solo lectura · {grupos.length} grupo(s)</div>
+          <div className="text-xs text-gray-400">Solo lectura · {grupos.length} grupo(s) · ciclo {ciclo}</div>
         </div>
         <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
           <option value="2026">2026</option>
@@ -65,10 +58,11 @@ export default function CoordinadorGruposPage() {
         {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
 
         <div className="alert al-i mb-4 text-sm">
-          🔒 El coordinador puede visualizar y exportar grupos. No puede crear ni modificar grupos.
+          🔒 El coordinador puede visualizar y exportar grupos en Excel con notas finales por área.
+          No puede crear ni modificar grupos — eso lo hace el técnico.
         </div>
 
-        <div className="card">
+        <div className="card overflow-hidden">
           {loading ? (
             <div className="flex justify-center py-10">
               <div className="w-7 h-7 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
@@ -79,44 +73,40 @@ export default function CoordinadorGruposPage() {
               <div className="font-semibold">Sin grupos para el ciclo {ciclo}</div>
             </div>
           ) : (
-            <div className="tw">
-              <table className="tbl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse min-w-[800px]">
                 <thead>
-                  <tr>
-                    <th>Código Interno</th>
-                    <th>Código MINEDUC</th>
-                    <th>Técnico</th>
-                    <th>Etapa</th>
-                    <th>Sede</th>
-                    <th className="text-center">Estudiantes</th>
-                    <th className="text-center">Estado</th>
-                    <th className="text-center">Exportar</th>
+                  <tr className="bg-gradient-to-r from-blue-700 to-blue-800 text-white text-left">
+                    {['Código Interno','Código MINEDUC','Técnico','Etapa','Sede','Estudiantes','Estado','⬇️ Excel + Notas'].map(h => (
+                      <th key={h} className="px-3 py-3 text-xs font-bold uppercase tracking-wide whitespace-nowrap border-r border-blue-600 last:border-0">
+                        {h}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {grupos.map((g: any) => (
-                    <tr key={g.id}>
-                      <td className="font-mono font-bold text-sm">{g.codigo}</td>
-                      <td className="font-mono text-sm">
+                  {grupos.map((g: any, idx: number) => (
+                    <tr key={g.id}
+                      className={`border-b hover:bg-blue-50 transition-colors ${idx%2===0?'bg-white':'bg-sky-50/20'}`}>
+                      <td className="px-3 py-2.5 font-mono font-bold text-sm text-blue-700">{g.codigo}</td>
+                      <td className="px-3 py-2.5 font-mono text-sm">
                         {g.codigo_mineduc
-                          ? <span className="text-blue-600 font-bold">{g.codigo_mineduc}</span>
-                          : <span className="text-gray-300 text-xs">Sin asignar</span>}
+                          ? <span className="text-green-600 font-bold">{g.codigo_mineduc}</span>
+                          : <span className="text-gray-300 text-xs italic">Sin asignar</span>}
                       </td>
-                      <td className="text-sm">
+                      <td className="px-3 py-2.5 text-sm whitespace-nowrap">
                         {(g.tecnico as any)?.primer_nombre} {(g.tecnico as any)?.primer_apellido}
                         <div className="text-xs text-gray-400 font-mono">{(g.tecnico as any)?.codigo_tecnico}</div>
                       </td>
-                      <td className="text-sm">{(g.etapa as any)?.nombre}</td>
-                      <td className="text-sm">{(g.sede as any)?.nombre}</td>
-                      <td className="text-center font-extrabold text-lg">{g._count?.estudiantes ?? 0}</td>
-                      <td className="text-center">
-                        <span className={`badge ${ESTADO_COLOR[g.estado] ?? 'badge-gray'}`}>
-                          {g.estado}
-                        </span>
+                      <td className="px-3 py-2.5 text-sm font-semibold whitespace-nowrap">{(g.etapa as any)?.nombre}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap">{(g.sede as any)?.nombre}</td>
+                      <td className="px-3 py-2.5 text-center font-extrabold text-xl">{g._count?.estudiantes ?? 0}</td>
+                      <td className="px-3 py-2.5">
+                        <span className={`badge text-xs ${BADGE[g.estado] ?? 'badge-gray'}`}>{g.estado}</span>
                       </td>
-                      <td className="text-center">
+                      <td className="px-3 py-2.5">
                         <button
-                          className="btn btn-p btn-sm"
+                          className="btn btn-p btn-sm whitespace-nowrap"
                           onClick={() => exportarExcel(g.id, g.codigo)}
                           disabled={descargando === g.id}
                         >
@@ -132,7 +122,9 @@ export default function CoordinadorGruposPage() {
             </div>
           )}
         </div>
+        {/* SIN botón exportar inferior — eliminado por ser redundante */}
       </div>
     </div>
   )
 }
+
