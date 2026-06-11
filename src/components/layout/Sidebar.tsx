@@ -1,9 +1,11 @@
 'use client'
-// src/components/layout/Sidebar.tsx — ACTUALIZADO: admin/estudiantes, director/estudiantes, enlace Excel
+// src/components/layout/Sidebar.tsx — ACTUALIZADO: director/escalas agregado
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { cn } from '@/lib/utils'
 import type { RolUsuario } from '@/types'
+
+const cn = (...classes: (string | boolean | undefined)[]) =>
+  classes.filter(Boolean).join(' ')
 
 const PERFIL: Record<RolUsuario, string> = {
   administrador:        '/dashboard/admin/configuracion',
@@ -17,10 +19,10 @@ const PERFIL: Record<RolUsuario, string> = {
 const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: string; label: string }[] }[]> = {
   administrador: [
     { section: 'Principal', items: [
-      { href: '/dashboard/admin',             icon: '📊', label: 'Dashboard'          },
-      { href: '/dashboard/admin/usuarios',    icon: '👥', label: 'Usuarios'           },
-      { href: '/dashboard/admin/estudiantes', icon: '🎓', label: 'Estudiantes'        },
-      { href: '/dashboard/admin/establecimiento', icon: '🏛️', label: 'Establecimiento' },
+      { href: '/dashboard/admin',             icon: '📊', label: 'Dashboard'         },
+      { href: '/dashboard/admin/usuarios',    icon: '👥', label: 'Usuarios'          },
+      { href: '/dashboard/admin/estudiantes', icon: '🎓', label: 'Estudiantes'       },
+      { href: '/dashboard/admin/establecimiento', icon: '🏛️', label: 'Establecimiento'},
     ]},
     { section: 'Permisos', items: [
       { href: '/dashboard/admin/permisos',       icon: '🔐', label: 'Permisos Globales' },
@@ -64,9 +66,12 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
 
   director: [
     { section: 'Mi Sede', items: [
-      { href: '/dashboard/director',             icon: '📊', label: 'Resumen'         },
-      { href: '/dashboard/director/tecnicos',    icon: '👨‍🏫', label: 'Técnicos y Enlaces'},
-      { href: '/dashboard/director/estudiantes', icon: '🎓', label: 'Estudiantes'      },
+      { href: '/dashboard/director',             icon: '📊', label: 'Resumen'            },
+      { href: '/dashboard/director/tecnicos',    icon: '👨‍🏫', label: 'Técnicos y Enlaces' },
+      { href: '/dashboard/director/estudiantes', icon: '🎓', label: 'Estudiantes'         },
+    ]},
+    { section: 'Escalas', items: [
+      { href: '/dashboard/director/escalas', icon: '📊', label: 'Asignar Escalas' },
     ]},
     { section: 'SIREEX', items: [
       { href: '/dashboard/director/sireex', icon: '📤', label: 'Grupos SIREEX' },
@@ -80,7 +85,6 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
     { section: 'SIREEX', items: [
       { href: '/dashboard/coordinador',          icon: '✅', label: 'Validación' },
       { href: '/dashboard/coordinador/grupos',   icon: '📤', label: 'Grupos'    },
-      { href: '/dashboard/coordinador/exportar', icon: '📥', label: 'Exportar'  },
     ]},
   ],
 
@@ -103,14 +107,29 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
   ],
 }
 
-export default function Sidebar({ rol, nombre, correo }: { rol: RolUsuario; nombre: string; correo: string }) {
-  const path    = usePathname()
-  const router  = useRouter()
-  const iniciales = nombre.split(' ').slice(0, 2).map(n => n[0] ?? '').join('').toUpperCase()
+export default function Sidebar({
+  rol, nombre, correo,
+}: { rol: RolUsuario; nombre: string; correo: string }) {
+  const path   = usePathname()
+  const router = useRouter()
+
+  const iniciales = nombre
+    .split(' ').filter(Boolean).slice(0, 2)
+    .map(n => n[0]?.toUpperCase() ?? '').join('')
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
     router.push('/login')
+  }
+
+  const isActive = (href: string) => {
+    // Raíces exactas del dashboard — solo activo si es exactamente esa ruta
+    const roots = [
+      '/dashboard/admin', '/dashboard/tecnico', '/dashboard/director',
+      '/dashboard/coordinador', '/dashboard/enlace', '/dashboard/estudiante',
+    ]
+    if (roots.includes(href)) return path === href
+    return path.startsWith(href)
   }
 
   return (
@@ -127,15 +146,15 @@ export default function Sidebar({ rol, nombre, correo }: { rol: RolUsuario; nomb
       </div>
 
       {/* Navegación */}
-      <nav className="flex-1 py-2 overflow-y-auto">
+      <nav className="flex-1 py-2 overflow-y-auto scrollbar-thin">
         {(NAV[rol] ?? []).map(({ section, items }) => (
           <div key={section}>
             <div className="sb-section">{section}</div>
             {items.map(({ href, icon, label }) => (
               <Link key={href} href={href}>
-                <div className={cn('sb-item', path.startsWith(href) && href !== '/dashboard/admin' && href !== '/dashboard/tecnico' && href !== '/dashboard/director' && href !== '/dashboard/enlace' && href !== '/dashboard/coordinador' && href !== '/dashboard/estudiante' ? 'active' : path === href ? 'active' : '')}>
-                  <span className="w-5 text-center text-sm">{icon}</span>
-                  <span>{label}</span>
+                <div className={cn('sb-item', isActive(href) && 'active')}>
+                  <span className="w-5 text-center text-sm flex-shrink-0">{icon}</span>
+                  <span className="truncate">{label}</span>
                 </div>
               </Link>
             ))}
@@ -146,18 +165,18 @@ export default function Sidebar({ rol, nombre, correo }: { rol: RolUsuario; nomb
       {/* Perfil + Cerrar sesión */}
       <div className="border-t border-white/10 mt-1">
         <Link href={PERFIL[rol] ?? '/dashboard'}>
-          <div className={cn('sb-item mx-2 my-1', path === PERFIL[rol] ? 'active' : '')}>
-            <span className="w-5 text-center text-sm">👤</span>
+          <div className={cn('sb-item mx-2 my-1', isActive(PERFIL[rol]) && 'active')}>
+            <span className="w-5 text-center text-sm flex-shrink-0">👤</span>
             <span>Mi Perfil</span>
           </div>
         </Link>
 
         <div className="sb-user">
           <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-            {iniciales}
+            {iniciales || '?'}
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-white text-xs font-bold truncate">{nombre}</div>
+            <div className="text-white text-xs font-bold truncate">{nombre || 'Usuario'}</div>
             <div className="text-white/50 text-[10px] truncate">{correo}</div>
           </div>
           <button
