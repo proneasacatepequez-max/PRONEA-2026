@@ -1,6 +1,7 @@
 'use client'
 // src/app/dashboard/director/escalas/page.tsx
-// FIX: botón Editar para transferir técnico, áreas sin duplicados
+// FIX: selector "Libro 1/2" — comparación consistente de tipos (todo string)
+// AGREGADO: tabla de tareas guardadas visible en el detalle
 import { useState, useEffect, useCallback } from 'react'
 
 export default function DirectorEscalasPage() {
@@ -12,9 +13,11 @@ export default function DirectorEscalasPage() {
   const [loading,      setLoading]      = useState(true)
   const [saving,       setSaving]       = useState(false)
   const [msg,          setMsg]          = useState('')
-  const [modal,        setModal]        = useState<'crear'|'editar'|null>(null)
+  const [modal,        setModal]        = useState<'crear'|'editar'|'ver'|null>(null)
   const [editando,     setEditando]     = useState<any>(null)
   const [ciclo,        setCiclo]        = useState('2026')
+  const [tareasVer,    setTareasVer]    = useState<any[]>([])
+  const [loadTareas,   setLoadTareas]   = useState(false)
 
   const [form, setForm] = useState({
     etapa_id: '', libro_id: '', area_id: '',
@@ -26,16 +29,14 @@ export default function DirectorEscalasPage() {
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const [asig, et, li, ar, tec] = await Promise.all([
+    const [asig, et, ar, tec] = await Promise.all([
       fetch(`/api/escala-asignaciones?ciclo=${ciclo}`).then(r => r.json()).catch(() => []),
       fetch('/api/etapas').then(r => r.json()).catch(() => []),
-      fetch('/api/libros').then(r => r.json()).catch(() => []),
       fetch('/api/areas').then(r => r.json()).catch(() => []),
       fetch('/api/mis-tecnicos').then(r => r.json()).catch(() => []),
     ])
     setAsignaciones(Array.isArray(asig) ? asig : [])
     setEtapas(Array.isArray(et) ? et : [])
-    setLibros(Array.isArray(li) ? li : [])
     setAreas(Array.isArray(ar) ? ar : [])
     setTecnicos(Array.isArray(tec) ? tec : [])
     setLoading(false)
@@ -43,12 +44,19 @@ export default function DirectorEscalasPage() {
 
   useEffect(() => { cargar() }, [cargar])
 
-  // Libros filtrados por etapa
-  const librosFiltrados = form.etapa_id
-    ? libros.filter((l: any) => String(l.etapa_id) === form.etapa_id)
-    : libros
+  // FIX: cargar libros filtrados por etapa Y versión, comparando todo como string
+  useEffect(() => {
+    if (!form.etapa_id) { setLibros([]); return }
+    const params = new URLSearchParams()
+    params.set('etapa_id', form.etapa_id)
+    if (form.version_libro) params.set('version', form.version_libro)
+    fetch(`/api/libros?${params.toString()}`)
+      .then(r => r.json())
+      .then(d => setLibros(Array.isArray(d) ? d : []))
+      .catch(() => setLibros([]))
+  }, [form.etapa_id, form.version_libro])
 
-  // Áreas ya asignadas para la etapa/libro seleccionado (para no mostrar duplicados)
+  // Áreas ya asignadas para etapa+libro (evitar duplicar asignación)
   const areasYaAsignadas = new Set(
     asignaciones
       .filter((a: any) =>
@@ -59,7 +67,6 @@ export default function DirectorEscalasPage() {
       .filter(Boolean)
   )
 
-  // Áreas disponibles para asignar (sin las ya asignadas, excepto en edición)
   const areasDisponibles = areas.filter((a: any) =>
     modal === 'editar' ? true : !areasYaAsignadas.has(String(a.id))
   )
@@ -86,37 +93,42 @@ export default function DirectorEscalasPage() {
     setModal('editar')
   }
 
+  const abrirVerTareas = async (a: any) => {
+    setEditando(a)
+    setModal('ver')
+    if (!(a.libro as any)?.id) { setTareasVer([]); return }
+    setLoadTareas(true)
+    const areaId = (a.area as any)?.id
+    const url = `/api/tareas-catalogo?libro_id=${(a.libro as any).id}&tipo=tareas${areaId ? `&area_id=${areaId}` : ''}`
+    const d = await fetch(url).then(r => r.json()).catch(() => ({ tareas: [] }))
+    setTareasVer(d.tareas ?? [])
+    setLoadTareas(false)
+  }
+
   const guardar = async () => {
-    if (!form.etapa_id || !form.tecnico_id) {
-      flash('❌ Etapa y técnico son requeridos'); return
-    }
+    if (!form.etapa_id || !form.tecnico_id) { flash('❌ Etapa y técnico son requeridos'); return }
     setSaving(true)
 
     if (modal === 'editar' && editando) {
-      // Editar/transferir
       const res = await fetch('/api/escala-asignaciones', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          id:             editando.id,
-          tecnico_id:     form.tecnico_id,
-          observaciones:  form.observaciones || null,
+          id: editando.id, tecnico_id: form.tecnico_id,
+          observaciones: form.observaciones || null,
           _tecnico_anterior: (editando.tecnico as any)?.id,
         }),
       })
       const d = await res.json()
-      flash(res.ok ? '✅ ' + (d.mensaje ?? 'Asignación actualizada') : '❌ ' + (d.error ?? 'Error'))
+      flash(res.ok ? '✅ ' + (d.mensaje ?? 'Actualizada') : '❌ ' + (d.error ?? 'Error'))
       if (res.ok) { setModal(null); await cargar() }
     } else {
-      // Crear nueva
       const res = await fetch('/api/escala-asignaciones', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          etapa_id:      parseInt(form.etapa_id),
-          libro_id:      form.libro_id   || null,
-          area_id:       form.area_id    ? parseInt(form.area_id) : null,
-          tecnico_id:    form.tecnico_id,
+          etapa_id: parseInt(form.etapa_id),
+          libro_id: form.libro_id || null,
+          area_id:  form.area_id ? parseInt(form.area_id) : null,
+          tecnico_id: form.tecnico_id,
           version_libro: form.version_libro,
           ciclo_escolar: parseInt(ciclo),
           observaciones: form.observaciones || null,
@@ -137,9 +149,7 @@ export default function DirectorEscalasPage() {
   }
 
   const ESTADO_COLOR: Record<string, string> = {
-    pendiente:   'badge-yellow',
-    en_progreso: 'badge-blue',
-    completado:  'badge-green',
+    pendiente: 'badge-yellow', en_progreso: 'badge-blue', completado: 'badge-green',
   }
 
   return (
@@ -147,14 +157,11 @@ export default function DirectorEscalasPage() {
       <header className="topbar">
         <div>
           <div className="page-title">📊 Asignar Técnico — Escala Numérica</div>
-          <div className="text-xs text-gray-400">
-            El técnico asignado construye la escala y queda visible para todos
-          </div>
+          <div className="text-xs text-gray-400">El técnico construye la escala y queda visible para todos</div>
         </div>
         <div className="flex gap-2">
           <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
-            <option value="2026">2026</option>
-            <option value="2025">2025</option>
+            <option value="2026">2026</option><option value="2025">2025</option>
           </select>
           <button className="btn btn-p" onClick={abrirCrear}>＋ Nueva asignación</button>
         </div>
@@ -162,11 +169,6 @@ export default function DirectorEscalasPage() {
 
       <div className="pc">
         {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
-
-        <div className="alert al-i mb-4 text-sm">
-          <b>📋 Flujo:</b> Selecciona etapa + libro + área → asigna técnico → el técnico construye las tareas →
-          la escala queda disponible para todos los técnicos del programa.
-        </div>
 
         <div className="card overflow-hidden">
           {loading ? (
@@ -204,27 +206,25 @@ export default function DirectorEscalasPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
-                        <div className="font-semibold text-sm">
-                          {(a.tecnico as any)?.primer_nombre} {(a.tecnico as any)?.primer_apellido}
-                        </div>
+                        <div className="font-semibold text-sm">{(a.tecnico as any)?.primer_nombre} {(a.tecnico as any)?.primer_apellido}</div>
                         <div className="text-xs text-gray-400 font-mono">{(a.tecnico as any)?.codigo_tecnico}</div>
                       </td>
                       <td className="px-3 py-2.5 text-center">
-                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${a.tareas_construidas>0?'bg-green-100 text-green-700':'bg-gray-100 text-gray-400'}`}>
+                        <button
+                          onClick={() => abrirVerTareas(a)}
+                          className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold cursor-pointer hover:scale-110 transition-transform ${a.tareas_construidas>0?'bg-green-100 text-green-700':'bg-gray-100 text-gray-400'}`}
+                          title="Ver tareas guardadas">
                           {a.tareas_construidas}
-                        </span>
+                        </button>
                       </td>
                       <td className="px-3 py-2.5">
                         <span className={`badge text-xs ${ESTADO_COLOR[a.estado]??'badge-gray'}`}>{a.estado}</span>
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex gap-1 flex-nowrap">
-                          <button className="btn btn-p btn-sm" onClick={() => abrirEditar(a)} title="Editar / Transferir técnico">
-                            ✏️
-                          </button>
-                          <button className="btn btn-d btn-sm" onClick={() => eliminar(a.id)} title="Eliminar asignación">
-                            🗑️
-                          </button>
+                          <button className="btn btn-g btn-sm" onClick={() => abrirVerTareas(a)} title="Ver tareas">👁️</button>
+                          <button className="btn btn-p btn-sm" onClick={() => abrirEditar(a)} title="Editar / Transferir">✏️</button>
+                          <button className="btn btn-d btn-sm" onClick={() => eliminar(a.id)} title="Eliminar">🗑️</button>
                         </div>
                       </td>
                     </tr>
@@ -237,7 +237,7 @@ export default function DirectorEscalasPage() {
       </div>
 
       {/* Modal crear/editar */}
-      {modal && (
+      {(modal === 'crear' || modal === 'editar') && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm overflow-y-auto">
           <div className="min-h-full flex items-start justify-center p-4 pt-16">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
@@ -255,7 +255,7 @@ export default function DirectorEscalasPage() {
                     <div className="fg">
                       <label className="lbl">Etapa *</label>
                       <select className="inp" value={form.etapa_id}
-                        onChange={e => setForm(p => ({ ...p, etapa_id: e.target.value, libro_id: '', area_id: '' }))}>
+                        onChange={e => setForm(p => ({ ...p, etapa_id: e.target.value, libro_id:'', area_id:'' }))}>
                         <option value="">— Seleccionar etapa —</option>
                         {etapas.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
                       </select>
@@ -264,20 +264,28 @@ export default function DirectorEscalasPage() {
                     <div className="grid grid-cols-2 gap-3">
                       <div className="fg">
                         <label className="lbl">Versión del libro</label>
-                        <select className="inp" value={form.version_libro} onChange={F('version_libro')}>
+                        <select className="inp" value={form.version_libro}
+                          onChange={e => setForm(p => ({ ...p, version_libro: e.target.value, libro_id: '' }))}>
                           <option value="nuevo">📗 Libro Nuevo</option>
                           <option value="viejo">📙 Libro Viejo</option>
                         </select>
                       </div>
                       <div className="fg">
-                        <label className="lbl">Libro específico (opcional)</label>
-                        <select className="inp" value={form.libro_id}
-                          onChange={e => setForm(p => ({ ...p, libro_id: e.target.value, area_id: '' }))}>
-                          <option value="">— Todos los libros —</option>
-                          {librosFiltrados.map((l: any) => (
-                            <option key={l.id} value={l.id}>Libro {l.numero} — {l.version}</option>
+                        <label className="lbl">Libro específico</label>
+                        <select className="inp" value={form.libro_id} onChange={F('libro_id')}
+                          disabled={!form.etapa_id}>
+                          <option value="">
+                            {!form.etapa_id ? '— Elige etapa primero —' : libros.length === 0 ? '— Sin libros para esta versión —' : '— Todos los libros —'}
+                          </option>
+                          {libros.map((l: any) => (
+                            <option key={l.id} value={l.id}>Libro {l.numero} — {l.nombre}</option>
                           ))}
                         </select>
+                        {form.etapa_id && libros.length === 0 && (
+                          <div className="text-xs text-orange-500 mt-1">
+                            ⚠️ No hay libros "{form.version_libro}" creados para esta etapa. Crear en Admin → Libros y Tareas.
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -285,14 +293,10 @@ export default function DirectorEscalasPage() {
                       <label className="lbl">Área específica (opcional)</label>
                       <select className="inp" value={form.area_id} onChange={F('area_id')}>
                         <option value="">— Todas las áreas —</option>
-                        {areasDisponibles.map((a: any) => (
-                          <option key={a.id} value={a.id}>{a.nombre}</option>
-                        ))}
+                        {areasDisponibles.map((a: any) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
                       </select>
                       {areasDisponibles.length === 0 && form.etapa_id && (
-                        <div className="text-xs text-orange-500 mt-1">
-                          ⚠️ Todas las áreas ya tienen técnico asignado para esta etapa/libro
-                        </div>
+                        <div className="text-xs text-orange-500 mt-1">⚠️ Todas las áreas ya tienen técnico asignado</div>
                       )}
                     </div>
                   </>
@@ -303,41 +307,90 @@ export default function DirectorEscalasPage() {
                     <b>Escala:</b> {(editando.etapa as any)?.nombre}
                     {(editando.libro as any)?.nombre && ` — ${(editando.libro as any).nombre}`}
                     {(editando.area as any)?.nombre  && ` — Área: ${(editando.area as any).nombre}`}
-                    <br />
-                    <b>Técnico actual:</b> {(editando.tecnico as any)?.primer_nombre} {(editando.tecnico as any)?.primer_apellido}
+                    <br /><b>Técnico actual:</b> {(editando.tecnico as any)?.primer_nombre} {(editando.tecnico as any)?.primer_apellido}
                   </div>
                 )}
 
                 <div className="fg">
-                  <label className="lbl">
-                    {modal === 'editar' ? 'Transferir a técnico *' : 'Técnico digitalizador *'}
-                  </label>
+                  <label className="lbl">{modal === 'editar' ? 'Transferir a técnico *' : 'Técnico digitalizador *'}</label>
                   <select className="inp" value={form.tecnico_id} onChange={F('tecnico_id')}>
                     <option value="">— Seleccionar técnico —</option>
                     {tecnicos.map((t: any) => (
-                      <option key={t.id} value={t.id}>
-                        {t.primer_nombre} {t.primer_apellido} ({t.codigo_tecnico})
-                      </option>
+                      <option key={t.id} value={t.id}>{t.primer_nombre} {t.primer_apellido} ({t.codigo_tecnico})</option>
                     ))}
                   </select>
                 </div>
 
                 <div className="fg">
                   <label className="lbl">Observaciones (opcional)</label>
-                  <textarea className="inp" rows={2} value={form.observaciones} onChange={F('observaciones')}
-                    placeholder={modal === 'editar' ? 'Razón de la transferencia...' : 'Instrucciones para el técnico...'} />
+                  <textarea className="inp" rows={2} value={form.observaciones} onChange={F('observaciones')} />
                 </div>
               </div>
               <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
                 <button className="btn btn-g" onClick={() => setModal(null)}>Cancelar</button>
                 <button className="btn btn-p" onClick={guardar} disabled={saving}>
-                  {saving
-                    ? <span className="flex items-center gap-2">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Guardando...
-                      </span>
-                    : modal === 'crear' ? '✅ Asignar técnico' : '✏️ Actualizar asignación'}
+                  {saving ? '...' : modal === 'crear' ? '✅ Asignar técnico' : '✏️ Actualizar'}
                 </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal ver tareas guardadas */}
+      {modal === 'ver' && editando && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 pt-12">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl">
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <div>
+                  <h3 className="text-base font-extrabold">📋 Tareas guardadas</h3>
+                  <div className="text-xs text-gray-400">
+                    {(editando.etapa as any)?.nombre} — {(editando.libro as any)?.nombre ?? ''} — {(editando.area as any)?.nombre ?? 'Todas las áreas'}
+                  </div>
+                </div>
+                <button onClick={() => setModal(null)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-xl">×</button>
+              </div>
+              <div className="px-6 py-5">
+                {loadTareas ? (
+                  <div className="flex justify-center py-8">
+                    <div className="w-7 h-7 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : tareasVer.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400">
+                    <div className="text-3xl mb-2">📋</div>
+                    El técnico aún no ha guardado ninguna tarea
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50">
+                          <th className="px-2 py-2 text-left font-bold">#</th>
+                          <th className="px-2 py-2 text-left font-bold">Área</th>
+                          <th className="px-2 py-2 text-left font-bold">Página</th>
+                          <th className="px-2 py-2 text-left font-bold">Descripción</th>
+                          <th className="px-2 py-2 text-center font-bold">Pts. máx.</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {tareasVer.map((t: any) => (
+                          <tr key={t.id} className="border-b">
+                            <td className="px-2 py-1.5 font-mono">{t.numero_tarea}</td>
+                            <td className="px-2 py-1.5">{(t.area as any)?.nombre}</td>
+                            <td className="px-2 py-1.5 font-mono">{t.paginas ?? '—'}</td>
+                            <td className="px-2 py-1.5">{t.nombre}</td>
+                            <td className="px-2 py-1.5 text-center font-bold text-blue-600">{t.puntos_max}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              <div className="flex justify-end px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+                <button className="btn btn-g" onClick={() => setModal(null)}>Cerrar</button>
               </div>
             </div>
           </div>
