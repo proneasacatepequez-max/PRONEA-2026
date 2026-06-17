@@ -1,30 +1,51 @@
-// src/app/api/estudiantes/buscar/route.ts
+// src/app/api/estudiantes/buscar/route.ts — NUEVA RUTA
+// Busca estudiante existente por CUI o código MINEDUC
+// Usada por el formulario de inscripción para decidir: "nuevo" vs "reinscribir"
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
-  const s = await getSession(req); if(!s) return err('No autorizado',401)
-  const p = req.nextUrl.searchParams
-  const cui=p.get('cui')?.replace(/[\s-]/g,''), codigo=p.get('codigo'), nombre=p.get('nombre')
-  if(!cui&&!codigo&&!nombre) return err('Envía cui, codigo o nombre')
+  const s = await getSession(req)
+  if (!s) return err('No autorizado', 401)
 
-  let q = supabaseAdmin.from('estudiantes')
-    .select(`id,codigo_estudiante,primer_nombre,segundo_nombre,primer_apellido,segundo_apellido,
-      cui,cui_pendiente,telefono,correo,discapacidad_id,activo,
-      discapacidad:tipos_discapacidad(nombre),
-      inscripciones(id,ciclo_escolar,estado,version_libro,etapa:etapas(nombre),sede:sedes(nombre))
-    `).limit(5)
+  const q = req.nextUrl.searchParams.get('q')?.trim()
+  if (!q || q.length < 3) return ok({ encontrados: [] })
 
-  if(cui) q=q.eq('cui',cui)
-  else if(codigo) q=q.ilike('codigo_estudiante',`%${codigo}%`)
-  else if(nombre) {
-    const pts=nombre.trim().split(' ')
-    if(pts.length>=2) q=q.ilike('primer_apellido',`%${pts[pts.length-1]}%`).ilike('primer_nombre',`%${pts[0]}%`)
-    else q=q.or(`primer_nombre.ilike.%${nombre}%,primer_apellido.ilike.%${nombre}%`)
-  }
+  // Buscar por CUI exacto, código exacto, o nombre parcial
+  const { data, error } = await supabaseAdmin
+    .from('estudiantes')
+    .select(`
+      id, codigo_estudiante, cui, cui_pendiente,
+      primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+      telefono, fecha_nacimiento, genero, activo,
+      municipio:municipios(id, nombre),
+      inscripciones(
+        id, ciclo_escolar, estado, version_libro,
+        etapa:etapas(id, nombre, nivel, orden),
+        sede:sedes(id, nombre)
+      )
+    `)
+    .or(`cui.eq.${q},codigo_estudiante.eq.${q},primer_nombre.ilike.%${q}%,primer_apellido.ilike.%${q}%`)
+    .eq('activo', true)
+    .limit(10)
 
-  const { data, error } = await q
-  if(error) return err(error.message,500)
-  return ok({ encontrado:(data??[]).length>0, estudiantes:data??[], total:(data??[]).length })
+  if (error) return err(error.message, 500)
+
+  // Para cada estudiante, marcar cuál es su última etapa cursada
+  const conUltimaEtapa = (data ?? []).map((e: any) => {
+    const inscripcionesOrdenadas = (e.inscripciones ?? [])
+      .sort((a: any, b: any) => (b.etapa?.orden ?? 0) - (a.etapa?.orden ?? 0))
+    const ultima = inscripcionesOrdenadas[0]
+    const activa = (e.inscripciones ?? []).find((i: any) => i.estado === 'en_curso')
+
+    return {
+      ...e,
+      ultima_etapa:      ultima?.etapa ?? null,
+      inscripcion_activa: activa ?? null,
+      total_inscripciones: (e.inscripciones ?? []).length,
+    }
+  })
+
+  return ok({ encontrados: conUltimaEtapa })
 }
