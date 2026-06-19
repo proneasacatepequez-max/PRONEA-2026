@@ -1,190 +1,180 @@
 // src/app/api/notas/route.ts
-// CORRECCIONES:
-// 1. Se agrega columna 'paginas' al query de tareas_catalogo
-// 2. El GET devuelve tareas Y exámenes juntos ordenados por página
-// 3. El POST verifica permiso real del enlace antes de guardar
+// GET: devuelve notas existentes por inscripcion_id + libro_id
+// POST: guarda o actualiza nota de tarea o examen (upsert)
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
-
-// Verifica que un enlace tiene permiso activo para ingresar notas
-async function enlaceTienePermiso(usuarioId: string): Promise<boolean> {
-  const { data: enlace } = await supabaseAdmin
-    .from('enlaces_institucionales')
-    .select('id')
-    .eq('usuario_id', usuarioId)
-    .single()
-  if (!enlace) return false
-
-  const { data: auth } = await supabaseAdmin
-    .from('autorizaciones_director')
-    .select('id')
-    .eq('enlace_id', enlace.id)
-    .eq('permiso', 'ingresar_notas_enlace')
-    .eq('activo', true)
-    .maybeSingle()
-
-  return auth !== null
-}
 
 export async function GET(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
 
   const p           = req.nextUrl.searchParams
-  const inscripcionId = p.get('inscripcion_id')
-  const numLibro    = parseInt(p.get('numero_libro') ?? '1')
+  const inscId      = p.get('inscripcion_id')
+  const libroId     = p.get('libro_id')
+  const tipo        = p.get('tipo') ?? 'tareas' // 'tareas' | 'examenes' | 'ambos'
 
-  if (!inscripcionId) return err('inscripcion_id requerido')
+  if (!inscId) return err('inscripcion_id requerido')
 
-  // Obtener inscripción
-  const { data: insc } = await supabaseAdmin
-    .from('inscripciones')
-    .select('etapa_id, version_libro, tiene_ajuste_discapacidad')
-    .eq('id', inscripcionId)
-    .single()
-  if (!insc) return err('Inscripción no encontrada', 404)
+  const resultado: any = {}
 
-  // Obtener libro
-  const { data: libro } = await supabaseAdmin
-    .from('libros')
-    .select('id, nombre, numero, version, total_tareas')
-    .eq('etapa_id', insc.etapa_id)
-    .eq('numero', numLibro)
-    .eq('version', insc.version_libro)
-    .single()
-  if (!libro) return err(`Libro ${numLibro} no configurado para esta etapa`, 404)
+  if (tipo === 'tareas' || tipo === 'ambos') {
+    let q = supabaseAdmin.from('notas_tareas')
+      .select(`
+        id, nota, con_ajuste,
+        tarea:tareas_catalogo(id, numero_tarea, nombre, puntos_max, area_id, libro_id)
+      `)
+      .eq('inscripcion_id', inscId)
 
-  // Tareas del catálogo con PÁGINA incluida, ordenadas por número de tarea (= orden de página)
-  const { data: tareas } = await supabaseAdmin
-    .from('tareas_catalogo')
-    .select('id, numero_tarea, nombre, paginas, puntos_max, area:areas(id, codigo, nombre)')
-    .eq('libro_id', libro.id)
-    .eq('activo', true)
-    .order('numero_tarea')
+    if (libroId) {
+      // Filtrar por libro mediante join (tarea.libro_id)
+      const { data: tareaIds } = await supabaseAdmin
+        .from('tareas_catalogo').select('id').eq('libro_id', libroId).eq('activo', true)
+      const ids = (tareaIds ?? []).map((t: any) => t.id)
+      if (ids.length > 0) q = q.in('tarea_id', ids)
+      else { resultado.tareas = []; resultado.total_tareas = 0 }
+    }
 
-  // Notas de tareas del estudiante
-  const { data: notasTareas } = await supabaseAdmin
-    .from('notas_tareas')
-    .select('tarea_id, nota, con_ajuste, ajuste_id')
-    .eq('inscripcion_id', inscripcionId)
+    if (resultado.tareas === undefined) {
+      const { data, error } = await q
+      if (error) return err(error.message, 500)
+      resultado.tareas       = (data ?? []).map((n: any) => ({
+        tarea_id:    (n.tarea as any)?.id,
+        nota:        n.nota,
+        con_ajuste:  n.con_ajuste,
+        numero_tarea:(n.tarea as any)?.numero_tarea,
+        nombre:      (n.tarea as any)?.nombre,
+        puntos_max:  (n.tarea as any)?.puntos_max,
+        area_id:     (n.tarea as any)?.area_id,
+      }))
+      resultado.total_tareas = resultado.tareas.length
+    }
+  }
 
-  const notaMap = new Map((notasTareas ?? []).map((n: any) => [n.tarea_id, n]))
+  if (tipo === 'examenes' || tipo === 'ambos') {
+    let q = supabaseAdmin.from('notas_examenes')
+      .select(`
+        id, nota_original, puntos_obtenidos,
+        examen:examenes_catalogo(id, nombre, puntos_max, area_id, libro_id)
+      `)
+      .eq('inscripcion_id', inscId)
 
-  const tareasConNota = (tareas ?? []).map((t: any) => ({
-    ...t,
-    nota:       notaMap.get(t.id)?.nota       ?? null,
-    con_ajuste: notaMap.get(t.id)?.con_ajuste ?? false,
-  }))
+    if (libroId) {
+      const { data: examIds } = await supabaseAdmin
+        .from('examenes_catalogo').select('id').eq('libro_id', libroId).eq('activo', true)
+      const ids = (examIds ?? []).map((e: any) => e.id)
+      if (ids.length > 0) q = q.in('examen_id', ids)
+      else { resultado.examenes = []; resultado.total_examenes = 0 }
+    }
 
-  // Exámenes por área (uno por área del libro)
-  const { data: examenes } = await supabaseAdmin
-    .from('examenes_catalogo')
-    .select('id, nombre, puntos_max, area:areas(id, codigo, nombre)')
-    .eq('libro_id', libro.id)
-    .eq('activo', true)
+    if (resultado.examenes === undefined) {
+      const { data, error } = await q
+      if (error) return err(error.message, 500)
+      resultado.examenes       = (data ?? []).map((n: any) => ({
+        examen_id:       (n.examen as any)?.id,
+        nota_original:   n.nota_original,
+        puntos_obtenidos:n.puntos_obtenidos,
+        nombre:          (n.examen as any)?.nombre,
+        area_id:         (n.examen as any)?.area_id,
+      }))
+      resultado.total_examenes = resultado.examenes.length
+    }
+  }
 
-  const { data: notasEx } = await supabaseAdmin
-    .from('notas_examenes')
-    .select('examen_id, nota_original, puntos_obtenidos')
-    .eq('inscripcion_id', inscripcionId)
-
-  const exMap = new Map((notasEx ?? []).map((n: any) => [n.examen_id, n]))
-
-  const examenesConNota = (examenes ?? []).map((ex: any) => ({
-    ...ex,
-    nota_original:    exMap.get(ex.id)?.nota_original    ?? null,
-    puntos_obtenidos: exMap.get(ex.id)?.puntos_obtenidos ?? null,
-  }))
-
-  // Verificar si todas las tareas están ingresadas (para habilitar exámenes)
-  const tareasIngresadas  = tareasConNota.filter(t => t.nota !== null).length
-  const tareasTotal       = tareasConNota.length
-  const todasTareasListas = tareasTotal > 0 && tareasIngresadas === tareasTotal
-
-  return ok({
-    libro,
-    tareas:          tareasConNota,
-    examenes:        examenesConNota,
-    tareas_ingresadas: tareasIngresadas,
-    tareas_total:    tareasTotal,
-    todas_tareas_listas: todasTareasListas,
-  })
+  return ok(resultado)
 }
 
 export async function POST(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
+  if (!['tecnico', 'enlace_institucional', 'administrador', 'director'].includes(s.rol))
+    return err('Sin permiso para registrar notas', 403)
 
-  const rolesPermitidos = ['tecnico', 'enlace_institucional', 'administrador']
-  if (!rolesPermitidos.includes(s.rol)) return err('Sin permiso', 403)
-
-  // VERIFICACIÓN REAL del permiso del enlace
+  // Si es enlace, verificar que tiene permiso para notas (autorizacion_director)
   if (s.rol === 'enlace_institucional') {
-    const tienePermiso = await enlaceTienePermiso(s.sub)
-    if (!tienePermiso) {
-      return err('No tienes autorización para ingresar notas. El director debe autorizarte primero.', 403)
+    const { data: enl } = await supabaseAdmin
+      .from('enlaces_institucionales').select('id').eq('usuario_id', s.sub).single()
+    if (enl) {
+      const { data: auth } = await supabaseAdmin
+        .from('autorizaciones_director')
+        .select('id').eq('enlace_id', enl.id)
+        .eq('permiso', 'ingresar_notas').eq('activo', true)
+        .limit(1).maybeSingle()
+      if (!auth) return err(
+        'No tienes autorización para ingresar notas. Solicita al director que te autorice.',
+        403
+      )
     }
   }
 
   const b = await req.json().catch(() => ({}))
-  const { tipo, inscripcion_id } = b
-  if (!tipo || !inscripcion_id) return err('tipo e inscripcion_id requeridos')
+  const { inscripcion_id, tipo = 'tarea' } = b
+
+  if (!inscripcion_id) return err('inscripcion_id requerido')
 
   if (tipo === 'tarea') {
     const { tarea_id, nota } = b
-    if (!tarea_id || nota === undefined || nota === null) return err('tarea_id y nota requeridos')
-    const notaNum = parseFloat(String(nota))
-    if (isNaN(notaNum) || notaNum < 0 || notaNum > 5) return err('La nota debe estar entre 0 y 5')
+    if (!tarea_id) return err('tarea_id requerido')
+    if (nota === null || nota === undefined) return err('nota requerida')
+    if (nota < 0 || nota > 5) return err('La nota debe estar entre 0 y 5')
 
-    const { data: existe } = await supabaseAdmin.from('notas_tareas')
-      .select('id')
-      .eq('inscripcion_id', inscripcion_id)
-      .eq('tarea_id', tarea_id)
+    // Upsert: buscar si ya existe, actualizar o insertar
+    const { data: existente } = await supabaseAdmin
+      .from('notas_tareas')
+      .select('id').eq('inscripcion_id', inscripcion_id).eq('tarea_id', tarea_id)
       .maybeSingle()
 
-    const { error } = existe
-      ? await supabaseAdmin.from('notas_tareas')
-          .update({ nota: notaNum, registrado_por: s.sub, actualizado_en: new Date().toISOString() })
-          .eq('id', existe.id)
-      : await supabaseAdmin.from('notas_tareas')
-          .insert({ inscripcion_id, tarea_id, nota: notaNum, registrado_por: s.sub })
-
-    if (error) return err(error.message, 500)
-    return ok({ ok: true })
+    if (existente) {
+      const { error } = await supabaseAdmin.from('notas_tareas')
+        .update({ nota: parseFloat(String(nota)), actualizado_en: new Date().toISOString() })
+        .eq('id', existente.id)
+      if (error) return err(error.message, 500)
+      return ok({ ok: true, accion: 'actualizada', nota })
+    } else {
+      const { data, error } = await supabaseAdmin.from('notas_tareas').insert({
+        inscripcion_id,
+        tarea_id,
+        nota: parseFloat(String(nota)),
+        registrado_por: s.sub,
+      }).select('id').single()
+      if (error) return err(error.message, 500)
+      return ok({ ok: true, accion: 'creada', id: data.id, nota }, 201)
+    }
   }
 
   if (tipo === 'examen') {
     const { examen_id, nota_original } = b
-    if (!examen_id || nota_original === undefined || nota_original === null) {
-      return err('examen_id y nota_original requeridos')
-    }
-    const notaNum = parseFloat(String(nota_original))
-    if (isNaN(notaNum) || notaNum < 0 || notaNum > 100) return err('La nota debe estar entre 0 y 100')
+    if (!examen_id) return err('examen_id requerido')
+    if (nota_original === null || nota_original === undefined) return err('nota_original requerida')
+    if (nota_original < 0 || nota_original > 100) return err('La nota debe estar entre 0 y 100')
 
-    // Conversión automática: 100% → 20 puntos por área
-    const puntosObtenidos = Math.round((notaNum / 100) * 20 * 100) / 100
+    const notaFinal = parseFloat(String(nota_original))
+    const puntos    = Math.round((notaFinal / 100) * 20 * 10) / 10
 
-    const { data: existe } = await supabaseAdmin.from('notas_examenes')
-      .select('id')
-      .eq('inscripcion_id', inscripcion_id)
-      .eq('examen_id', examen_id)
+    const { data: existente } = await supabaseAdmin
+      .from('notas_examenes')
+      .select('id').eq('inscripcion_id', inscripcion_id).eq('examen_id', examen_id)
       .maybeSingle()
 
-    const { error } = existe
-      ? await supabaseAdmin.from('notas_examenes')
-          .update({
-            nota_original: notaNum,
-            puntos_obtenidos: puntosObtenidos,
-            registrado_por: s.sub,
-            actualizado_en: new Date().toISOString(),
-          })
-          .eq('id', existe.id)
-      : await supabaseAdmin.from('notas_examenes')
-          .insert({ inscripcion_id, examen_id, nota_original: notaNum, puntos_obtenidos: puntosObtenidos, registrado_por: s.sub })
-
-    if (error) return err(error.message, 500)
-    return ok({ ok: true, puntos_obtenidos: puntosObtenidos })
+    if (existente) {
+      const { error } = await supabaseAdmin.from('notas_examenes').update({
+        nota_original: notaFinal,
+        puntos_obtenidos: puntos,
+        actualizado_en: new Date().toISOString(),
+      }).eq('id', existente.id)
+      if (error) return err(error.message, 500)
+      return ok({ ok: true, accion: 'actualizada', nota_original: notaFinal, puntos_obtenidos: puntos })
+    } else {
+      const { data, error } = await supabaseAdmin.from('notas_examenes').insert({
+        inscripcion_id,
+        examen_id,
+        nota_original: notaFinal,
+        puntos_obtenidos: puntos,
+        registrado_por: s.sub,
+      }).select('id').single()
+      if (error) return err(error.message, 500)
+      return ok({ ok: true, accion: 'creada', id: data.id, nota_original: notaFinal, puntos_obtenidos: puntos }, 201)
+    }
   }
 
   return err('tipo debe ser tarea o examen')
