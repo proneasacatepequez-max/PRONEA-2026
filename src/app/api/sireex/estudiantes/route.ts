@@ -1,21 +1,22 @@
-// src/app/api/sireex/estudiantes/route.ts — NUEVA RUTA
-// Gestiona estudiantes dentro de un grupo SIREEX
+// src/app/api/sireex/estudiantes/route.ts
+// FIX: usa inscripcion_grupo_sireex (tabla con datos reales) en lugar de
+// estudiantes_grupo_sireex (eliminada — era duplicada y sin uso real)
+// Diferencia clave: inscripcion_grupo_sireex tiene UNIQUE en inscripcion_id,
+// así que una inscripción solo puede estar en UN grupo a la vez (correcto).
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
 
-// GET: estudiantes del grupo O estudiantes disponibles para agregar
 export async function GET(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
 
-  const grupoId   = req.nextUrl.searchParams.get('grupo_id')
-  const disponibles = req.nextUrl.searchParams.get('disponibles') === '1'
-  const buscar    = req.nextUrl.searchParams.get('buscar') ?? ''
+  const grupoId      = req.nextUrl.searchParams.get('grupo_id')
+  const disponibles  = req.nextUrl.searchParams.get('disponibles') === '1'
+  const buscar       = req.nextUrl.searchParams.get('buscar') ?? ''
 
   if (!grupoId) return err('grupo_id requerido')
 
-  // Obtener datos del grupo para filtrar por etapa
   const { data: grupo } = await supabaseAdmin
     .from('grupos_sireex')
     .select('etapa_id, ciclo_escolar, tecnico_id')
@@ -25,14 +26,12 @@ export async function GET(req: NextRequest) {
   if (!grupo) return err('Grupo no encontrado', 404)
 
   if (disponibles) {
-    // Estudiantes disponibles = inscritos en la misma etapa del grupo
-    // y NO están ya en este grupo
-    const { data: yaEnGrupo } = await supabaseAdmin
-      .from('estudiantes_grupo_sireex')
-      .select('estudiante_id')
-      .eq('grupo_sireex_id', grupoId)
+    // Inscripciones de la misma etapa/ciclo que NO están en ningún grupo SIREEX
+    const { data: yaAsignadas } = await supabaseAdmin
+      .from('inscripcion_grupo_sireex')
+      .select('inscripcion_id')
 
-    const idsYaEnGrupo = (yaEnGrupo ?? []).map((e: any) => e.estudiante_id)
+    const idsYaAsignadas = (yaAsignadas ?? []).map((r: any) => r.inscripcion_id)
 
     let qDisp = supabaseAdmin.from('inscripciones')
       .select(`
@@ -48,11 +47,8 @@ export async function GET(req: NextRequest) {
       .eq('estado', 'en_curso')
 
     const { data: disponiblesData } = await qDisp
-    let filtrados = (disponiblesData ?? []).filter((i: any) =>
-      !idsYaEnGrupo.includes((i.estudiante as any)?.id)
-    )
+    let filtrados = (disponiblesData ?? []).filter((i: any) => !idsYaAsignadas.includes(i.id))
 
-    // Filtrar por búsqueda
     if (buscar) {
       const b = buscar.toLowerCase()
       filtrados = filtrados.filter((i: any) => {
@@ -64,33 +60,33 @@ export async function GET(req: NextRequest) {
     return ok({ disponibles: filtrados, total: filtrados.length })
   }
 
-  // Estudiantes ya en el grupo con notas
+  // Miembros del grupo con sus notas
   const { data: miembros, error } = await supabaseAdmin
-    .from('estudiantes_grupo_sireex')
+    .from('inscripcion_grupo_sireex')
     .select(`
-      id, agregado_en,
-      estudiante:estudiantes(
-        id, codigo_estudiante, codigo_sireex,
-        primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
-        cui, telefono, genero, fecha_nacimiento
-      ),
+      id, asignado_en,
       inscripcion:inscripciones(
         id, version_libro, ciclo_escolar,
         etapa:etapas(id, nombre),
-        sede:sedes(id, nombre)
+        sede:sedes(id, nombre),
+        estudiante:estudiantes(
+          id, codigo_estudiante, codigo_sireex,
+          primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+          cui, telefono, genero, fecha_nacimiento
+        )
       )
     `)
     .eq('grupo_sireex_id', grupoId)
-    .order('agregado_en')
+    .order('asignado_en')
 
   if (error) return err(error.message, 500)
 
-  // Para cada miembro, obtener resumen de notas por área
   const { data: areas } = await supabaseAdmin
     .from('areas').select('id, nombre, codigo').eq('activo', true).order('nombre')
 
   const conNotas = await Promise.all((miembros ?? []).map(async (m: any) => {
-    const inscId = (m.inscripcion as any)?.id
+    const insc   = m.inscripcion as any
+    const inscId = insc?.id
     const notasArea: Record<string, any> = {}
 
     if (inscId) {
@@ -105,8 +101,7 @@ export async function GET(req: NextRequest) {
         if (tareaIds.length > 0) {
           const { data: notas } = await supabaseAdmin
             .from('notas_tareas').select('nota')
-            .eq('inscripcion_id', inscId)
-            .in('tarea_id', tareaIds)
+            .eq('inscripcion_id', inscId).in('tarea_id', tareaIds)
 
           ptsMax    = (tareas ?? []).reduce((a: number, t: any) => a + (t.puntos_max ?? 5), 0)
           ptsTareas = (notas ?? []).reduce((a: number, n: any) => a + (n.nota ?? 0), 0)
@@ -133,58 +128,73 @@ export async function GET(req: NextRequest) {
           : null
 
         notasArea[area.codigo ?? area.nombre] = {
-          nombre:    area.nombre,
-          tareas:    ptsTareasEscala,
-          examen:    ptsExamen,
-          total:     totalArea,
-          promovido: totalArea !== null ? totalArea >= 30 : null,
+          nombre: area.nombre, tareas: ptsTareasEscala, examen: ptsExamen,
+          total: totalArea, promovido: totalArea !== null ? totalArea >= 30 : null,
         }
       }
     }
 
-    return { ...m, notas_por_area: notasArea }
+    return {
+      id: m.id,
+      estudiante: insc?.estudiante,
+      inscripcion: insc,
+      notas_por_area: notasArea,
+    }
   }))
 
   return ok({ miembros: conNotas, areas: areas ?? [], total: conNotas.length })
 }
 
-// POST: agregar estudiante(s) al grupo
 export async function POST(req: NextRequest) {
   const s = await getSession(req)
   if (!s || !['tecnico', 'administrador', 'director'].includes(s.rol))
     return err('Sin permiso', 403)
 
   const b = await req.json().catch(() => ({}))
-  const { grupo_sireex_id, inscripcion_ids, estudiante_ids } = b
+  const { grupo_sireex_id, inscripcion_ids } = b
 
   if (!grupo_sireex_id) return err('grupo_sireex_id requerido')
 
   const ids = inscripcion_ids ?? []
   if (ids.length === 0) return err('Al menos un estudiante requerido')
 
-  // Obtener datos de las inscripciones
-  const { data: inscripciones } = await supabaseAdmin
-    .from('inscripciones')
-    .select('id, estudiante_id')
-    .in('id', ids)
+  // FIX: inscripcion_grupo_sireex tiene UNIQUE en inscripcion_id —
+  // si la inscripción ya pertenece a OTRO grupo, hay que avisar, no fallar silenciosamente
+  const { data: conflictos } = await supabaseAdmin
+    .from('inscripcion_grupo_sireex')
+    .select('inscripcion_id, grupo_sireex_id')
+    .in('inscripcion_id', ids)
 
-  const registros = (inscripciones ?? []).map((i: any) => ({
-    grupo_sireex_id,
-    inscripcion_id: i.id,
-    estudiante_id:  i.estudiante_id,
-    agregado_por:   s.sub,
-  }))
+  const idsConflicto = (conflictos ?? []).map((c: any) => c.inscripcion_id)
+  const idsLibres     = ids.filter((id: string) => !idsConflicto.includes(id))
 
-  const { data, error } = await supabaseAdmin
-    .from('estudiantes_grupo_sireex')
-    .insert(registros)
-    .select('id')
+  let agregados = 0
+  if (idsLibres.length > 0) {
+    const registros = idsLibres.map((inscId: string) => ({
+      inscripcion_id: inscId,
+      grupo_sireex_id,
+      asignado_por: s.sub,
+    }))
 
-  if (error) return err(error.message, 500)
-  return ok({ ok: true, agregados: (data ?? []).length }, 201)
+    const { data, error } = await supabaseAdmin
+      .from('inscripcion_grupo_sireex')
+      .insert(registros)
+      .select('id')
+
+    if (error) return err(error.message, 500)
+    agregados = (data ?? []).length
+  }
+
+  return ok({
+    ok: true,
+    agregados,
+    omitidos: idsConflicto.length,
+    mensaje: idsConflicto.length > 0
+      ? `${agregados} agregado(s). ${idsConflicto.length} ya pertenecían a otro grupo y fueron omitidos.`
+      : `${agregados} estudiante(s) agregados correctamente.`,
+  }, 201)
 }
 
-// DELETE: remover estudiante del grupo
 export async function DELETE(req: NextRequest) {
   const s = await getSession(req)
   if (!s || !['tecnico', 'administrador'].includes(s.rol)) return err('Sin permiso', 403)
@@ -193,7 +203,7 @@ export async function DELETE(req: NextRequest) {
   if (!id) return err('id requerido')
 
   const { error } = await supabaseAdmin
-    .from('estudiantes_grupo_sireex')
+    .from('inscripcion_grupo_sireex')
     .delete()
     .eq('id', id)
 
