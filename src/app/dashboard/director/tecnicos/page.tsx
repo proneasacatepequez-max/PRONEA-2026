@@ -1,126 +1,206 @@
 'use client'
 // src/app/dashboard/director/tecnicos/page.tsx
-// CORRECCIONES:
-// 1. Muestra técnicos de su sede solamente
-// 2. Muestra los enlaces vinculados a cada técnico
-import { useState, useEffect } from 'react'
+// AGREGADO: sección para asignar sede/técnico a enlaces existentes
+import { useState, useEffect, useCallback } from 'react'
 
 export default function DirectorTecnicosPage() {
   const [tecnicos, setTecnicos] = useState<any[]>([])
+  const [enlaces,  setEnlaces]  = useState<any[]>([])
+  const [sedes,    setSedes]    = useState<any[]>([])
   const [loading,  setLoading]  = useState(true)
-  const [expandido, setExpandido] = useState<string | null>(null)
+  const [tab,      setTab]      = useState<'tecnicos'|'enlaces'>('tecnicos')
+  const [msg,      setMsg]      = useState('')
+  const [modal,    setModal]    = useState<any>(null)
+  const [saving,   setSaving]   = useState(false)
+  const [form, setForm] = useState({ sede_id:'', tecnico_id:'' })
 
-  useEffect(() => {
-    fetch('/api/mis-tecnicos')
-      .then(r => r.json())
-      .then(d => setTecnicos(Array.isArray(d) ? d : []))
-      .finally(() => setLoading(false))
+  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
+
+  const cargar = useCallback(async () => {
+    setLoading(true)
+    const [tec, enl, se] = await Promise.all([
+      fetch('/api/mis-tecnicos').then(r => r.json()).catch(() => []),
+      fetch('/api/enlaces/asignar').then(r => r.json()).catch(() => []),
+      fetch('/api/sedes').then(r => r.json()).catch(() => []),
+    ])
+    setTecnicos(Array.isArray(tec) ? tec : [])
+    setEnlaces(Array.isArray(enl) ? enl : [])
+    setSedes(Array.isArray(se) ? se : [])
+    setLoading(false)
   }, [])
+
+  useEffect(() => { cargar() }, [cargar])
+
+  const abrirAsignar = (enlace: any) => {
+    setForm({
+      sede_id:    (enlace.sede as any)?.id ?? '',
+      tecnico_id: (enlace.tecnico as any)?.id ?? '',
+    })
+    setModal(enlace)
+  }
+
+  const guardarAsignacion = async () => {
+    if (!form.sede_id) { flash('❌ La sede es obligatoria'); return }
+    setSaving(true)
+    const res = await fetch('/api/enlaces/asignar', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enlace_id: modal.id,
+        sede_id: form.sede_id,
+        tecnico_id: form.tecnico_id || null,
+      }),
+    })
+    const d = await res.json()
+    flash(res.ok ? '✅ ' + (d.mensaje ?? 'Asignación guardada') : '❌ ' + (d.error ?? 'Error'))
+    if (res.ok) { setModal(null); await cargar() }
+    setSaving(false)
+  }
 
   return (
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">👨‍🏫 Técnicos y Enlacs de mi Sede</div>
-          <div className="text-xs text-gray-400">{tecnicos.length} técnico(s) asignado(s)</div>
+          <div className="page-title">👨‍🏫 Técnicos y Enlaces</div>
+          <div className="text-xs text-gray-400">Gestiona técnicos y asigna sede/técnico a enlaces</div>
         </div>
       </header>
 
       <div className="pc">
+        {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
+
+        <div className="flex gap-2 mb-5 border-b">
+          {[{ k:'tecnicos', l:'👨‍🏫 Técnicos' }, { k:'enlaces', l:'🔗 Enlaces' }].map(t => (
+            <button key={t.k} onClick={() => setTab(t.k as any)}
+              className={`px-4 py-2 text-sm font-bold rounded-t-lg border-b-2 transition-colors ${tab===t.k?'border-pronea text-pronea bg-blue-50':'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {t.l}
+            </button>
+          ))}
+        </div>
+
         {loading ? (
           <div className="flex justify-center py-12">
             <div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : tecnicos.length === 0 ? (
-          <div className="card text-center py-12 text-gray-400">
-            <div className="text-4xl mb-3">👨‍🏫</div>
-            <div className="font-semibold text-gray-600">Sin técnicos asignados a tu sede</div>
-            <div className="text-sm mt-1">El administrador debe asignar técnicos a esta sede</div>
+        ) : tab === 'tecnicos' ? (
+          <div className="card overflow-hidden">
+            {tecnicos.length === 0 ? (
+              <div className="text-center py-10 text-gray-400">Sin técnicos registrados</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse min-w-[700px]">
+                  <thead>
+                    <tr className="bg-gradient-to-r from-blue-700 to-blue-800 text-white text-left">
+                      {['Nombre','Código','Especialidad','Estudiantes','Sedes','Enlaces'].map(h => (
+                        <th key={h} className="px-3 py-3 text-xs font-bold uppercase whitespace-nowrap border-r border-blue-600 last:border-0">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tecnicos.map((t: any, idx: number) => (
+                      <tr key={t.id} className={`border-b ${idx%2===0?'bg-white':'bg-sky-50/20'}`}>
+                        <td className="px-3 py-2.5 font-semibold">{t.primer_nombre} {t.primer_apellido}</td>
+                        <td className="px-3 py-2.5 font-mono text-xs text-gray-500">{t.codigo_tecnico}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500">{t.especialidad ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-center font-bold">{t.total_estudiantes ?? 0}</td>
+                        <td className="px-3 py-2.5 text-center">{t.total_sedes ?? 0}</td>
+                        <td className="px-3 py-2.5 text-center">{t.total_enlaces ?? 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         ) : (
-          <div className="space-y-4">
-            {tecnicos.map((t: any) => (
-              <div key={t.id} className="card">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-start gap-3">
-                    <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-extrabold text-sm flex-shrink-0">
-                      {t.primer_nombre?.[0]}{t.primer_apellido?.[0]}
-                    </div>
-                    <div>
-                      <div className="font-extrabold text-gray-800">
-                        {t.primer_nombre} {t.segundo_nombre} {t.primer_apellido} {t.segundo_apellido}
-                      </div>
-                      <div className="text-xs text-gray-400 font-mono">{t.codigo_tecnico ?? '—'}</div>
-                      <div className="flex gap-3 mt-1 text-xs text-gray-500">
-                        {t.telefono && <span>📞 {t.telefono}</span>}
-                        {t.usuario?.correo && <span>✉️ {t.usuario.correo}</span>}
-                      </div>
-                      <div className="flex gap-2 mt-2">
-                        <span className="badge badge-green">{t.total_estudiantes} estudiantes</span>
-                        <span className="badge badge-blue">{t.total_sedes} sede(s)</span>
-                        {t.total_enlaces > 0 && (
-                          <span className="badge badge-purple">{t.total_enlaces} enlace(s)</span>
-                        )}
-                        <span className="text-xs text-gray-400">
-                          Último acceso: {t.usuario?.ultimo_acceso
-                            ? new Date(t.usuario.ultimo_acceso).toLocaleDateString('es-GT')
-                            : 'Nunca'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {t.enlaces?.length > 0 && (
-                    <button
-                      className="btn btn-g btn-sm flex-shrink-0"
-                      onClick={() => setExpandido(expandido === t.id ? null : t.id)}
-                    >
-                      {expandido === t.id ? '▲ Ocultar' : `▼ Ver ${t.total_enlaces} enlace(s)`}
-                    </button>
-                  )}
-                </div>
-
-                {/* Sedes del técnico */}
-                {t.sedes?.length > 0 && (
-                  <div className="mt-3 flex gap-2 flex-wrap">
-                    {t.sedes.map((sede: any, i: number) => (
-                      <span key={i} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md">
-                        🏫 {sede?.nombre}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
-                {/* Enlaces del técnico — expandible */}
-                {expandido === t.id && t.enlaces?.length > 0 && (
-                  <div className="mt-4 border-t pt-4">
-                    <div className="text-xs font-bold text-gray-500 mb-3">
-                      ENLACES INSTITUCIONALES A CARGO
-                    </div>
-                    <div className="space-y-2">
-                      {t.enlaces.map((enl: any, i: number) => (
-                        <div key={i} className="flex items-center gap-3 px-3 py-2 bg-gray-50 rounded-lg">
-                          <div className="w-7 h-7 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold text-xs flex-shrink-0">
-                            {enl?.primer_nombre?.[0]}{enl?.primer_apellido?.[0]}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold">
-                              {enl?.primer_nombre} {enl?.primer_apellido}
-                            </div>
-                            <div className="text-xs text-gray-400">
-                              {enl?.cargo ?? 'Enlace institucional'} · {enl?.institucion?.nombre ?? '—'}
-                            </div>
-                          </div>
-                        </div>
+          <div className="card overflow-hidden">
+            <div className="alert al-i m-4 text-sm">
+              📌 Cada enlace debe tener una sede asignada y, opcionalmente, un técnico responsable.
+              Si un enlace nuevo no puede inscribir estudiantes, revisa que tenga ambos asignados aquí.
+            </div>
+            {enlaces.length === 0 ? (
+              <div className="text-center py-10 text-gray-400">Sin enlaces registrados</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm border-collapse min-w-[800px]">
+                  <thead>
+                    <tr className="bg-gradient-to-r from-orange-600 to-orange-700 text-white text-left">
+                      {['Nombre','Correo','Cargo','Sede asignada','Técnico responsable','Estado','Acciones'].map(h => (
+                        <th key={h} className="px-3 py-3 text-xs font-bold uppercase whitespace-nowrap border-r border-orange-500 last:border-0">{h}</th>
                       ))}
-                    </div>
-                  </div>
-                )}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {enlaces.map((e: any, idx: number) => (
+                      <tr key={e.id} className={`border-b ${idx%2===0?'bg-white':'bg-amber-50/20'}`}>
+                        <td className="px-3 py-2.5 font-semibold whitespace-nowrap">{e.primer_nombre} {e.primer_apellido}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500">{(e.usuario as any)?.correo}</td>
+                        <td className="px-3 py-2.5 text-xs text-gray-500">{e.cargo ?? '—'}</td>
+                        <td className="px-3 py-2.5">
+                          {(e.sede as any)?.nombre
+                            ? <span className="badge badge-green text-xs">{(e.sede as any).nombre}</span>
+                            : <span className="badge badge-red text-xs">⚠️ Sin sede</span>}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {(e.tecnico as any)?.primer_nombre
+                            ? <span className="text-xs">{(e.tecnico as any).primer_nombre} {(e.tecnico as any).primer_apellido}</span>
+                            : <span className="badge badge-yellow text-xs">Sin técnico</span>}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span className={`badge text-xs ${e.activo?'badge-green':'badge-gray'}`}>{e.activo?'Activo':'Inactivo'}</span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <button className="btn btn-p btn-sm" onClick={() => abrirAsignar(e)}>
+                            🔗 Asignar
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>
+
+      {modal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm overflow-y-auto">
+          <div className="min-h-full flex items-start justify-center p-4 pt-16">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <h3 className="text-base font-extrabold">🔗 Asignar sede y técnico</h3>
+                <button onClick={() => setModal(null)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-xl">×</button>
+              </div>
+              <div className="px-6 py-5 space-y-3">
+                <div className="alert al-i text-xs">
+                  Enlace: <b>{modal.primer_nombre} {modal.primer_apellido}</b>
+                </div>
+                <div className="fg">
+                  <label className="lbl">Sede / Institución *</label>
+                  <select className="inp" value={form.sede_id} onChange={e => setForm(p => ({ ...p, sede_id: e.target.value }))}>
+                    <option value="">— Seleccionar sede —</option>
+                    {sedes.map((s: any) => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                  </select>
+                </div>
+                <div className="fg">
+                  <label className="lbl">Técnico responsable</label>
+                  <select className="inp" value={form.tecnico_id} onChange={e => setForm(p => ({ ...p, tecnico_id: e.target.value }))}>
+                    <option value="">— Sin asignar —</option>
+                    {tecnicos.map((t: any) => <option key={t.id} value={t.id}>{t.primer_nombre} {t.primer_apellido} ({t.codigo_tecnico})</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+                <button className="btn btn-g" onClick={() => setModal(null)}>Cancelar</button>
+                <button className="btn btn-p" onClick={guardarAsignacion} disabled={saving}>
+                  {saving ? '...' : '✅ Guardar asignación'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
