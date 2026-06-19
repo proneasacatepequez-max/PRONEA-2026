@@ -1,9 +1,7 @@
 // src/app/api/inscripciones/route.ts
-// FIX DEFINITIVO: tecnico_id es NOT NULL en la BD — si no se resuelve, el insert
-// falla con error genérico de Postgres que el frontend mostraba como
-// "Error del servidor". Ahora se valida ANTES de intentar el insert
-// y se da un mensaje claro.
-// FIX: permitir reinscribir en etapa diferente (no bloquear por estudiante ya inscrito)
+// FIX: el enlace ahora resuelve tecnico_id directamente desde su perfil
+// (columna tecnico_id agregada en enlaces_institucionales), sin depender
+// de tecnico_enlaces que podía estar vacío. Y sede_id viene de su perfil.
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
@@ -109,61 +107,57 @@ export async function POST(req: NextRequest) {
   if (!rolesPermitidos.includes(s.rol)) return err('Sin permiso', 403)
 
   const b = await req.json().catch(() => ({}))
-  const { estudiante_id, etapa_id, sede_id, version_libro = 'nuevo', ciclo_escolar = 2026 } = b
+  const { estudiante_id, etapa_id, version_libro = 'nuevo', ciclo_escolar = 2026 } = b
+  let sede_id = b.sede_id
 
   if (!estudiante_id) return err('estudiante_id requerido')
   if (!etapa_id)      return err('etapa_id requerido')
-  if (!sede_id)       return err('sede_id requerido')
 
-  // ── FIX CRÍTICO: resolver tecnico_id ANTES de intentar el insert ──
-  // inscripciones.tecnico_id es NOT NULL — si no se resuelve aquí con un
-  // mensaje claro, Postgres devuelve un error genérico 500.
   let tecnico_id: string | null = b.tecnico_id ?? null
 
-  if (!tecnico_id && s.rol === 'tecnico') {
+  if (s.rol === 'tecnico' && !tecnico_id) {
     tecnico_id = await getTecnicoId(s.sub)
     if (!tecnico_id) {
       return err(
         'No se encontró tu perfil de técnico vinculado a este usuario. ' +
-        'El administrador debe verificar que tu cuenta tenga un registro en la tabla de técnicos.',
+        'El administrador debe verificar tu cuenta en la tabla de técnicos.',
         404
       )
     }
   }
 
-  if (!tecnico_id && s.rol === 'enlace_institucional') {
+  // ── FIX: enlace resuelve sede_id Y tecnico_id directamente de su perfil ──
+  if (s.rol === 'enlace_institucional') {
     const { data: enl } = await supabaseAdmin
-      .from('enlaces_institucionales').select('id').eq('usuario_id', s.sub).single()
+      .from('enlaces_institucionales')
+      .select('id, sede_id, tecnico_id')
+      .eq('usuario_id', s.sub)
+      .single()
+
     if (!enl) return err('Perfil de enlace no encontrado', 404)
 
-    const { data: te } = await supabaseAdmin
-      .from('tecnico_enlaces').select('tecnico_id')
-      .eq('enlace_id', enl.id).eq('activo', true)
-      .order('asignado_en', { ascending: false })
-      .limit(1).maybeSingle()
-
-    tecnico_id = te?.tecnico_id ?? null
-
-    if (!tecnico_id) {
+    if (!enl.sede_id) {
       return err(
-        'Tu institución no tiene un técnico responsable asignado. ' +
-        'Pide al director o administrador que vincule un técnico a tu institución antes de inscribir.',
-        404
+        'Tu cuenta de enlace no tiene una sede asignada. Pide al director o administrador ' +
+        'que te asigne una sede desde Técnicos y Enlaces → pestaña Enlaces.',
+        409
       )
     }
+    if (!enl.tecnico_id) {
+      return err(
+        'Tu cuenta de enlace no tiene un técnico responsable asignado. Pide al director o ' +
+        'administrador que te asigne un técnico desde Técnicos y Enlaces → pestaña Enlaces.',
+        409
+      )
+    }
+
+    sede_id    = sede_id    || enl.sede_id
+    tecnico_id = tecnico_id || enl.tecnico_id
   }
 
-  if (!tecnico_id && s.rol === 'director') {
-    return err('Como director debes especificar tecnico_id al inscribir', 400)
-  }
+  if (!sede_id)    return err('sede_id requerido')
+  if (!tecnico_id) return err('No fue posible determinar el técnico responsable de la inscripción', 400)
 
-  if (!tecnico_id) {
-    return err('No fue posible determinar el técnico responsable de la inscripción', 400)
-  }
-
-  // ── FIX: solo bloquear duplicado en la MISMA etapa, no en general ──
-  // Esto permite que un estudiante avance de 1a Etapa Básico (2025)
-  // a 2a Etapa Básico (2026) sin error, porque son etapas diferentes.
   const { data: dup } = await supabaseAdmin.from('inscripciones')
     .select('id, etapa:etapas(nombre)')
     .eq('estudiante_id', estudiante_id)
@@ -181,7 +175,7 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await supabaseAdmin.from('inscripciones').insert({
     estudiante_id,
-    etapa_id:      parseInt(String(etapa_id)),
+    etapa_id: parseInt(String(etapa_id)),
     tecnico_id,
     sede_id,
     version_libro,
@@ -192,13 +186,8 @@ export async function POST(req: NextRequest) {
   }).select('id').single()
 
   if (error) {
-    // Mensaje claro según el tipo de error de Postgres
-    if (error.code === '23502') {
-      return err(`Falta un campo obligatorio en la base de datos: ${error.message}`, 500)
-    }
-    if (error.code === '23503') {
-      return err('Uno de los datos referenciados (técnico, sede o etapa) no existe', 400)
-    }
+    if (error.code === '23502') return err(`Falta un campo obligatorio: ${error.message}`, 500)
+    if (error.code === '23503') return err('Uno de los datos referenciados (técnico, sede o etapa) no existe', 400)
     return err('Error al inscribir: ' + error.message, 500)
   }
 
