@@ -1,6 +1,6 @@
 // src/app/api/usuarios/route.ts
-// FIX: enlace usa sede_id directo (la tabla instituciones queda en desuso
-// tras la migración del SQL 13_unificar_sede_institucion.sql)
+// FIX DEFINITIVO: ya NO se inserta institucion_id (violaba FK con instituciones)
+// El enlace se crea con sede_id + tecnico_id directos
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -17,7 +17,8 @@ export async function GET(req: NextRequest) {
       directores(id, primer_nombre, primer_apellido, telefono, sede:sedes(id, nombre)),
       enlaces_institucionales(
         id, primer_nombre, primer_apellido, cargo, telefono,
-        sede:sedes(id, nombre)
+        sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre),
+        tecnico:tecnicos!enlaces_institucionales_tecnico_id_fkey(id, primer_nombre, primer_apellido, codigo_tecnico)
       ),
       coordinadores_departamento(id, primer_nombre, primer_apellido, cargo)
     `)
@@ -57,7 +58,7 @@ export async function POST(req: NextRequest) {
     telefono = '', codigo_tecnico = '',
     cui = '', especialidad = '',
     cargo = '', departamento_id,
-    sede_id,        // ← FIX: directo a sedes, ya no institucion_id
+    sede_id, tecnico_id,
   } = b
 
   if (!correo || !contrasena || !rol || !primer_nombre || !primer_apellido)
@@ -88,7 +89,7 @@ export async function POST(req: NextRequest) {
       }
       const cuiFinal = cui?.trim() || `CUI-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`
 
-      const { error: eTec } = await supabaseAdmin.from('tecnicos').insert({
+      const { data: tecCreado, error: eTec } = await supabaseAdmin.from('tecnicos').insert({
         usuario_id: usu.id,
         primer_nombre: primer_nombre.trim(),
         segundo_nombre: segundo_nombre?.trim() || null,
@@ -99,21 +100,17 @@ export async function POST(req: NextRequest) {
         cui: cuiFinal,
         especialidad: especialidad?.trim() || null,
         activo: true,
-      })
+      }).select('id').single()
+
       if (eTec) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
         return err('Error creando perfil técnico: ' + eTec.message, 500)
       }
 
-      // Si viene sede_id, vincular el técnico a esa sede
-      if (sede_id) {
-        const { data: tecCreado } = await supabaseAdmin
-          .from('tecnicos').select('id').eq('usuario_id', usu.id).single()
-        if (tecCreado) {
-          await supabaseAdmin.from('tecnico_sedes').insert({
-            tecnico_id: tecCreado.id, sede_id, es_principal: true, activo: true,
-          }).catch(() => {})
-        }
+      if (sede_id && tecCreado) {
+        await supabaseAdmin.from('tecnico_sedes').insert({
+          tecnico_id: tecCreado.id, sede_id, es_principal: true, activo: true,
+        }).catch(() => {})
       }
     }
 
@@ -135,7 +132,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (rol === 'enlace_institucional') {
-      // FIX: sede_id directo — ya no institucion_id
+      // FIX: ya NO se inserta institucion_id — solo sede_id y tecnico_id
       const { error: eEnl } = await supabaseAdmin.from('enlaces_institucionales').insert({
         usuario_id: usu.id,
         primer_nombre: primer_nombre.trim(),
@@ -144,8 +141,8 @@ export async function POST(req: NextRequest) {
         segundo_apellido: segundo_apellido?.trim() || null,
         telefono: telefono || null,
         cargo: cargo?.trim() || null,
-        institucion_id: sede_id,  // compat: la FK vieja sigue apuntando, pero usamos el id de sede
-        sede_id,                   // nueva columna directa
+        sede_id,
+        tecnico_id: tecnico_id || null,
         activo: true,
       })
       if (eEnl) {
@@ -153,12 +150,13 @@ export async function POST(req: NextRequest) {
         return err('Error creando perfil de enlace: ' + eEnl.message, 500)
       }
 
-      if (b.tecnico_id) {
+      // También registrar en tecnico_enlaces si se asignó técnico
+      if (tecnico_id) {
         const { data: enl } = await supabaseAdmin.from('enlaces_institucionales')
           .select('id').eq('usuario_id', usu.id).single()
         if (enl) {
           await supabaseAdmin.from('tecnico_enlaces').insert({
-            tecnico_id: b.tecnico_id, enlace_id: enl.id,
+            tecnico_id, enlace_id: enl.id,
             ciclo_escolar: b.ciclo_escolar ?? 2026, activo: true,
           }).catch(() => {})
         }
