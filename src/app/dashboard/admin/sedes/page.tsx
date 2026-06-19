@@ -1,6 +1,6 @@
 'use client'
 // src/app/dashboard/admin/sedes/page.tsx
-// COMPLETO: tabla horizontal, filtros, modal con margen superior, CRUD total
+// FIX: tabla horizontal, modal pantalla completa, await cargar()
 import { useState, useEffect, useCallback } from 'react'
 
 export default function SedesAdminPage() {
@@ -14,27 +14,21 @@ export default function SedesAdminPage() {
   const [msg,      setMsg]      = useState('')
   const [buscar,   setBuscar]   = useState('')
   const [form, setForm] = useState({
-    nombre: '', departamento_id: '', municipio_id: '',
-    direccion: '', telefono: '', horario: '', correo: '',
-    codigo_institucional: '',
+    nombre:'', departamento_id:'', municipio_id:'',
+    direccion:'', telefono:'', horario:'', correo:'', codigo_institucional:'',
   })
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    try {
-      // CORRECCIÓN: el GET devuelve activo:true pero necesitamos TODAS para mostrar inactivas también
-      const [resSedes, resDeptos] = await Promise.all([
-        fetch('/api/sedes?todas=1'),
-        fetch('/api/departamentos'),
-      ])
-      const sData = await resSedes.json()
-      const dData = await resDeptos.json()
-      setSedes(Array.isArray(sData) ? sData : [])
-      setDeptos(Array.isArray(dData) ? dData : [])
-    } catch { setSedes([]) }
-    finally { setLoading(false) }
+    const [s, d] = await Promise.all([
+      fetch('/api/sedes?todas=1').then(r => r.json()).catch(() => []),
+      fetch('/api/departamentos').then(r => r.json()).catch(() => []),
+    ])
+    setSedes(Array.isArray(s) ? s : [])
+    setDeptos(Array.isArray(d) ? d : [])
+    setLoading(false)
   }, [])
 
   useEffect(() => { cargar() }, [cargar])
@@ -43,10 +37,9 @@ export default function SedesAdminPage() {
     if (!form.departamento_id) { setMunis([]); return }
     fetch(`/api/municipios?departamento_id=${form.departamento_id}`)
       .then(r => r.json()).then(d => setMunis(Array.isArray(d) ? d : []))
-      .catch(() => setMunis([]))
   }, [form.departamento_id])
 
-  const F = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+  const F = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }))
 
   const abrirCrear = () => {
@@ -59,7 +52,7 @@ export default function SedesAdminPage() {
   const abrirEditar = (s: any) => {
     setEditando(s)
     setForm({
-      nombre:               s.nombre              ?? '',
+      nombre:               s.nombre               ?? '',
       departamento_id:      s.departamento_id      ? String(s.departamento_id) : '',
       municipio_id:         s.municipio_id         ? String(s.municipio_id)    : '',
       direccion:            s.direccion            ?? '',
@@ -68,6 +61,7 @@ export default function SedesAdminPage() {
       correo:               s.correo               ?? '',
       codigo_institucional: s.codigo_institucional ?? '',
     })
+    // Cargar municipios del depto de la sede
     if (s.departamento_id) {
       fetch(`/api/municipios?departamento_id=${s.departamento_id}`)
         .then(r => r.json()).then(d => setMunis(Array.isArray(d) ? d : []))
@@ -79,6 +73,7 @@ export default function SedesAdminPage() {
     if (!form.nombre.trim())  { flash('❌ El nombre es requerido'); return }
     if (!form.municipio_id)   { flash('❌ Debes seleccionar departamento y municipio'); return }
     setSaving(true)
+
     const payload = {
       nombre:               form.nombre.trim(),
       municipio_id:         parseInt(form.municipio_id),
@@ -89,66 +84,55 @@ export default function SedesAdminPage() {
       correo:               form.correo       || null,
       codigo_institucional: form.codigo_institucional || null,
     }
+
     const res = await fetch('/api/sedes', {
       method:  editando ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(editando ? { ...payload, id: editando.id } : payload),
     })
     const d = await res.json()
+    flash(res.ok ? `✅ Sede ${editando ? 'actualizada' : 'creada'}` : '❌ ' + (d.error ?? 'Error'))
     if (res.ok) {
       setModal(false)
-      await cargar()
-      flash(`✅ Sede ${editando ? 'actualizada' : 'creada'} correctamente`)
-    } else {
-      flash('❌ ' + (d.error ?? 'Error al guardar'))
+      await cargar() // FIX: await para que la tabla se actualice inmediatamente
     }
     setSaving(false)
   }
 
   const toggleActivo = async (sede: any) => {
-    const res = await fetch('/api/sedes', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: sede.id, activo: !sede.activo }),
-    })
-    if (res.ok) {
-      await cargar()
-      flash(sede.activo ? '⚠️ Sede desactivada' : '✅ Sede activada')
+    if (!sede.activo) {
+      await fetch('/api/sedes', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: sede.id, activo: true }),
+      })
+      flash('✅ Sede activada')
+    } else {
+      const res = await fetch(`/api/sedes?id=${sede.id}`, { method: 'DELETE' })
+      const d   = await res.json()
+      flash(res.ok ? '✅ Sede desactivada' : '❌ ' + (d.error ?? 'Error'))
     }
+    await cargar()
   }
 
-  const eliminarSede = async (sede: any) => {
-    if (!confirm(`¿Eliminar la sede "${sede.nombre}"? Esta acción la desactivará permanentemente.`)) return
-    const res = await fetch(`/api/sedes?id=${sede.id}`, { method: 'DELETE' })
-    if (res.ok) { await cargar(); flash('✅ Sede eliminada') }
-    else flash('❌ No se puede eliminar — tiene inscripciones activas')
-  }
-
-  const filtradas = sedes.filter(s => {
-    if (!buscar) return true
-    const txt = `${s.nombre} ${(s.municipio as any)?.nombre ?? ''} ${(s.departamento as any)?.nombre ?? ''} ${s.codigo_institucional ?? ''}`.toLowerCase()
-    return txt.includes(buscar.toLowerCase())
-  })
+  const filtradas = sedes.filter(s =>
+    !buscar || `${s.nombre} ${(s.municipio as any)?.nombre ?? ''} ${s.codigo_institucional ?? ''}`.toLowerCase().includes(buscar.toLowerCase())
+  )
 
   return (
     <div className="ap">
       <header className="topbar">
         <div>
           <div className="page-title">🏫 Gestión de Sedes</div>
-          <div className="text-xs text-gray-400">{filtradas.length} sede(s)</div>
+          <div className="text-xs text-gray-400">{filtradas.length} sede(s) registrada(s)</div>
         </div>
         <button className="btn btn-p" onClick={abrirCrear}>＋ Nueva sede</button>
       </header>
 
       <div className="pc">
-        {msg && (
-          <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : msg.startsWith('⚠️') ? 'al-w' : 'al-e'}`}>
-            {msg}
-          </div>
-        )}
+        {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
 
-        {/* Filtro */}
         <div className="card mb-4">
-          <input className="inp" placeholder="🔍 Buscar por nombre, municipio, departamento o código..."
+          <input className="inp" placeholder="🔍 Buscar sede por nombre, municipio o código..."
             value={buscar} onChange={e => setBuscar(e.target.value)} />
         </div>
 
@@ -159,40 +143,32 @@ export default function SedesAdminPage() {
             </div>
           ) : filtradas.length === 0 ? (
             <div className="text-center py-12 text-gray-400">
-              <div className="text-5xl mb-3">🏫</div>
-              <div className="font-semibold text-gray-600 mb-1">
-                {buscar ? 'Sin resultados' : 'Sin sedes registradas'}
+              <div className="text-4xl mb-3">🏫</div>
+              <div className="font-semibold text-gray-600">
+                {buscar ? 'Sin resultados para la búsqueda' : 'Sin sedes registradas'}
               </div>
-              <div className="text-sm">Crea al menos una sede para que los técnicos puedan inscribir estudiantes</div>
-              {!buscar && (
-                <button className="btn btn-p mt-4" onClick={abrirCrear}>＋ Crear primera sede</button>
-              )}
+              {!buscar && <button className="btn btn-p mt-4" onClick={abrirCrear}>＋ Crear primera sede</button>}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse min-w-[900px]">
                 <thead>
-                  <tr className="bg-gradient-to-r from-blue-800 to-blue-900 text-white text-left">
-                    {['#','Nombre de la Sede','Departamento','Municipio','Teléfono','Horario','Correo','Código MINEDUC','Estado','Acciones'].map(h => (
-                      <th key={h} className="px-3 py-3 text-xs font-bold uppercase tracking-wide whitespace-nowrap border-r border-blue-700 last:border-0">{h}</th>
+                  <tr className="bg-gray-50 text-left border-b">
+                    {['#','Nombre','Departamento','Municipio','Teléfono','Horario','Código','Estado','Acciones'].map(h => (
+                      <th key={h} className="px-3 py-3 text-xs font-extrabold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {filtradas.map((s: any, idx: number) => (
-                    <tr key={s.id}
-                      className={`border-b transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-sky-50/30'} ${!s.activo ? 'opacity-60' : ''} hover:bg-blue-50`}>
-                      <td className="px-3 py-2.5 text-xs text-gray-400">{idx + 1}</td>
-                      <td className="px-3 py-2.5">
-                        <div className="font-extrabold text-gray-800">{s.nombre}</div>
-                        {s.direccion && <div className="text-xs text-gray-400 mt-0.5">📍 {s.direccion}</div>}
-                      </td>
-                      <td className="px-3 py-2.5 text-sm text-gray-600">{(s.departamento as any)?.nombre ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-sm text-gray-600">{(s.municipio as any)?.nombre ?? '—'}</td>
+                    <tr key={s.id} className={`border-b hover:bg-gray-50 ${!s.activo ? 'opacity-50' : ''}`}>
+                      <td className="px-3 py-2.5 text-gray-400 text-xs">{idx + 1}</td>
+                      <td className="px-3 py-2.5 font-semibold">{s.nombre}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{(s.departamento as any)?.nombre ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{(s.municipio as any)?.nombre ?? '—'}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-500">{s.telefono ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">{s.horario ?? '—'}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-500">{s.correo ?? '—'}</td>
-                      <td className="px-3 py-2.5 font-mono text-xs text-gray-500">{s.codigo_institucional ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs text-gray-500">{s.horario ?? '—'}</td>
+                      <td className="px-3 py-2.5 text-xs font-mono text-gray-400">{s.codigo_institucional ?? '—'}</td>
                       <td className="px-3 py-2.5">
                         <span className={`badge text-xs ${s.activo ? 'badge-green' : 'badge-gray'}`}>
                           {s.activo ? 'Activa' : 'Inactiva'}
@@ -200,12 +176,10 @@ export default function SedesAdminPage() {
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex gap-1 flex-nowrap">
-                          <button onClick={() => abrirEditar(s)} className="btn btn-p btn-sm" title="Editar">✏️</button>
-                          <button onClick={() => toggleActivo(s)} className={`btn btn-sm ${s.activo ? 'btn-d' : 'btn-s'}`}
-                            title={s.activo ? 'Desactivar' : 'Activar'}>
+                          <button className="btn btn-p btn-sm" onClick={() => abrirEditar(s)}>✏️</button>
+                          <button className={`btn btn-sm ${s.activo ? 'btn-d' : 'btn-s'}`} onClick={() => toggleActivo(s)}>
                             {s.activo ? '🔴' : '🟢'}
                           </button>
-                          <button onClick={() => eliminarSede(s)} className="btn btn-d btn-sm" title="Eliminar">🗑️</button>
                         </div>
                       </td>
                     </tr>
@@ -217,54 +191,52 @@ export default function SedesAdminPage() {
         </div>
       </div>
 
-      {/* Modal con margen superior visible */}
+      {/* Modal — pantalla completa con scroll */}
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm overflow-y-auto">
-          <div className="min-h-full flex items-start justify-center p-4 pt-16">
+          <div className="min-h-full flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
-              {/* Header del modal */}
               <div className="flex items-center justify-between px-6 py-4 border-b">
-                <h3 className="text-base font-extrabold text-gray-800">
+                <h3 className="text-base font-extrabold">
                   {editando ? '✏️ Editar sede' : '＋ Nueva sede'}
                 </h3>
-                <button
-                  onClick={() => setModal(false)}
-                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:text-gray-600 hover:bg-gray-100 text-xl transition-colors"
-                >
-                  ×
-                </button>
+                <button onClick={() => setModal(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-xl">×</button>
               </div>
 
-              {/* Cuerpo */}
               <div className="px-6 py-5 space-y-4">
                 <div className="fg">
-                  <label className="lbl">Nombre de la institución / sede *</label>
+                  <label className="lbl">Nombre de la sede *</label>
                   <input className="inp" value={form.nombre} onChange={F('nombre')}
-                    placeholder="Ej: Escuela Oficial Urbana Mixta No. 1" />
+                    placeholder="Ej: Escuela Oficial Urbana Mixta No. 1 — Antigua Guatemala" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="fg">
                     <label className="lbl">Departamento *</label>
                     <select className="inp" value={form.departamento_id}
                       onChange={e => setForm(p => ({ ...p, departamento_id: e.target.value, municipio_id: '' }))}>
                       <option value="">— Seleccionar —</option>
-                      {deptos.map((d: any) => <option key={d.id} value={String(d.id)}>{d.nombre}</option>)}
+                      {deptos.map((d: any) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
                     </select>
                   </div>
                   <div className="fg">
                     <label className="lbl">Municipio *</label>
                     <select className="inp" value={form.municipio_id} onChange={F('municipio_id')}
                       disabled={!form.departamento_id}>
-                      <option value="">
-                        {!form.departamento_id ? '— Selecciona depto primero —' : '— Seleccionar —'}
-                      </option>
-                      {munis.map((m: any) => <option key={m.id} value={String(m.id)}>{m.nombre}</option>)}
+                      <option value="">{!form.departamento_id ? '— Elige depto —' : '— Seleccionar —'}</option>
+                      {munis.map((m: any) => <option key={m.id} value={m.id}>{m.nombre}</option>)}
                     </select>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="fg">
+                  <label className="lbl">Dirección</label>
+                  <input className="inp" value={form.direccion} onChange={F('direccion')}
+                    placeholder="Calle, colonia, zona..." />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div className="fg">
                     <label className="lbl">Teléfono</label>
                     <input className="inp" value={form.telefono} onChange={F('telefono')} placeholder="2222-3333" />
@@ -275,30 +247,19 @@ export default function SedesAdminPage() {
                   </div>
                 </div>
 
-                <div className="fg">
-                  <label className="lbl">Dirección completa</label>
-                  <input className="inp" value={form.direccion} onChange={F('direccion')}
-                    placeholder="Calle, colonia, zona..." />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-4">
                   <div className="fg">
                     <label className="lbl">Correo electrónico</label>
                     <input type="email" className="inp" value={form.correo} onChange={F('correo')} />
                   </div>
                   <div className="fg">
-                    <label className="lbl">Código MINEDUC</label>
+                    <label className="lbl">Código institucional MINEDUC</label>
                     <input className="inp" value={form.codigo_institucional} onChange={F('codigo_institucional')}
-                      placeholder="Código institucional MINEDUC" />
+                      placeholder="Ej: 01-00-0001" />
                   </div>
                 </div>
-
-                {!form.municipio_id && form.departamento_id && (
-                  <div className="alert al-w text-xs">⚠️ Selecciona un municipio — es obligatorio</div>
-                )}
               </div>
 
-              {/* Footer */}
               <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
                 <button className="btn btn-g" onClick={() => setModal(false)}>Cancelar</button>
                 <button className="btn btn-p" onClick={guardar} disabled={saving}>
@@ -307,7 +268,7 @@ export default function SedesAdminPage() {
                         <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                         Guardando...
                       </span>
-                    : editando ? '💾 Actualizar sede' : '✅ Crear sede'}
+                    : editando ? '💾 Actualizar' : '✅ Crear sede'}
                 </button>
               </div>
             </div>
@@ -317,4 +278,3 @@ export default function SedesAdminPage() {
     </div>
   )
 }
-
