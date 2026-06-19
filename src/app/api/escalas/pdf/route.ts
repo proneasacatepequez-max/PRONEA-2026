@@ -1,358 +1,223 @@
-// src/app/api/escalas/pdf/route.ts — NUEVA RUTA
-// Genera PDF de escala numérica con todos los datos por área
-// Usa generación HTML→texto estructurado con formato de tabla
+// src/app/api/escalas/pdf/route.ts
+// Genera PDF de escala numérica con formato PRONEA/DIGEEX
+// Formato según imagen compartida: encabezado MINEDUC, tabla con criterios 5-4-3-2-1
+// Columnas: Proyecto/Lección | Descripción de actividad | Página | Tarea No. | Criterio (5,4,3,2,1) | Total
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, err } from '@/lib/auth'
 
-const ptsATareas = (obt: number, max: number) =>
-  max > 0 ? Math.round((obt / max) * 30 * 100) / 100 : 0
-const ptsAExamen = (nota: number) =>
-  Math.round((nota / 100) * 20 * 100) / 100
-
-// Genera un HTML bien estructurado para imprimir como PDF desde el navegador
-// El frontend abre este HTML en una nueva ventana y llama window.print()
+// Generamos el PDF con HTML+CSS convertido a buffer usando la API de jsPDF via buffer
+// Como no tenemos puppeteer, usamos una solución HTML que se puede abrir/imprimir
 export async function GET(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
 
-  const p      = req.nextUrl.searchParams
-  const inscId = p.get('inscripcion_id')
-  const libroId = p.get('libro_id')
+  const p           = req.nextUrl.searchParams
+  const inscId      = p.get('inscripcion_id')
+  const libroId     = p.get('libro_id')
+  const areaId      = p.get('area_id')  // opcional: filtrar por área específica
 
-  if (!inscId) return err('inscripcion_id requerido')
+  if (!inscId || !libroId) return err('inscripcion_id y libro_id son requeridos')
 
   // Datos de la inscripción
-  const { data: insc } = await supabaseAdmin.from('inscripciones')
-    .select(`
-      id, ciclo_escolar, version_libro,
-      estudiante:estudiantes(
-        primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
-        cui, codigo_estudiante, fecha_nacimiento, genero
-      ),
-      etapa:etapas(id, nombre, nivel),
-      sede:sedes(nombre),
-      tecnico:tecnicos(primer_nombre, primer_apellido, codigo_tecnico)
-    `)
-    .eq('id', inscId).single()
+  const { data: insc } = await supabaseAdmin.from('inscripciones').select(`
+    id, version_libro, ciclo_escolar,
+    estudiante:estudiantes(
+      primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+      cui, fecha_nacimiento,
+      municipio:municipios(nombre)
+    ),
+    etapa:etapas(id, nombre, codigo, nivel),
+    sede:sedes(nombre),
+    tecnico:tecnicos(primer_nombre, primer_apellido)
+  `).eq('id', inscId).single()
+
   if (!insc) return err('Inscripción no encontrada', 404)
 
-  // Libros a incluir
-  let librosQuery = supabaseAdmin.from('libros')
-    .select('id, nombre, numero, version')
-    .eq('etapa_id', (insc.etapa as any)?.id)
-    .eq('version', insc.version_libro)
-    .eq('activo', true)
-    .order('numero')
+  const { data: libro } = await supabaseAdmin.from('libros')
+    .select('id, nombre, numero').eq('id', libroId).single()
 
-  if (libroId) librosQuery = librosQuery.eq('id', libroId)
-  const { data: libros } = await librosQuery
+  // Áreas y tareas
+  let qAreas = supabaseAdmin.from('areas').select('id, nombre, codigo').eq('activo', true).order('nombre')
+  const { data: areas } = await qAreas
 
-  // Info establecimiento para el encabezado
-  const { data: info } = await supabaseAdmin
-    .from('info_establecimiento').select('*').eq('id', 1).single()
+  const { data: tareasTodas } = await supabaseAdmin.from('tareas_catalogo')
+    .select('id, numero_tarea, nombre, paginas, proyecto, leccion, puntos_max, area_id, activo')
+    .eq('libro_id', libroId).eq('activo', true).order('numero_tarea')
 
-  // Escala guardada
-  const { data: escala } = await supabaseAdmin.from('escalas_calificacion')
-    .select('numero_escala, generada_en, firmada')
-    .eq('inscripcion_id', inscId)
-    .order('generada_en', { ascending: false })
-    .limit(1).single()
+  // Notas existentes
+  const { data: notasTareas } = await supabaseAdmin.from('notas_tareas')
+    .select('tarea_id, nota').eq('inscripcion_id', inscId)
+
+  const notaMap: Record<string, number> = {}
+  for (const n of (notasTareas ?? [])) notaMap[n.tarea_id] = n.nota
 
   const est = insc.estudiante as any
   const tec = insc.tecnico   as any
+  const eta = insc.etapa     as any
+  const esBach = eta?.codigo?.startsWith('BA') ?? false
+  const campoProyecto = esBach ? 'Proyecto' : 'Lección'
 
-  // Construir datos por libro y área
-  const datosLibros = await Promise.all((libros ?? []).map(async (libro: any) => {
-    const { data: tareas } = await supabaseAdmin.from('tareas_catalogo')
-      .select('id, numero_tarea, nombre, paginas, puntos_max, area:areas(id, nombre, codigo)')
-      .eq('libro_id', libro.id).eq('activo', true).order('numero_tarea')
+  const { data: estab } = await supabaseAdmin
+    .from('info_establecimiento').select('nombre_completo, director_nombre, director_titulo').eq('id', 1).single()
 
-    const { data: notasTareas } = await supabaseAdmin.from('notas_tareas')
-      .select('tarea_id, nota').eq('inscripcion_id', inscId)
-    const notaMap = new Map((notasTareas ?? []).map((n: any) => [n.tarea_id, n.nota]))
+  const programaNombre = estab?.nombre_completo ?? 'Programa Nacional de Educación Alternativa PRONEA'
 
-    const { data: examenes } = await supabaseAdmin.from('examenes_catalogo')
-      .select('id, nombre, area:areas(id, nombre, codigo)')
-      .eq('libro_id', libro.id).eq('activo', true)
+  const fecha = new Date().toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })
+  const hoy   = new Date().toLocaleDateString('es-GT')
 
-    const { data: notasEx } = await supabaseAdmin.from('notas_examenes')
-      .select('examen_id, nota_original, puntos_obtenidos').eq('inscripcion_id', inscId)
-    const exMap = new Map((notasEx ?? []).map((n: any) => [n.examen_id, n]))
+  // Filtrar áreas que tienen tareas en este libro
+  const areasConTareas = (areas ?? []).filter((a: any) => {
+    if (areaId && String(a.id) !== areaId) return false
+    return (tareasTodas ?? []).some((t: any) => t.area_id === a.id)
+  })
 
-    // Agrupar por área
-    const areaIds = [...new Set([
-      ...(tareas ?? []).map((t: any) => (t.area as any)?.id),
-      ...(examenes ?? []).map((e: any) => (e.area as any)?.id),
-    ].filter(Boolean))]
+  // Generar HTML del PDF (se retorna como HTML para imprimir/guardar PDF desde el navegador)
+  const tablasPorArea = areasConTareas.map((area: any) => {
+    const tareasArea = (tareasTodas ?? []).filter((t: any) => t.area_id === area.id)
+      .sort((a: any, b: any) => a.numero_tarea - b.numero_tarea)
 
-    const areas = areaIds.map(areaId => {
-      const tareasArea   = (tareas ?? []).filter((t: any) => (t.area as any)?.id === areaId)
-      const examenesArea = (examenes ?? []).filter((e: any) => (e.area as any)?.id === areaId)
-      const areaNombre   = (tareasArea[0] ?? examenesArea[0])?.area?.nombre ?? '—'
+    const filas = tareasArea.map((t: any) => {
+      const nota      = notaMap[t.id] ?? null
+      const criterio  = nota !== null ? Math.round(nota) : null
 
-      const puntosObt = tareasArea.reduce((a: number, t: any) => a + (notaMap.get(t.id) ?? 0), 0)
-      const puntosMax = tareasArea.reduce((a: number, t: any) => a + (t.puntos_max ?? 5), 0)
-      const ptsTareas = ptsATareas(puntosObt, puntosMax)
+      return `<tr>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;background:#d4e8c2;">${esBach ? (t.proyecto ?? '') : (t.leccion ?? '')}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;">${t.nombre}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;text-align:center;">${t.paginas ?? ''}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;text-align:center;">${t.numero_tarea}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;text-align:center;">${criterio === 5 ? 'x' : ''}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;text-align:center;">${criterio === 4 ? 'x' : ''}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;text-align:center;">${criterio === 3 ? 'x' : ''}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;text-align:center;">${criterio === 2 ? 'x' : ''}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;text-align:center;">${criterio === 1 ? 'x' : ''}</td>
+        <td style="font-size:7pt;padding:2px 4px;border:1px solid #ccc;text-align:center;font-weight:bold;color:${nota !== null ? (nota >= 3 ? '#165016' : '#cc0000') : '#aaa'};">${nota ?? ''}</td>
+      </tr>`
+    }).join('')
 
-      const examen    = examenesArea[0] ?? null
-      const notaEx    = examen ? (exMap.get(examen.id)?.nota_original ?? null) : null
-      const ptsExamen = notaEx !== null ? ptsAExamen(notaEx) : null
-      const totalArea = ptsExamen !== null ? Math.round((ptsTareas + ptsExamen) * 100) / 100 : null
+    const totalPts  = tareasArea.reduce((a: number, t: any) => a + (notaMap[t.id] ?? 0), 0)
+    const maxPts    = tareasArea.reduce((a: number, t: any) => a + (t.puntos_max ?? 5), 0)
+    const zona      = maxPts > 0 ? Math.round((totalPts / maxPts) * 30 * 10) / 10 : 0
 
-      return {
-        nombre: areaNombre,
-        tareas: tareasArea.map((t: any) => ({
-          numero:     t.numero_tarea,
-          paginas:    t.paginas,
-          nombre:     t.nombre,
-          puntos_max: t.puntos_max ?? 5,
-          nota:       notaMap.get(t.id) ?? null,
-        })),
-        pts_tareas:  ptsTareas,
-        pts_examen:  ptsExamen,
-        nota_examen: notaEx,
-        total_area:  totalArea,
-        promovido:   totalArea !== null ? totalArea >= 30 : null,
-      }
-    })
+    return `
+      <div style="page-break-inside:avoid;margin-bottom:10px;">
+        <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;">
+          <!-- Encabezado MINEDUC (igual al de la imagen) -->
+          <tr>
+            <td colspan="10" style="text-align:center;font-size:7pt;padding:2px;">
+              Ministerio de Educación<br>
+              Dirección General de Educación Extraescolar DIGEEX<br>
+              ${programaNombre}<br>
+              <strong>${eta?.nombre ?? ''} en Ciencias y Letras con especialidad en Productividad y Emprendimiento</strong>
+            </td>
+          </tr>
+          <!-- Fila: Nombre | Fecha -->
+          <tr>
+            <td colspan="4" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px 6px;">Nombre</td>
+            <td colspan="4" style="border:1px solid #ccc;font-size:8pt;padding:3px 6px;">${est?.primer_nombre ?? ''} ${est?.primer_apellido ?? ''} ${est?.segundo_apellido ?? ''}</td>
+            <td style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Fecha</td>
+            <td style="border:1px solid #ccc;font-size:8pt;padding:3px;">${hoy}</td>
+          </tr>
+          <!-- Fila: Técnico | Etapa Finalizado -->
+          <tr>
+            <td colspan="2" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px 6px;">Técnico PRONEA</td>
+            <td colspan="4" style="border:1px solid #ccc;font-size:8pt;padding:3px 6px;">${tec?.primer_nombre ?? ''} ${tec?.primer_apellido ?? ''}</td>
+            <td colspan="2" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Etapa Finalizado</td>
+            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${eta?.nombre ?? ''}</td>
+          </tr>
+          <!-- Fila: Municipio | Código | CUI -->
+          <tr>
+            <td colspan="2" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Municipio de Inscripción</td>
+            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${(insc.sede as any)?.nombre ?? ''}</td>
+            <td style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Código de estudiante</td>
+            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">—</td>
+            <td style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">DPI CUI</td>
+            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${est?.cui ?? ''}</td>
+          </tr>
+          <!-- Fila: Área | Módulo | Etapa en proceso -->
+          <tr>
+            <td colspan="2" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Área</td>
+            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${area.nombre}</td>
+            <td style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Módulo</td>
+            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${libro?.numero ?? ''}</td>
+            <td style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Etapa en proceso</td>
+            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${eta?.nombre ?? ''}</td>
+          </tr>
+          <!-- Fila: Criterios a calificar | Escala -->
+          <tr>
+            <td colspan="4" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Criterios a calificar</td>
+            <td colspan="4" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Escala</td>
+            <td colspan="2" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:7pt;text-align:center;padding:2px;">
+              <div style="display:flex;justify-content:space-around;font-size:6pt;">
+                <span>5%<br>100</span><span>4%<br>84</span><span>3%<br>63</span><span>2%<br>42</span><span>1%<br>21</span>
+              </div>
+            </td>
+          </tr>
+          <!-- Encabezados de la tabla de tareas -->
+          <tr style="background:#1a3a5c;color:#fff;">
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:14%;">${campoProyecto}</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:34%;">Descripción de la actividad</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:8%;">Página</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:8%;">Tarea No.</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:6%;text-align:center;">5</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:6%;text-align:center;">4</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:6%;text-align:center;">3</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:6%;text-align:center;">2</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:6%;text-align:center;">1</th>
+            <th style="border:1px solid #fff;font-size:8pt;padding:3px;width:6%;text-align:center;">Total</th>
+          </tr>
+          <!-- Filas de tareas -->
+          ${filas}
+          <!-- Fila de totales -->
+          <tr style="background:#ffff00;">
+            <td colspan="8" style="border:1px solid #ccc;padding:3px;"></td>
+            <td style="border:1px solid #ccc;padding:3px;font-size:8pt;font-weight:bold;text-align:right;">Zona sobre 30</td>
+            <td style="border:1px solid #ccc;padding:3px;font-size:10pt;font-weight:bold;text-align:center;background:#cc0000;color:#fff;">${zona}</td>
+          </tr>
+        </table>
+        <!-- Firma -->
+        <div style="margin-top:20px;text-align:center;font-size:8pt;font-family:Arial;">
+          <div style="border-top:1px solid #000;width:200px;margin:0 auto;padding-top:4px;">
+            ${tec?.primer_nombre ?? ''} ${tec?.primer_apellido ?? ''}<br>
+            Técnico de PRONEA
+          </div>
+        </div>
+        <div style="page-break-after:always;"></div>
+      </div>
+    `
+  }).join('')
 
-    const totalLibro = areas.reduce((a, ar) => a + (ar.total_area ?? 0), 0)
-    return { ...libro, areas, total_libro: Math.round(totalLibro * 100) / 100 }
-  }))
-
-  const totalEtapa    = datosLibros.reduce((a, l) => a + l.total_libro, 0)
-  const promoEtapa    = datosLibros.every(l => l.areas.every((a: any) => a.promovido === true))
-  const nombreEst     = `${est?.primer_nombre ?? ''} ${est?.segundo_nombre ?? ''} ${est?.primer_apellido ?? ''} ${est?.segundo_apellido ?? ''}`.replace(/\s+/g, ' ').trim()
-  const fechaHoy      = new Date().toLocaleDateString('es-GT', { day:'2-digit', month:'long', year:'numeric' })
-
-  // Generar HTML para impresión
   const html = `<!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8">
-<title>Escala Numérica — ${nombreEst}</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; font-size: 10px; color: #000; background: white; }
-  .page { padding: 15mm 15mm 20mm; min-height: 100vh; }
-  .header { text-align: center; border-bottom: 2px solid #1e40af; padding-bottom: 8px; margin-bottom: 10px; }
-  .header h1 { font-size: 14px; color: #1e40af; font-weight: bold; }
-  .header h2 { font-size: 11px; color: #374151; margin-top: 2px; }
-  .header p  { font-size: 9px; color: #6b7280; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; background: #f8fafc; padding: 8px; border-radius: 4px; border: 1px solid #e2e8f0; }
-  .info-item label { font-size: 8px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; display: block; }
-  .info-item span  { font-size: 10px; font-weight: bold; color: #1f2937; }
-  .libro-section { margin-bottom: 12px; page-break-inside: avoid; }
-  .libro-title { background: #1e40af; color: white; padding: 4px 8px; font-size: 11px; font-weight: bold; border-radius: 3px 3px 0 0; }
-  .area-title { background: #dbeafe; color: #1e40af; padding: 3px 8px; font-size: 9.5px; font-weight: bold; border-left: 3px solid #1e40af; margin-top: 6px; }
-  table { width: 100%; border-collapse: collapse; margin-top: 3px; }
-  th { background: #f1f5f9; font-size: 8.5px; padding: 3px 5px; text-align: left; border: 1px solid #cbd5e1; }
-  td { font-size: 9px; padding: 3px 5px; border: 1px solid #e2e8f0; }
-  td.nota { text-align: center; font-weight: bold; }
-  td.nota.ok   { color: #16a34a; }
-  td.nota.bad  { color: #dc2626; }
-  td.nota.none { color: #9ca3af; }
-  .subtotal { background: #f8fafc; }
-  .subtotal td { font-weight: bold; font-size: 9.5px; }
-  .total-libro { background: #eff6ff; border-top: 2px solid #1e40af; margin-top: 4px; }
-  .total-libro td { font-weight: bold; font-size: 10px; padding: 4px 8px; }
-  .resumen { margin-top: 12px; border: 2px solid #1e40af; border-radius: 4px; overflow: hidden; }
-  .resumen-title { background: #1e40af; color: white; padding: 5px 10px; font-size: 11px; font-weight: bold; }
-  .resumen-table th { background: #1e40af; color: white; }
-  .promovido   { color: #16a34a; font-weight: bold; }
-  .no-promovido { color: #dc2626; font-weight: bold; }
-  .pendiente   { color: #d97706; }
-  .firmas { margin-top: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
-  .firma-box { border-top: 1px solid #374151; padding-top: 4px; text-align: center; font-size: 8.5px; }
-  .numero-escala { font-size: 8px; color: #6b7280; text-align: right; margin-bottom: 5px; }
-  @media print {
-    body { font-size: 9px; }
-    .page { padding: 10mm; }
-    .no-print { display: none; }
-    .libro-section { page-break-inside: avoid; }
-  }
-</style>
+  <meta charset="UTF-8">
+  <title>Escala Numérica — ${est?.primer_nombre} ${est?.primer_apellido}</title>
+  <style>
+    @media print {
+      @page { size: letter; margin: 10mm; }
+      body { margin: 0; }
+      .no-print { display: none; }
+    }
+    body { font-family: Arial, sans-serif; font-size: 9pt; margin: 10mm; }
+    table { border-collapse: collapse; width: 100%; }
+  </style>
 </head>
 <body>
-<div class="page">
-
-  <!-- Botón imprimir solo visible en pantalla -->
-  <div class="no-print" style="text-align:right; margin-bottom:10px;">
-    <button onclick="window.print()" style="background:#1e40af;color:white;border:none;padding:8px 20px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;">
-      🖨️ Imprimir / Guardar PDF
-    </button>
-    <button onclick="window.close()" style="background:#6b7280;color:white;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px;font-weight:bold;margin-left:8px;">
-      ✕ Cerrar
-    </button>
+  <div class="no-print" style="padding:8px;background:#f0f0f0;margin-bottom:12px;border-radius:6px;display:flex;gap:8px;align-items:center;">
+    <strong>📄 Escala Numérica — ${est?.primer_nombre} ${est?.primer_apellido}</strong>
+    <button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;">🖨️ Imprimir / Guardar PDF</button>
+    <button onclick="window.close()" style="background:#aaa;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;">✕ Cerrar</button>
   </div>
-
-  ${escala ? `<div class="numero-escala">Escala N°: ${escala.numero_escala} · Generada: ${new Date(escala.generada_en).toLocaleDateString('es-GT')}</div>` : ''}
-
-  <!-- ENCABEZADO -->
-  <div class="header">
-    <h1>${info?.nombre_completo ?? 'PRONEA Sacatepéquez'}</h1>
-    <h2>ESCALA DE CALIFICACIONES — Ciclo Escolar ${insc.ciclo_escolar}</h2>
-    <p>Dirección General de Educación Extraescolar — DIGEEX — MINEDUC</p>
-  </div>
-
-  <!-- INFO ESTUDIANTE -->
-  <div class="info-grid">
-    <div class="info-item"><label>Nombre completo</label><span>${nombreEst}</span></div>
-    <div class="info-item"><label>Código estudiante</label><span>${est?.codigo_estudiante ?? '—'}</span></div>
-    <div class="info-item"><label>CUI</label><span>${est?.cui ?? 'Pendiente'}</span></div>
-    <div class="info-item"><label>Etapa</label><span>${(insc.etapa as any)?.nombre ?? '—'}</span></div>
-    <div class="info-item"><label>Sede</label><span>${(insc.sede as any)?.nombre ?? '—'}</span></div>
-    <div class="info-item"><label>Versión libro</label><span>${insc.version_libro === 'nuevo' ? 'Libro Nuevo' : 'Libro Viejo'}</span></div>
-    <div class="info-item"><label>Técnico</label><span>${tec?.primer_nombre ?? ''} ${tec?.primer_apellido ?? ''}</span></div>
-    <div class="info-item"><label>Fecha de emisión</label><span>${fechaHoy}</span></div>
-  </div>
-
-  <!-- LIBROS Y ÁREAS -->
-  ${datosLibros.map(libro => `
-  <div class="libro-section">
-    <div class="libro-title">${libro.version === 'nuevo' ? '📗' : '📙'} ${libro.nombre}</div>
-
-    ${libro.areas.map((area: any) => `
-    <div class="area-title">📌 ${area.nombre}</div>
-    <table>
-      <thead>
-        <tr>
-          <th style="width:30px">#</th>
-          <th style="width:50px">Páginas</th>
-          <th>Descripción de la tarea</th>
-          <th style="width:40px;text-align:center">Máx.</th>
-          <th style="width:45px;text-align:center">Nota</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${area.tareas.map((t: any) => `
-        <tr>
-          <td>${t.numero}</td>
-          <td>${t.paginas ?? '—'}</td>
-          <td>${t.nombre}</td>
-          <td style="text-align:center">${t.puntos_max}</td>
-          <td class="nota ${t.nota === null ? 'none' : t.nota >= t.puntos_max * 0.6 ? 'ok' : 'bad'}">
-            ${t.nota !== null ? t.nota : '—'}
-          </td>
-        </tr>`).join('')}
-      </tbody>
-      <tfoot>
-        <tr class="subtotal">
-          <td colspan="3" style="text-align:right">Puntos de tareas (sobre 30):</td>
-          <td></td>
-          <td class="nota ${area.pts_tareas >= 18 ? 'ok' : 'bad'}">${area.pts_tareas}</td>
-        </tr>
-        <tr class="subtotal">
-          <td colspan="3" style="text-align:right">Examen — nota original: ${area.nota_examen !== null ? area.nota_examen + '%' : 'Pendiente'} → sobre 20 pts:</td>
-          <td></td>
-          <td class="nota ${area.pts_examen !== null ? (area.pts_examen >= 12 ? 'ok' : 'bad') : 'none'}">${area.pts_examen !== null ? area.pts_examen : '—'}</td>
-        </tr>
-        <tr style="background:#dbeafe;border-top:2px solid #1e40af;">
-          <td colspan="3" style="text-align:right;font-weight:bold">TOTAL ÁREA ${area.nombre.toUpperCase()}:</td>
-          <td style="text-align:center;font-size:8px;font-weight:bold">/ 50</td>
-          <td class="nota ${area.total_area === null ? 'none' : area.total_area >= 30 ? 'ok' : 'bad'}" style="font-size:12px">
-            ${area.total_area !== null ? area.total_area : '—'}
-            ${area.promovido === true ? ' ✓' : area.promovido === false ? ' ✗' : ''}
-          </td>
-        </tr>
-      </tfoot>
-    </table>`).join('')}
-
-    <table class="total-libro" style="margin-top:6px">
-      <tr>
-        <td style="text-align:right">TOTAL ${libro.nombre.toUpperCase()}:</td>
-        <td style="text-align:center;width:40px;font-size:8px">/ ${libro.areas.length * 50}</td>
-        <td style="text-align:center;width:45px;font-size:13px;color:${libro.total_libro >= libro.areas.length * 30 ? '#16a34a' : '#dc2626'}">${libro.total_libro}</td>
-      </tr>
-    </table>
-  </div>`).join('')}
-
-  <!-- RESUMEN FINAL -->
-  <div class="resumen">
-    <div class="resumen-title">📋 RESUMEN FINAL DE LA ETAPA</div>
-    <table class="resumen-table">
-      <thead>
-        <tr>
-          <th>Área</th>
-          ${datosLibros.map(l => `<th style="text-align:center">Tareas L${l.numero}<br><small>/ 30</small></th><th style="text-align:center">Exam. L${l.numero}<br><small>/ 20</small></th><th style="text-align:center">Total L${l.numero}<br><small>/ 50</small></th>`).join('')}
-          <th style="text-align:center">GRAN TOTAL<br><small>/ 100 c/libro</small></th>
-          <th style="text-align:center">Estado</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${(() => {
-          const allAreas = [...new Set(datosLibros.flatMap(l => l.areas.map((a: any) => a.nombre)))]
-          return allAreas.map(areaNombre => {
-            const filaLibros = datosLibros.map(l => {
-              const ar = l.areas.find((a: any) => a.nombre === areaNombre)
-              return ar ?? { pts_tareas: null, pts_examen: null, total_area: null }
-            })
-            const grandTotal = filaLibros.every(fl => fl.total_area !== null)
-              ? Math.round(filaLibros.reduce((a, fl) => a + (fl.total_area ?? 0), 0) * 100) / 100
-              : null
-            const promo = grandTotal !== null ? grandTotal >= 60 : null
-            return `<tr>
-              <td style="font-weight:bold">${areaNombre}</td>
-              ${filaLibros.map(fl => `
-                <td style="text-align:center;color:${fl.pts_tareas !== null ? (fl.pts_tareas >= 18 ? '#16a34a' : '#dc2626') : '#9ca3af'}">${fl.pts_tareas ?? '—'}</td>
-                <td style="text-align:center;color:${fl.pts_examen !== null ? (fl.pts_examen >= 12 ? '#16a34a' : '#dc2626') : '#9ca3af'}">${fl.pts_examen ?? '—'}</td>
-                <td style="text-align:center;font-weight:bold;color:${fl.total_area !== null ? (fl.total_area >= 30 ? '#16a34a' : '#dc2626') : '#9ca3af'}">${fl.total_area ?? '—'}</td>
-              `).join('')}
-              <td style="text-align:center;font-size:13px;font-weight:bold;color:${grandTotal !== null ? (grandTotal >= 60 ? '#16a34a' : '#dc2626') : '#9ca3af'}">${grandTotal ?? '—'}</td>
-              <td style="text-align:center" class="${promo === true ? 'promovido' : promo === false ? 'no-promovido' : 'pendiente'}">
-                ${promo === true ? '✅ Promovido' : promo === false ? '❌ No promovido' : '⏳ Pendiente'}
-              </td>
-            </tr>`
-          }).join('')
-        })()}
-      </tbody>
-      <tfoot>
-        <tr style="background:#1e40af;color:white;font-weight:bold">
-          <td>TOTALES</td>
-          ${datosLibros.map(l => {
-            const ptsTareasTotal = l.areas.reduce((a: number, ar: any) => a + ar.pts_tareas, 0).toFixed(1)
-            const ptsExTotal = l.areas.every((ar: any) => ar.pts_examen !== null)
-              ? l.areas.reduce((a: number, ar: any) => a + (ar.pts_examen ?? 0), 0).toFixed(1) : '—'
-            return `<td style="text-align:center">${ptsTareasTotal}</td><td style="text-align:center">${ptsExTotal}</td><td style="text-align:center">${l.total_libro}</td>`
-          }).join('')}
-          <td style="text-align:center;font-size:14px">${Math.round(totalEtapa * 100) / 100}</td>
-          <td style="text-align:center">${promoEtapa ? '✅ PROMOVIDO/A' : '❌ NO PROMOVIDO/A'}</td>
-        </tr>
-      </tfoot>
-    </table>
-  </div>
-
-  <!-- FIRMAS -->
-  <div class="firmas" style="margin-top:25px">
-    <div class="firma-box">
-      <p style="margin-bottom:20px">&nbsp;</p>
-      <strong>${tec?.primer_nombre ?? ''} ${tec?.primer_apellido ?? ''}</strong><br>
-      Técnico — Código ${tec?.codigo_tecnico ?? '—'}
-    </div>
-    <div class="firma-box">
-      <p style="margin-bottom:20px">&nbsp;</p>
-      <strong>${info?.director_nombre ?? 'Director'}</strong><br>
-      ${info?.director_titulo ?? 'Director(a) PRONEA'}
-    </div>
-  </div>
-
-  <div style="text-align:center;margin-top:15px;font-size:8px;color:#9ca3af;border-top:1px solid #e5e7eb;padding-top:5px">
-    Documento generado el ${fechaHoy} · ${info?.nombre_completo ?? 'PRONEA Sacatepéquez'} · Sistema PRONEA v4.0
-  </div>
-
-</div>
-<script>
-  // Auto-imprimir al cargar si viene con ?print=1
-  if (new URLSearchParams(window.location.search).get('print') === '1') {
-    window.addEventListener('load', () => setTimeout(() => window.print(), 800))
-  }
-</script>
+  ${tablasPorArea}
 </body>
 </html>`
 
   return new NextResponse(html, {
     status: 200,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Disposition': `inline; filename="Escala-${est?.primer_apellido}-${libroId}.html"`,
+    },
   })
 }
+
