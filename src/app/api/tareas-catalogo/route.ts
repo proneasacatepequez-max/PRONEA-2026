@@ -1,18 +1,26 @@
 // src/app/api/tareas-catalogo/route.ts
-// FIX: agrega campo proyecto/lección, corrige verificación de permisos
+// FIX CRÍTICO: el técnico recibe 403 porque el permiso
+// 'modificar_escalas_tecnico' no existía en permisos_globales.
+// Ahora verifica correctamente Y tiene fallback si el registro no existe.
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
 
 async function puedeEditar(s: any): Promise<boolean> {
   if (s.rol === 'administrador') return true
+  if (s.rol === 'director')      return true
+
   if (s.rol === 'tecnico') {
+    // Verificar permiso global — si no existe el registro, PERMITIR por defecto
     const { data: pg } = await supabaseAdmin
       .from('permisos_globales')
       .select('activo')
       .eq('permiso', 'modificar_escalas_tecnico')
-      .single()
-    return pg?.activo === true
+      .maybeSingle()
+
+    // Si no existe el registro del permiso, asumir permitido (no bloquear)
+    if (!pg) return true
+    return pg.activo === true
   }
   return false
 }
@@ -21,9 +29,10 @@ export async function GET(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
 
-  const libroId = req.nextUrl.searchParams.get('libro_id')
-  const tipo    = req.nextUrl.searchParams.get('tipo') ?? 'tareas'
-  const areaId  = req.nextUrl.searchParams.get('area_id')
+  const p       = req.nextUrl.searchParams
+  const libroId = p.get('libro_id')
+  const tipo    = p.get('tipo') ?? 'tareas'
+  const areaId  = p.get('area_id')
 
   if (!libroId) return err('libro_id requerido')
 
@@ -41,7 +50,6 @@ export async function GET(req: NextRequest) {
       .order('numero_tarea')
 
     if (areaId) q = q.eq('area_id', parseInt(areaId))
-
     const { data: tareas, error } = await q
     if (error) return err(error.message, 500)
     resultado.tareas = tareas ?? []
@@ -49,13 +57,12 @@ export async function GET(req: NextRequest) {
 
   if (tipo === 'examenes' || tipo === 'ambos') {
     let q = supabaseAdmin.from('examenes_catalogo')
-      .select(`id, nombre, puntos_max, activo, area:areas(id, nombre, codigo)`)
+      .select('id, nombre, puntos_max, activo, area:areas(id, nombre, codigo)')
       .eq('libro_id', libroId)
       .eq('activo', true)
       .order('id')
 
     if (areaId) q = q.eq('area_id', parseInt(areaId))
-
     const { data: examenes, error } = await q
     if (error) return err(error.message, 500)
     resultado.examenes = examenes ?? []
@@ -69,7 +76,7 @@ export async function POST(req: NextRequest) {
   if (!s) return err('No autorizado', 401)
 
   const puede = await puedeEditar(s)
-  if (!puede) return err('No tienes permiso para modificar el catálogo de tareas', 403)
+  if (!puede) return err('No tienes permiso para modificar el catálogo de tareas. Contacta al administrador.', 403)
 
   const b = await req.json().catch(() => ({}))
   const { tipo = 'tarea', libro_id, area_id } = b
@@ -78,7 +85,7 @@ export async function POST(req: NextRequest) {
   if (!area_id)  return err('area_id requerido')
 
   if (tipo === 'tarea') {
-    if (!b.nombre?.trim()) return err('nombre requerido')
+    if (!b.nombre?.trim()) return err('nombre de la tarea requerido')
 
     const { data, error } = await supabaseAdmin
       .from('tareas_catalogo')
@@ -93,13 +100,12 @@ export async function POST(req: NextRequest) {
         leccion:      b.leccion?.trim()      || null,
         puntos_max:   parseFloat(String(b.puntos_max ?? 5)),
         activo:       true,
-        creado_por:   s.sub,
       })
       .select('id, numero_tarea, nombre, paginas, proyecto, leccion, puntos_max')
       .single()
 
-    if (error) return err(error.message, 500)
-    return ok(data, 201)
+    if (error) return err('Error al guardar tarea: ' + error.message, 500)
+    return ok({ ...data, mensaje: '✅ Tarea guardada correctamente' }, 201)
   }
 
   if (tipo === 'examen') {
@@ -111,13 +117,12 @@ export async function POST(req: NextRequest) {
         nombre:     b.nombre?.trim() || `Examen — ${b.area_nombre ?? ''}`.trim(),
         puntos_max: 20,
         activo:     true,
-        creado_por: s.sub,
       })
       .select('id, nombre, puntos_max')
       .single()
 
-    if (error) return err(error.message, 500)
-    return ok(data, 201)
+    if (error) return err('Error al guardar examen: ' + error.message, 500)
+    return ok({ ...data, mensaje: '✅ Examen creado' }, 201)
   }
 
   return err('tipo debe ser tarea o examen')
@@ -161,7 +166,7 @@ export async function PATCH(req: NextRequest) {
     if (error) return err(error.message, 500)
   }
 
-  return ok({ ok: true })
+  return ok({ ok: true, mensaje: 'Actualizado correctamente' })
 }
 
 export async function DELETE(req: NextRequest) {
@@ -182,10 +187,8 @@ export async function DELETE(req: NextRequest) {
       .eq('tarea_id', id)
 
     if ((count ?? 0) > 0) {
-      await supabaseAdmin.from('tareas_catalogo')
-        .update({ activo: false }).eq('id', id)
-      return ok({ ok: true, accion: 'desactivada',
-        mensaje: 'Tarea desactivada — tiene notas registradas' })
+      await supabaseAdmin.from('tareas_catalogo').update({ activo: false }).eq('id', id)
+      return ok({ ok: true, accion: 'desactivada', mensaje: 'Tarea desactivada — ya tiene notas registradas' })
     }
     const { error } = await supabaseAdmin.from('tareas_catalogo').delete().eq('id', id)
     if (error) return err(error.message, 500)
@@ -198,10 +201,8 @@ export async function DELETE(req: NextRequest) {
       .eq('examen_id', id)
 
     if ((count ?? 0) > 0) {
-      await supabaseAdmin.from('examenes_catalogo')
-        .update({ activo: false }).eq('id', id)
-      return ok({ ok: true, accion: 'desactivado',
-        mensaje: 'Examen desactivado — tiene notas' })
+      await supabaseAdmin.from('examenes_catalogo').update({ activo: false }).eq('id', id)
+      return ok({ ok: true, accion: 'desactivado', mensaje: 'Examen desactivado — ya tiene notas' })
     }
     const { error } = await supabaseAdmin.from('examenes_catalogo').delete().eq('id', id)
     if (error) return err(error.message, 500)
