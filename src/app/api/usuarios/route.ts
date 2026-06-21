@@ -1,6 +1,5 @@
 // src/app/api/usuarios/route.ts
-// FIX DEFINITIVO: ya NO se inserta institucion_id (violaba FK con instituciones)
-// El enlace se crea con sede_id + tecnico_id directos
+// FIX: campos correctos para crear enlace con sede_id, mensajes claros
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -13,14 +12,24 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supabaseAdmin.from('usuarios')
     .select(`
       id, correo, rol, activo, ultimo_acceso, creado_en, primer_ingreso,
-      tecnicos(id, primer_nombre, primer_apellido, telefono, codigo_tecnico, cui, especialidad),
-      directores(id, primer_nombre, primer_apellido, telefono, sede:sedes(id, nombre)),
+      tecnicos(
+        id, primer_nombre, primer_apellido, telefono,
+        codigo_tecnico, cui, especialidad
+      ),
+      directores(
+        id, primer_nombre, primer_apellido, telefono,
+        sede:sedes(id, nombre)
+      ),
       enlaces_institucionales(
         id, primer_nombre, primer_apellido, cargo, telefono,
         sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre),
-        tecnico:tecnicos!enlaces_institucionales_tecnico_id_fkey(id, primer_nombre, primer_apellido, codigo_tecnico)
+        tecnico:tecnicos!enlaces_institucionales_tecnico_id_fkey(
+          id, primer_nombre, primer_apellido, codigo_tecnico
+        )
       ),
-      coordinadores_departamento(id, primer_nombre, primer_apellido, cargo)
+      coordinadores_departamento(
+        id, primer_nombre, primer_apellido, cargo
+      )
     `)
     .not('rol', 'eq', 'estudiante')
     .order('creado_en', { ascending: false })
@@ -61,24 +70,34 @@ export async function POST(req: NextRequest) {
     sede_id, tecnico_id,
   } = b
 
-  if (!correo || !contrasena || !rol || !primer_nombre || !primer_apellido)
-    return err('Nombre, apellido, correo, contraseña y rol son requeridos')
-  if (contrasena.length < 6) return err('Contraseña mínimo 6 caracteres')
+  // Validaciones básicas con mensajes claros
+  if (!correo?.trim())           return err('El correo electrónico es requerido')
+  if (!contrasena?.trim())       return err('La contraseña es requerida')
+  if (!rol)                      return err('El rol es requerido')
+  if (!primer_nombre?.trim())    return err('El primer nombre es requerido')
+  if (!primer_apellido?.trim())  return err('El primer apellido es requerido')
+  if (contrasena.length < 6)     return err('La contraseña debe tener al menos 6 caracteres')
 
-  if (rol === 'enlace_institucional' && !sede_id)
-    return err('La sede/institución es obligatoria para el enlace institucional')
+  // Validaciones por rol
+  if (rol === 'enlace_institucional') {
+    if (!sede_id) return err('La sede/institución es OBLIGATORIA para el enlace institucional. Selecciona una sede.')
+  }
 
   const correoNorm = correo.toLowerCase().trim()
-  const { data: existe } = await supabaseAdmin.from('usuarios')
-    .select('id').eq('correo', correoNorm).maybeSingle()
-  if (existe) return err('Ya existe un usuario con ese correo', 409)
 
+  // Verificar correo duplicado
+  const { data: existe } = await supabaseAdmin.from('usuarios')
+    .select('id, rol').eq('correo', correoNorm).maybeSingle()
+  if (existe) return err(`Ya existe un usuario con el correo "${correoNorm}" (rol: ${existe.rol})`, 409)
+
+  // Crear usuario
   const hash = await bcrypt.hash(contrasena, 10)
   const { data: usu, error: eU } = await supabaseAdmin.from('usuarios')
     .insert({ correo: correoNorm, contrasena_hash: hash, rol, activo: true, primer_ingreso: true })
     .select('id').single()
-  if (eU) return err('Error creando usuario: ' + eU.message, 500)
+  if (eU) return err('Error al crear el usuario: ' + eU.message, 500)
 
+  // Crear perfil según rol
   try {
     if (rol === 'tecnico') {
       let codigo = codigo_tecnico?.trim()
@@ -87,24 +106,26 @@ export async function POST(req: NextRequest) {
           .select('*', { count: 'exact', head: true })
         codigo = `TEC-${String((count ?? 0) + 1).padStart(3, '0')}`
       }
-      const cuiFinal = cui?.trim() || `CUI-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`
+      // CUI único — generar si no viene
+      const cuiLimpio = cui?.trim()
+      const cuiFinal  = cuiLimpio || `CUI-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`
 
       const { data: tecCreado, error: eTec } = await supabaseAdmin.from('tecnicos').insert({
-        usuario_id: usu.id,
-        primer_nombre: primer_nombre.trim(),
-        segundo_nombre: segundo_nombre?.trim() || null,
+        usuario_id:      usu.id,
+        primer_nombre:   primer_nombre.trim(),
+        segundo_nombre:  segundo_nombre?.trim()   || null,
         primer_apellido: primer_apellido.trim(),
-        segundo_apellido: segundo_apellido?.trim() || null,
-        telefono: telefono || null,
-        codigo_tecnico: codigo,
-        cui: cuiFinal,
-        especialidad: especialidad?.trim() || null,
-        activo: true,
+        segundo_apellido:segundo_apellido?.trim() || null,
+        telefono:        telefono                 || null,
+        codigo_tecnico:  codigo,
+        cui:             cuiFinal,
+        especialidad:    especialidad?.trim()     || null,
+        activo:          true,
       }).select('id').single()
 
       if (eTec) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
-        return err('Error creando perfil técnico: ' + eTec.message, 500)
+        return err('Error al crear perfil de técnico: ' + eTec.message, 500)
       }
 
       if (sede_id && tecCreado) {
@@ -116,72 +137,70 @@ export async function POST(req: NextRequest) {
 
     if (rol === 'director') {
       const { error: eDir } = await supabaseAdmin.from('directores').insert({
-        usuario_id: usu.id,
-        primer_nombre: primer_nombre.trim(),
-        segundo_nombre: segundo_nombre?.trim() || null,
+        usuario_id:      usu.id,
+        primer_nombre:   primer_nombre.trim(),
+        segundo_nombre:  segundo_nombre?.trim()   || null,
         primer_apellido: primer_apellido.trim(),
-        segundo_apellido: segundo_apellido?.trim() || null,
-        telefono: telefono || null,
-        activo: true,
-        sede_id: sede_id || null,
+        segundo_apellido:segundo_apellido?.trim() || null,
+        telefono:        telefono                 || null,
+        activo:          true,
+        sede_id:         sede_id                  || null,
       })
       if (eDir) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
-        return err('Error creando perfil de director: ' + eDir.message, 500)
+        return err('Error al crear perfil de director: ' + eDir.message, 500)
       }
     }
 
     if (rol === 'enlace_institucional') {
-      // FIX: ya NO se inserta institucion_id — solo sede_id y tecnico_id
-      const { error: eEnl } = await supabaseAdmin.from('enlaces_institucionales').insert({
-        usuario_id: usu.id,
-        primer_nombre: primer_nombre.trim(),
-        segundo_nombre: segundo_nombre?.trim() || null,
-        primer_apellido: primer_apellido.trim(),
-        segundo_apellido: segundo_apellido?.trim() || null,
-        telefono: telefono || null,
-        cargo: cargo?.trim() || null,
-        sede_id,
-        tecnico_id: tecnico_id || null,
-        activo: true,
-      })
+      // sede_id es NOT NULL en la BD — ya validado arriba
+      const { data: enlCreado, error: eEnl } = await supabaseAdmin
+        .from('enlaces_institucionales').insert({
+          usuario_id:      usu.id,
+          primer_nombre:   primer_nombre.trim(),
+          segundo_nombre:  segundo_nombre?.trim()   || null,
+          primer_apellido: primer_apellido.trim(),
+          segundo_apellido:segundo_apellido?.trim() || null,
+          telefono:        telefono                 || null,
+          cargo:           cargo?.trim()            || null,
+          sede_id,           // ← NOT NULL, ya validado
+          tecnico_id:      tecnico_id               || null,
+          activo:          true,
+        }).select('id').single()
+
       if (eEnl) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
-        return err('Error creando perfil de enlace: ' + eEnl.message, 500)
+        return err('Error al crear perfil de enlace: ' + eEnl.message, 500)
       }
 
-      // También registrar en tecnico_enlaces si se asignó técnico
-      if (tecnico_id) {
-        const { data: enl } = await supabaseAdmin.from('enlaces_institucionales')
-          .select('id').eq('usuario_id', usu.id).single()
-        if (enl) {
-          await supabaseAdmin.from('tecnico_enlaces').insert({
-            tecnico_id, enlace_id: enl.id,
-            ciclo_escolar: b.ciclo_escolar ?? 2026, activo: true,
-          }).catch(() => {})
-        }
+      // Registrar en tecnico_enlaces si se asignó técnico
+      if (tecnico_id && enlCreado) {
+        await supabaseAdmin.from('tecnico_enlaces').insert({
+          tecnico_id, enlace_id: enlCreado.id,
+          ciclo_escolar: 2026, activo: true,
+        }).catch(() => {})
       }
     }
 
     if (rol === 'coordinador_digeex') {
       const { error: eCoord } = await supabaseAdmin.from('coordinadores_departamento').insert({
-        usuario_id: usu.id,
-        primer_nombre: primer_nombre.trim(),
-        segundo_nombre: segundo_nombre?.trim() || null,
+        usuario_id:      usu.id,
+        primer_nombre:   primer_nombre.trim(),
+        segundo_nombre:  segundo_nombre?.trim()   || null,
         primer_apellido: primer_apellido.trim(),
-        segundo_apellido: segundo_apellido?.trim() || null,
-        telefono: telefono || null,
-        cargo: cargo?.trim() || null,
+        segundo_apellido:segundo_apellido?.trim() || null,
+        telefono:        telefono                 || null,
+        cargo:           cargo?.trim()            || null,
         departamento_id: departamento_id ? parseInt(String(departamento_id)) : null,
       })
       if (eCoord) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
-        return err('Error creando perfil de coordinador: ' + eCoord.message, 500)
+        return err('Error al crear perfil de coordinador: ' + eCoord.message, 500)
       }
     }
   } catch (e: any) {
     await supabaseAdmin.from('usuarios').delete().eq('id', usu.id).catch(() => {})
-    return err('Error creando perfil: ' + e.message, 500)
+    return err('Error inesperado al crear perfil: ' + (e?.message ?? ''), 500)
   }
 
   await supabaseAdmin.from('auditoria').insert({
@@ -190,7 +209,14 @@ export async function POST(req: NextRequest) {
     datos_nuevos: { correo: correoNorm, rol },
   }).catch(() => {})
 
-  return ok({ ok: true, id: usu.id, correo: correoNorm, rol, contrasena }, 201)
+  return ok({
+    ok: true,
+    id: usu.id,
+    correo: correoNorm,
+    rol,
+    contrasena,
+    mensaje: `✅ Usuario ${primer_nombre} ${primer_apellido} creado correctamente`,
+  }, 201)
 }
 
 export async function PATCH(req: NextRequest) {
@@ -205,17 +231,18 @@ export async function PATCH(req: NextRequest) {
   if (b.reset_password) {
     if (b.reset_password.length < 6) return err('Mínimo 6 caracteres')
     const hash = await bcrypt.hash(b.reset_password, 10)
-    const { error } = await supabaseAdmin.from('usuarios')
-      .update({ contrasena_hash: hash, intentos_fallidos: 0, bloqueado_hasta: null, primer_ingreso: true })
-      .eq('id', id)
+    const { error } = await supabaseAdmin.from('usuarios').update({
+      contrasena_hash: hash, intentos_fallidos: 0,
+      bloqueado_hasta: null, primer_ingreso: true,
+    }).eq('id', id)
     if (error) return err(error.message, 500)
-    return ok({ ok: true, mensaje: 'Contraseña restablecida' })
+    return ok({ ok: true, mensaje: '✅ Contraseña restablecida correctamente' })
   }
 
   if (typeof b.activo === 'boolean') {
     const { error } = await supabaseAdmin.from('usuarios').update({ activo: b.activo }).eq('id', id)
     if (error) return err(error.message, 500)
-    return ok({ ok: true, activo: b.activo })
+    return ok({ ok: true, activo: b.activo, mensaje: b.activo ? '✅ Usuario activado' : '✅ Usuario desactivado' })
   }
 
   if (b.correo || b.rol) {
@@ -224,10 +251,10 @@ export async function PATCH(req: NextRequest) {
     if (b.rol)    upd.rol    = b.rol
     const { error } = await supabaseAdmin.from('usuarios').update(upd).eq('id', id)
     if (error) return err(error.message, 500)
-    return ok({ ok: true })
+    return ok({ ok: true, mensaje: '✅ Usuario actualizado' })
   }
 
-  return err('Acción no reconocida')
+  return err('No se especificó qué actualizar')
 }
 
 export async function DELETE(req: NextRequest) {
@@ -236,7 +263,7 @@ export async function DELETE(req: NextRequest) {
 
   const id = req.nextUrl.searchParams.get('id')
   if (!id) return err('id requerido')
-  if (id === s.sub) return err('No puedes eliminar tu propia cuenta', 400)
+  if (id === s.sub) return err('No puedes desactivar tu propia cuenta', 400)
 
   const { error } = await supabaseAdmin.from('usuarios').update({ activo: false }).eq('id', id)
   if (error) return err(error.message, 500)
@@ -246,5 +273,5 @@ export async function DELETE(req: NextRequest) {
     tabla_afectada: 'usuarios', registro_id: id,
   }).catch(() => {})
 
-  return ok({ ok: true, mensaje: 'Usuario desactivado' })
+  return ok({ ok: true, mensaje: '✅ Usuario desactivado' })
 }
