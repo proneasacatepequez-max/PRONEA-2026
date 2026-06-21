@@ -1,47 +1,53 @@
 'use client'
 // src/app/dashboard/admin/usuarios/page.tsx
-// FIX: dropdown "Institución/Sede" usa /api/sedes en lugar de /api/instituciones
+// FIX: mensajes claros de éxito/error, campo sede_id correcto para enlace
 import { useState, useEffect, useCallback } from 'react'
 
 const ROL_COLOR: Record<string, string> = {
-  administrador: 'bg-purple-100 text-purple-700',
-  tecnico: 'bg-blue-100 text-blue-700',
-  director: 'bg-green-100 text-green-700',
-  coordinador_digeex: 'bg-yellow-100 text-yellow-700',
+  administrador:        'bg-purple-100 text-purple-700',
+  tecnico:              'bg-blue-100 text-blue-700',
+  director:             'bg-green-100 text-green-700',
+  coordinador_digeex:   'bg-yellow-100 text-yellow-700',
   enlace_institucional: 'bg-orange-100 text-orange-700',
 }
-
 const ROL_LABEL: Record<string, string> = {
-  administrador: 'Administrador',
-  tecnico: 'Técnico',
-  director: 'Director',
-  coordinador_digeex: 'Coordinador DIGEEX',
+  administrador:        'Administrador',
+  tecnico:              'Técnico',
+  director:             'Director',
+  coordinador_digeex:   'Coordinador DIGEEX',
   enlace_institucional: 'Enlace Institucional',
 }
 
 export default function UsuariosAdminPage() {
-  const [usuarios, setUsuarios] = useState<any[]>([])
-  const [sedes,    setSedes]    = useState<any[]>([])
-  const [tecnicos, setTecnicos] = useState<any[]>([])
-  const [loading,  setLoading]  = useState(true)
-  const [modal,    setModal]    = useState(false)
-  const [saving,   setSaving]   = useState(false)
-  const [msg,      setMsg]      = useState('')
-  const [buscar,   setBuscar]   = useState('')
-  const [filtroRol,setFiltroRol]= useState('')
-  const [resetId,  setResetId]  = useState<string|null>(null)
-  const [nuevaPwd, setNuevaPwd] = useState('')
+  const [usuarios,    setUsuarios]    = useState<any[]>([])
+  const [sedes,       setSedes]       = useState<any[]>([])
+  const [tecnicos,    setTecnicos]    = useState<any[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [modal,       setModal]       = useState(false)
+  const [saving,      setSaving]      = useState(false)
+  const [msg,         setMsg]         = useState('')
+  const [msgType,     setMsgType]     = useState<'ok'|'err'>('ok')
+  const [buscar,      setBuscar]      = useState('')
+  const [filtroRol,   setFiltroRol]   = useState('')
+  const [resetId,     setResetId]     = useState<string|null>(null)
+  const [nuevaPwd,    setNuevaPwd]    = useState('')
   const [savingReset, setSavingReset] = useState(false)
-  const [pwdVisible,  setPwdVisible]  = useState<string|null>(null)
+  const [pwdVisible,  setPwdVisible]  = useState<{correo:string,pwd:string}|null>(null)
 
   const [form, setForm] = useState({
-    rol: 'tecnico', correo:'', contrasena:'', confirmar:'',
-    primer_nombre:'', segundo_nombre:'', primer_apellido:'', segundo_apellido:'',
-    telefono:'', codigo_tecnico:'', cui:'', especialidad:'',
-    cargo:'', sede_id:'', tecnico_id:'', departamento_id:'',
+    rol: 'tecnico',
+    correo:'', contrasena:'', confirmar:'',
+    primer_nombre:'', segundo_nombre:'',
+    primer_apellido:'', segundo_apellido:'',
+    telefono:'', codigo_tecnico:'', cui:'',
+    especialidad:'', cargo:'',
+    sede_id:'', tecnico_id:'', departamento_id:'',
   })
 
-  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 5000) }
+  const flash = (m: string, tipo: 'ok'|'err' = 'ok') => {
+    setMsg(m); setMsgType(tipo)
+    setTimeout(() => setMsg(''), 6000)
+  }
 
   const cargar = useCallback(async () => {
     setLoading(true)
@@ -61,37 +67,48 @@ export default function UsuariosAdminPage() {
   const F = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement>) =>
     setForm(p => ({ ...p, [k]: e.target.value }))
 
-  const abrirCrear = () => {
-    setForm({ rol:'tecnico', correo:'', contrasena:'', confirmar:'', primer_nombre:'', segundo_nombre:'', primer_apellido:'', segundo_apellido:'', telefono:'', codigo_tecnico:'', cui:'', especialidad:'', cargo:'', sede_id:'', tecnico_id:'', departamento_id:'' })
-    setModal(true)
-  }
+  const resetForm = () => setForm({
+    rol:'tecnico', correo:'', contrasena:'', confirmar:'',
+    primer_nombre:'', segundo_nombre:'', primer_apellido:'', segundo_apellido:'',
+    telefono:'', codigo_tecnico:'', cui:'', especialidad:'', cargo:'',
+    sede_id:'', tecnico_id:'', departamento_id:'',
+  })
+
+  const abrirCrear = () => { resetForm(); setModal(true) }
 
   const crear = async () => {
-    if (!form.correo || !form.contrasena || !form.primer_nombre || !form.primer_apellido)
-      { flash('❌ Nombre, apellido, correo y contraseña son requeridos'); return }
-    if (form.contrasena !== form.confirmar) { flash('❌ Las contraseñas no coinciden'); return }
-    if (form.contrasena.length < 6) { flash('❌ Contraseña mínimo 6 caracteres'); return }
-    if (form.rol === 'enlace_institucional' && !form.sede_id) { flash('❌ La sede/institución es obligatoria para el enlace'); return }
+    // Validaciones en frontend antes de enviar
+    if (!form.primer_nombre.trim())  { flash('❌ El primer nombre es requerido', 'err'); return }
+    if (!form.primer_apellido.trim()){ flash('❌ El primer apellido es requerido', 'err'); return }
+    if (!form.correo.trim())         { flash('❌ El correo electrónico es requerido', 'err'); return }
+    if (!form.contrasena.trim())     { flash('❌ La contraseña es requerida', 'err'); return }
+    if (form.contrasena !== form.confirmar) { flash('❌ Las contraseñas no coinciden', 'err'); return }
+    if (form.contrasena.length < 6)  { flash('❌ La contraseña debe tener al menos 6 caracteres', 'err'); return }
+    if (form.rol === 'enlace_institucional' && !form.sede_id) {
+      flash('❌ La sede/institución es OBLIGATORIA para crear un enlace', 'err'); return
+    }
 
     setSaving(true)
     const res = await fetch('/api/usuarios', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...form,
-        sede_id: form.sede_id || undefined,
-        tecnico_id: form.tecnico_id || undefined,
+        sede_id:         form.sede_id        || undefined,
+        tecnico_id:      form.tecnico_id     || undefined,
         departamento_id: form.departamento_id ? parseInt(form.departamento_id) : undefined,
-        ciclo_escolar: 2026,
+        ciclo_escolar:   2026,
       }),
     })
     const d = await res.json()
+
     if (res.ok) {
       setModal(false)
+      resetForm()
       await cargar()
-      setPwdVisible(d.contrasena ?? form.contrasena)
-      flash(`✅ Usuario creado: ${form.correo}`)
+      setPwdVisible({ correo: form.correo, pwd: d.contrasena ?? form.contrasena })
+      flash(d.mensaje ?? '✅ Usuario creado correctamente', 'ok')
     } else {
-      flash('❌ ' + (d.error ?? 'Error al crear usuario'))
+      flash('❌ ' + (d.error ?? 'Error al crear usuario'), 'err')
     }
     setSaving(false)
   }
@@ -101,30 +118,42 @@ export default function UsuariosAdminPage() {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, activo: !activo }),
     })
-    flash(res.ok ? `✅ Usuario ${!activo ? 'activado' : 'desactivado'}` : '❌ Error')
+    const d = await res.json()
+    flash(d.mensaje ?? (res.ok ? '✅ Estado actualizado' : '❌ Error'), res.ok ? 'ok' : 'err')
     if (res.ok) await cargar()
   }
 
   const resetPassword = async () => {
-    if (!nuevaPwd || nuevaPwd.length < 6) { flash('❌ Mínimo 6 caracteres'); return }
+    if (!nuevaPwd || nuevaPwd.length < 6) { flash('❌ Mínimo 6 caracteres', 'err'); return }
     setSavingReset(true)
     const res = await fetch('/api/usuarios', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: resetId, reset_password: nuevaPwd }),
     })
     const d = await res.json()
-    flash(res.ok ? '✅ Contraseña restablecida' : '❌ ' + d.error)
-    if (res.ok) { setResetId(null); setNuevaPwd('') }
+    flash(d.mensaje ?? (res.ok ? '✅ Contraseña restablecida' : '❌ Error'), res.ok ? 'ok' : 'err')
+    if (res.ok) {
+      setResetId(null); setNuevaPwd('')
+      setPwdVisible({ correo: '(usuario)', pwd: nuevaPwd })
+    }
     setSavingReset(false)
   }
 
   const getNombrePerfil = (u: any) => {
     const p = u.perfil
-    if (!p) return <span className="text-gray-300 text-xs italic">Sin perfil</span>
+    if (!p) return <span className="text-gray-300 text-xs italic">Sin perfil configurado</span>
     const nombre = `${p.primer_nombre ?? ''} ${p.primer_apellido ?? ''}`.trim()
-    const extra = p.codigo_tecnico ? ` · ${p.codigo_tecnico}` : p.cargo ? ` · ${p.cargo}` : ''
-    const sedeNombre = p.sede?.nombre ? ` — ${p.sede.nombre}` : ''
-    return <span className="font-semibold">{nombre}{extra ? <span className="text-gray-400 font-normal">{extra}</span> : ''}{sedeNombre ? <span className="text-orange-500 text-xs">{sedeNombre}</span> : ''}</span>
+    const extra  = p.codigo_tecnico ? ` · ${p.codigo_tecnico}` : p.cargo ? ` · ${p.cargo}` : ''
+    const sede   = p.sede?.nombre   ? ` — ${p.sede.nombre}` : ''
+    const tecnico = p.tecnico ? ` [${p.tecnico.primer_nombre} ${p.tecnico.primer_apellido}]` : ''
+    return (
+      <span className="font-semibold">
+        {nombre}
+        {extra && <span className="text-gray-400 font-normal text-xs">{extra}</span>}
+        {sede   && <span className="text-orange-500 text-xs"> {sede}</span>}
+        {tecnico && <span className="text-blue-400 text-xs"> {tecnico}</span>}
+      </span>
+    )
   }
 
   const filtrados = usuarios.filter(u => {
@@ -143,23 +172,35 @@ export default function UsuariosAdminPage() {
       </header>
 
       <div className="pc">
-        {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
+        {msg && (
+          <div className={`alert mb-4 ${msgType === 'ok' ? 'al-s' : 'al-e'}`}>
+            {msg}
+          </div>
+        )}
 
+        {/* Contraseña generada */}
         {pwdVisible && (
           <div className="alert al-w mb-4">
-            <div className="font-bold">🔑 Contraseña generada — compártela con el usuario:</div>
-            <div className="font-mono text-lg mt-1 bg-white px-3 py-1 rounded border inline-block">{pwdVisible}</div>
-            <button className="ml-3 btn btn-g btn-sm" onClick={() => { navigator.clipboard.writeText(pwdVisible); flash('✅ Copiada') }}>📋 Copiar</button>
-            <button className="ml-2 btn btn-g btn-sm" onClick={() => setPwdVisible(null)}>✕</button>
+            <div className="font-bold text-sm">🔑 Contraseña generada — compártela con el usuario:</div>
+            <div className="text-xs text-gray-600 mt-1">Correo: <b>{pwdVisible.correo}</b></div>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="font-mono text-lg bg-white px-3 py-1 rounded border">{pwdVisible.pwd}</span>
+              <button className="btn btn-g btn-sm"
+                onClick={() => { navigator.clipboard.writeText(pwdVisible.pwd); flash('✅ Contraseña copiada') }}>
+                📋 Copiar
+              </button>
+              <button className="btn btn-g btn-sm" onClick={() => setPwdVisible(null)}>✕</button>
+            </div>
           </div>
         )}
 
         <div className="card mb-4">
           <div className="flex gap-3 flex-wrap">
             <div className="flex-1 min-w-48">
-              <input className="inp" placeholder="🔍 Buscar por correo o nombre..." value={buscar} onChange={e => setBuscar(e.target.value)} />
+              <input className="inp" placeholder="🔍 Buscar por correo o nombre..."
+                value={buscar} onChange={e => setBuscar(e.target.value)} />
             </div>
-            <div className="w-44">
+            <div className="w-48">
               <select className="inp" value={filtroRol} onChange={e => setFiltroRol(e.target.value)}>
                 <option value="">Todos los roles</option>
                 {Object.entries(ROL_LABEL).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
@@ -184,8 +225,12 @@ export default function UsuariosAdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtrados.map((u: any, idx: number) => (
-                    <tr key={u.id} className={`border-b hover:bg-gray-50 ${idx%2===0?'bg-white':'bg-gray-50/30'} ${!u.activo?'opacity-60':''}`}>
+                  {filtrados.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="text-center py-8 text-gray-400">Sin usuarios</td>
+                    </tr>
+                  ) : filtrados.map((u: any, idx: number) => (
+                    <tr key={u.id} className={`border-b hover:bg-gray-50 ${idx%2===0?'bg-white':'bg-gray-50/30'} ${!u.activo?'opacity-55':''}`}>
                       <td className="px-3 py-2.5">{getNombrePerfil(u)}</td>
                       <td className="px-3 py-2.5 text-xs text-gray-600">{u.correo}</td>
                       <td className="px-3 py-2.5">
@@ -194,15 +239,20 @@ export default function UsuariosAdminPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2.5">
-                        <span className={`badge text-xs ${u.activo?'badge-green':'badge-gray'}`}>{u.activo ? 'Activo' : 'Inactivo'}</span>
+                        <span className={`badge text-xs ${u.activo?'badge-green':'badge-gray'}`}>
+                          {u.activo ? 'Activo' : 'Inactivo'}
+                        </span>
+                        {u.primer_ingreso && <span className="ml-1 badge badge-yellow text-xs">1er ingreso</span>}
                       </td>
                       <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
                         {u.ultimo_acceso ? new Date(u.ultimo_acceso).toLocaleDateString('es-GT') : 'Nunca'}
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="flex gap-1 flex-nowrap">
-                          <button className="btn btn-g btn-sm" title="Restablecer contraseña" onClick={() => { setResetId(u.id); setNuevaPwd('') }}>🔑</button>
-                          <button className={`btn btn-sm ${u.activo?'btn-d':'btn-s'}`} onClick={() => toggleActivo(u.id, u.activo)}>
+                          <button className="btn btn-g btn-sm" title="Restablecer contraseña"
+                            onClick={() => { setResetId(u.id); setNuevaPwd('') }}>🔑</button>
+                          <button className={`btn btn-sm ${u.activo?'btn-d':'btn-s'}`}
+                            onClick={() => toggleActivo(u.id, u.activo)}>
                             {u.activo ? 'Desact.' : 'Activar'}
                           </button>
                         </div>
@@ -216,19 +266,22 @@ export default function UsuariosAdminPage() {
         </div>
       </div>
 
+      {/* Modal crear usuario */}
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm overflow-y-auto">
-          <div className="min-h-full flex items-start justify-center p-4 pt-12">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl">
-              <div className="flex items-center justify-between px-6 py-4 border-b">
+          <div className="min-h-full flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+              <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
                 <h3 className="text-base font-extrabold">＋ Crear usuario</h3>
-                <button onClick={() => setModal(false)} className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-xl">×</button>
+                <button onClick={() => setModal(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-xl">×</button>
               </div>
-              <div className="px-6 py-5 space-y-4 overflow-y-auto max-h-[70vh]">
 
+              <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
+                {/* Rol */}
                 <div className="fg">
                   <label className="lbl">Rol *</label>
-                  <select className="inp" value={form.rol} onChange={F('rol')}>
+                  <select className="inp" value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value, sede_id:'', tecnico_id:'' }))}>
                     <option value="tecnico">👨‍🏫 Técnico Docente</option>
                     <option value="director">🏫 Director de Sede</option>
                     <option value="enlace_institucional">🔗 Enlace Institucional</option>
@@ -237,24 +290,37 @@ export default function UsuariosAdminPage() {
                   </select>
                 </div>
 
+                {/* Nombres */}
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="fg"><label className="lbl">Primer nombre *</label><input className="inp" value={form.primer_nombre} onChange={F('primer_nombre')} /></div>
-                  <div className="fg"><label className="lbl">Segundo nombre</label><input className="inp" value={form.segundo_nombre} onChange={F('segundo_nombre')} /></div>
-                  <div className="fg"><label className="lbl">Primer apellido *</label><input className="inp" value={form.primer_apellido} onChange={F('primer_apellido')} /></div>
-                  <div className="fg"><label className="lbl">Segundo apellido</label><input className="inp" value={form.segundo_apellido} onChange={F('segundo_apellido')} /></div>
+                  <div className="fg"><label className="lbl">Primer nombre *</label>
+                    <input className="inp" value={form.primer_nombre} onChange={F('primer_nombre')} /></div>
+                  <div className="fg"><label className="lbl">Segundo nombre</label>
+                    <input className="inp" value={form.segundo_nombre} onChange={F('segundo_nombre')} /></div>
+                  <div className="fg"><label className="lbl">Primer apellido *</label>
+                    <input className="inp" value={form.primer_apellido} onChange={F('primer_apellido')} /></div>
+                  <div className="fg"><label className="lbl">Segundo apellido</label>
+                    <input className="inp" value={form.segundo_apellido} onChange={F('segundo_apellido')} /></div>
                 </div>
 
-                <div className="fg"><label className="lbl">Teléfono</label><input className="inp" value={form.telefono} onChange={F('telefono')} placeholder="5555-1234" /></div>
+                <div className="fg"><label className="lbl">Teléfono</label>
+                  <input className="inp" value={form.telefono} onChange={F('telefono')} placeholder="5555-1234" /></div>
 
+                {/* Campos específicos por rol */}
                 {form.rol === 'tecnico' && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="fg"><label className="lbl">CUI del técnico (13 dígitos)</label>
-                      <input className="inp font-mono" value={form.cui} onChange={F('cui')} placeholder="Se genera si no se ingresa" /></div>
-                    <div className="fg"><label className="lbl">Código técnico</label>
-                      <input className="inp font-mono" value={form.codigo_tecnico} onChange={F('codigo_tecnico')} placeholder="Auto: TEC-001" /></div>
-                    <div className="fg col-span-2"><label className="lbl">Especialidad</label>
-                      <input className="inp" value={form.especialidad} onChange={F('especialidad')} /></div>
-                    <div className="fg col-span-2"><label className="lbl">Sede principal (opcional)</label>
+                  <div className="space-y-3 p-3 bg-blue-50 rounded-xl">
+                    <div className="text-xs font-bold text-blue-700 uppercase">Datos del técnico</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="fg"><label className="lbl">CUI (13 dígitos)</label>
+                        <input className="inp font-mono" value={form.cui} onChange={F('cui')}
+                          placeholder="Se genera automáticamente si no ingresa" /></div>
+                      <div className="fg"><label className="lbl">Código técnico</label>
+                        <input className="inp font-mono" value={form.codigo_tecnico} onChange={F('codigo_tecnico')}
+                          placeholder="Auto: TEC-001" /></div>
+                    </div>
+                    <div className="fg"><label className="lbl">Especialidad</label>
+                      <input className="inp" value={form.especialidad} onChange={F('especialidad')}
+                        placeholder="Ej: Educación de Jóvenes y Adultos" /></div>
+                    <div className="fg"><label className="lbl">Sede principal (opcional)</label>
                       <select className="inp" value={form.sede_id} onChange={F('sede_id')}>
                         <option value="">— Sin asignar —</option>
                         {sedes.map((sd: any) => <option key={sd.id} value={sd.id}>{sd.nombre}</option>)}
@@ -264,7 +330,8 @@ export default function UsuariosAdminPage() {
                 )}
 
                 {form.rol === 'enlace_institucional' && (
-                  <div className="space-y-3">
+                  <div className="space-y-3 p-3 bg-orange-50 rounded-xl">
+                    <div className="text-xs font-bold text-orange-700 uppercase">Datos del enlace</div>
                     <div className="fg">
                       <label className="lbl">Sede / Institución a cargo *</label>
                       <select className="inp" value={form.sede_id} onChange={F('sede_id')}>
@@ -272,65 +339,105 @@ export default function UsuariosAdminPage() {
                         {sedes.map((sd: any) => <option key={sd.id} value={sd.id}>{sd.nombre}</option>)}
                       </select>
                       {sedes.length === 0 && (
-                        <div className="text-xs text-red-500 mt-1">⚠️ No hay sedes registradas. Crea primero una en Admin → Sedes.</div>
+                        <div className="text-xs text-red-500 mt-1">
+                          ⚠️ No hay sedes registradas. Crea una en Admin → Sedes primero.
+                        </div>
+                      )}
+                      {!form.sede_id && (
+                        <div className="text-xs text-orange-600 mt-1 font-semibold">
+                          ⚠️ La sede es obligatoria para que el enlace pueda inscribir estudiantes
+                        </div>
                       )}
                     </div>
-                    <div className="fg"><label className="lbl">Cargo (opcional)</label>
-                      <input className="inp" value={form.cargo} onChange={F('cargo')} placeholder="Ej: Docente encargado" /></div>
-                    <div className="fg"><label className="lbl">Técnico responsable (opcional)</label>
+                    <div className="fg"><label className="lbl">Cargo</label>
+                      <input className="inp" value={form.cargo} onChange={F('cargo')}
+                        placeholder="Ej: Docente encargado, Director escolar..." /></div>
+                    <div className="fg">
+                      <label className="lbl">Técnico responsable</label>
                       <select className="inp" value={form.tecnico_id} onChange={F('tecnico_id')}>
                         <option value="">— Sin asignar técnico —</option>
-                        {tecnicos.map((t: any) => <option key={t.id} value={t.id}>{t.primer_nombre} {t.primer_apellido} ({t.codigo_tecnico})</option>)}
+                        {tecnicos.map((t: any) => (
+                          <option key={t.id} value={t.id}>
+                            {t.primer_nombre} {t.primer_apellido} ({t.codigo_tecnico})
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
                 )}
 
                 {form.rol === 'director' && (
-                  <div className="space-y-3">
+                  <div className="space-y-3 p-3 bg-green-50 rounded-xl">
+                    <div className="text-xs font-bold text-green-700 uppercase">Datos del director</div>
                     <div className="fg"><label className="lbl">Sede que dirige</label>
                       <select className="inp" value={form.sede_id} onChange={F('sede_id')}>
                         <option value="">— Sin asignar —</option>
                         {sedes.map((sd: any) => <option key={sd.id} value={sd.id}>{sd.nombre}</option>)}
                       </select>
                     </div>
-                    <div className="fg"><label className="lbl">Cargo</label><input className="inp" value={form.cargo} onChange={F('cargo')} placeholder="Director(a)" /></div>
+                    <div className="fg"><label className="lbl">Cargo</label>
+                      <input className="inp" value={form.cargo} onChange={F('cargo')} placeholder="Director(a)" /></div>
                   </div>
                 )}
 
                 {form.rol === 'coordinador_digeex' && (
-                  <div className="fg"><label className="lbl">Cargo</label><input className="inp" value={form.cargo} onChange={F('cargo')} placeholder="Coordinador Departamental" /></div>
+                  <div className="fg">
+                    <label className="lbl">Cargo</label>
+                    <input className="inp" value={form.cargo} onChange={F('cargo')}
+                      placeholder="Coordinador Departamental" />
+                  </div>
                 )}
 
-                <div className="border-t pt-3">
-                  <div className="text-sm font-bold text-gray-700 mb-3">🔒 Credenciales de acceso</div>
-                  <div className="fg"><label className="lbl">Correo electrónico *</label><input type="email" className="inp" value={form.correo} onChange={F('correo')} /></div>
-                  <div className="grid grid-cols-2 gap-3 mt-3">
-                    <div className="fg"><label className="lbl">Contraseña *</label><input type="password" className="inp" value={form.contrasena} onChange={F('contrasena')} /></div>
-                    <div className="fg"><label className="lbl">Confirmar</label><input type="password" className="inp" value={form.confirmar} onChange={F('confirmar')} /></div>
+                {/* Credenciales */}
+                <div className="p-3 bg-gray-50 rounded-xl space-y-3">
+                  <div className="text-xs font-bold text-gray-600 uppercase">🔒 Credenciales de acceso</div>
+                  <div className="fg"><label className="lbl">Correo electrónico *</label>
+                    <input type="email" className="inp" value={form.correo} onChange={F('correo')}
+                      placeholder="correo@dominio.com" /></div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="fg"><label className="lbl">Contraseña * (mín. 6 caracteres)</label>
+                      <input type="password" className="inp" value={form.contrasena} onChange={F('contrasena')} /></div>
+                    <div className="fg"><label className="lbl">Confirmar contraseña</label>
+                      <input type="password" className="inp" value={form.confirmar} onChange={F('confirmar')} /></div>
+                  </div>
+                  <div className="text-xs text-amber-600">
+                    💡 La contraseña aparecerá después de crear al usuario para que puedas compartirla.
                   </div>
                 </div>
               </div>
-              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
+
+              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex-shrink-0">
                 <button className="btn btn-g" onClick={() => setModal(false)}>Cancelar</button>
-                <button className="btn btn-p" onClick={crear} disabled={saving}>{saving ? '...' : '✅ Crear usuario'}</button>
+                <button className="btn btn-p" onClick={crear} disabled={saving}>
+                  {saving
+                    ? <span className="flex items-center gap-2">
+                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        Creando...
+                      </span>
+                    : '✅ Crear usuario'}
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
+      {/* Modal restablecer contraseña */}
       {resetId && (
         <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
             <h3 className="text-base font-extrabold mb-4">🔑 Restablecer contraseña</h3>
             <div className="fg mb-4">
-              <label className="lbl">Nueva contraseña</label>
-              <input type="text" className="inp font-mono" value={nuevaPwd} onChange={e => setNuevaPwd(e.target.value)} />
+              <label className="lbl">Nueva contraseña (mínimo 6 caracteres)</label>
+              <input type="text" className="inp font-mono text-lg" value={nuevaPwd}
+                onChange={e => setNuevaPwd(e.target.value)}
+                placeholder="Escribe la nueva contraseña..." />
             </div>
             <div className="flex justify-end gap-3">
               <button className="btn btn-g" onClick={() => setResetId(null)}>Cancelar</button>
-              <button className="btn btn-p" onClick={resetPassword} disabled={savingReset}>{savingReset ? '...' : '🔑 Restablecer'}</button>
+              <button className="btn btn-p" onClick={resetPassword} disabled={savingReset}>
+                {savingReset ? '...' : '🔑 Restablecer'}
+              </button>
             </div>
           </div>
         </div>
