@@ -274,3 +274,8 @@ export default function SedesAdminPage() {
             </div>
           </div>
         </div>
+      )}
+    </div>
+  )
+}
+
