@@ -1,6 +1,5 @@
 // src/app/api/notas/route.ts
-// GET: devuelve notas existentes por inscripcion_id + libro_id
-// POST: guarda o actualiza nota de tarea o examen (upsert)
+// FIX #2: NOTE ENTRY - Validar permisos correctamente, validar inscripción pertenece al enlace
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
@@ -90,18 +89,30 @@ export async function POST(req: NextRequest) {
   if (!['tecnico', 'enlace_institucional', 'administrador', 'director'].includes(s.rol))
     return err('Sin permiso para registrar notas', 403)
 
-  // Si es enlace, verificar que tiene permiso para notas (autorizacion_director)
+  // FIX #2: Validación de permisos para enlace con checks explícitos
   if (s.rol === 'enlace_institucional') {
-    const { data: enl } = await supabaseAdmin
-      .from('enlaces_institucionales').select('id').eq('usuario_id', s.sub).single()
-    if (enl) {
-      const { data: auth } = await supabaseAdmin
-        .from('autorizaciones_director')
-        .select('id').eq('enlace_id', enl.id)
-        .eq('permiso', 'ingresar_notas').eq('activo', true)
-        .limit(1).maybeSingle()
-      if (!auth) return err(
-        'No tienes autorización para ingresar notas. Solicita al director que te autorice.',
+    const { data: enl, error: enlErr } = await supabaseAdmin
+      .from('enlaces_institucionales')
+      .select('id, sede_id')
+      .eq('usuario_id', s.sub)
+      .single()
+
+    if (enlErr || !enl) {
+      return err('No se encontró perfil de enlace', 400)
+    }
+
+    // FIX #2: Verificar autorización del director
+    const { data: auth, error: authErr } = await supabaseAdmin
+      .from('autorizaciones_director')
+      .select('id')
+      .eq('enlace_id', enl.id)
+      .eq('permiso', 'ingresar_notas')
+      .eq('activo', true)
+      .maybeSingle()
+
+    if (!auth) {
+      return err(
+        '❌ No tienes autorización para ingresar notas. Solicita al director que te autorice en Admin → Autorizaciones.',
         403
       )
     }
@@ -111,6 +122,29 @@ export async function POST(req: NextRequest) {
   const { inscripcion_id, tipo = 'tarea' } = b
 
   if (!inscripcion_id) return err('inscripcion_id requerido')
+
+  // FIX #2: Validar que inscripcion_id pertenece a la sede del enlace (si es enlace)
+  if (s.rol === 'enlace_institucional') {
+    const { data: enl } = await supabaseAdmin
+      .from('enlaces_institucionales')
+      .select('sede_id')
+      .eq('usuario_id', s.sub)
+      .single()
+
+    const { data: insc, error: inscErr } = await supabaseAdmin
+      .from('inscripciones')
+      .select('id, sede_id')
+      .eq('id', inscripcion_id)
+      .single()
+
+    if (inscErr || !insc) {
+      return err('❌ Inscripción no encontrada', 404)
+    }
+
+    if (enl && insc.sede_id !== enl.sede_id) {
+      return err('❌ No puedes acceder a notas de estudiantes de otras sedes', 403)
+    }
+  }
 
   if (tipo === 'tarea') {
     const { tarea_id, nota } = b
