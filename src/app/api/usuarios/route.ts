@@ -1,5 +1,5 @@
 // src/app/api/usuarios/route.ts
-// FIX: campos correctos para crear enlace con sede_id, mensajes claros
+// FIX #1: ENLACE CREATION - Validar sede_id correctamente, no permitir strings vacíos
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -67,8 +67,12 @@ export async function POST(req: NextRequest) {
     telefono = '', codigo_tecnico = '',
     cui = '', especialidad = '',
     cargo = '', departamento_id,
-    sede_id, tecnico_id,
   } = b
+
+  // FIX #1: Extraer sede_id y tecnico_id con validación explícita
+  // No permitir strings vacíos - deben ser null o UUID válido
+  const sede_id = b.sede_id && String(b.sede_id).trim() !== '' ? String(b.sede_id).trim() : null
+  const tecnico_id = b.tecnico_id && String(b.tecnico_id).trim() !== '' ? String(b.tecnico_id).trim() : null
 
   // Validaciones básicas con mensajes claros
   if (!correo?.trim())           return err('El correo electrónico es requerido')
@@ -78,9 +82,12 @@ export async function POST(req: NextRequest) {
   if (!primer_apellido?.trim())  return err('El primer apellido es requerido')
   if (contrasena.length < 6)     return err('La contraseña debe tener al menos 6 caracteres')
 
-  // Validaciones por rol
+  // FIX #1: Validación estricta para enlace_institucional
+  // sede_id es NOT NULL en la BD, validar que NO sea null
   if (rol === 'enlace_institucional') {
-    if (!sede_id) return err('La sede/institución es OBLIGATORIA para el enlace institucional. Selecciona una sede.')
+    if (!sede_id) {
+      return err('❌ La sede/institución es OBLIGATORIA para crear un enlace institucional. Debes seleccionar una sede.')
+    }
   }
 
   const correoNorm = correo.toLowerCase().trim()
@@ -153,20 +160,34 @@ export async function POST(req: NextRequest) {
     }
 
     if (rol === 'enlace_institucional') {
-      // sede_id es NOT NULL en la BD — ya validado arriba
+      // FIX #1: sede_id es NOT NULL en la BD — ya validado arriba, NUNCA será null aquí
+      if (!sede_id) {
+        await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
+        return err('Error interno: sede_id debe ser válido para enlace', 500)
+      }
+
+      const enlacePayload: any = {
+        usuario_id:       usu.id,
+        primer_nombre:    primer_nombre.trim(),
+        segundo_nombre:   segundo_nombre?.trim() || null,
+        primer_apellido:  primer_apellido.trim(),
+        segundo_apellido: segundo_apellido?.trim() || null,
+        telefono:         telefono || null,
+        cargo:            cargo?.trim() || null,
+        sede_id:          sede_id,  // ✅ OBLIGATORIO, validado arriba
+        activo:           true,
+      }
+
+      // tecnico_id es opcional
+      if (tecnico_id) {
+        enlacePayload.tecnico_id = tecnico_id
+      }
+
       const { data: enlCreado, error: eEnl } = await supabaseAdmin
-        .from('enlaces_institucionales').insert({
-          usuario_id:      usu.id,
-          primer_nombre:   primer_nombre.trim(),
-          segundo_nombre:  segundo_nombre?.trim()   || null,
-          primer_apellido: primer_apellido.trim(),
-          segundo_apellido:segundo_apellido?.trim() || null,
-          telefono:        telefono                 || null,
-          cargo:           cargo?.trim()            || null,
-          sede_id,           // ← NOT NULL, ya validado
-          tecnico_id:      tecnico_id               || null,
-          activo:          true,
-        }).select('id').single()
+        .from('enlaces_institucionales')
+        .insert(enlacePayload)
+        .select('id')
+        .single()
 
       if (eEnl) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
