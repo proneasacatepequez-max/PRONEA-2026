@@ -1,6 +1,6 @@
 'use client'
 // src/app/dashboard/admin/usuarios/page.tsx
-// FIX: mensajes claros de éxito/error, campo sede_id correcto para enlace
+// FIX #1: Asegurar que sede_id se envía null (no undefined ni '') cuando no se selecciona
 import { useState, useEffect, useCallback } from 'react'
 
 const ROL_COLOR: Record<string, string> = {
@@ -84,20 +84,54 @@ export default function UsuariosAdminPage() {
     if (!form.contrasena.trim())     { flash('❌ La contraseña es requerida', 'err'); return }
     if (form.contrasena !== form.confirmar) { flash('❌ Las contraseñas no coinciden', 'err'); return }
     if (form.contrasena.length < 6)  { flash('❌ La contraseña debe tener al menos 6 caracteres', 'err'); return }
+    
+    // FIX #1: Validar que enlace tiene sede
     if (form.rol === 'enlace_institucional' && !form.sede_id) {
       flash('❌ La sede/institución es OBLIGATORIA para crear un enlace', 'err'); return
     }
 
     setSaving(true)
+    
+    // FIX #1: Construir payload con null explícito para campos opcionales
+    const payload: any = {
+      rol: form.rol,
+      correo: form.correo,
+      contrasena: form.contrasena,
+      primer_nombre: form.primer_nombre,
+      primer_apellido: form.primer_apellido,
+      segundo_nombre: form.segundo_nombre,
+      segundo_apellido: form.segundo_apellido,
+      telefono: form.telefono,
+      cargo: form.cargo,
+    }
+
+    // Solo incluir sede_id si tiene valor, de lo contrario null
+    if (form.sede_id && form.sede_id.trim() !== '') {
+      payload.sede_id = form.sede_id
+    }
+
+    // Campos específicos por rol
+    if (form.rol === 'tecnico') {
+      payload.codigo_tecnico = form.codigo_tecnico
+      payload.cui = form.cui
+      payload.especialidad = form.especialidad
+    }
+
+    if (form.rol === 'coordinador_digeex' && form.departamento_id) {
+      payload.departamento_id = parseInt(form.departamento_id)
+    }
+
+    // Técnico opcional para enlace
+    if (form.rol === 'enlace_institucional' && form.tecnico_id) {
+      payload.tecnico_id = form.tecnico_id
+    }
+
+    payload.ciclo_escolar = 2026
+
     const res = await fetch('/api/usuarios', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...form,
-        sede_id:         form.sede_id        || undefined,
-        tecnico_id:      form.tecnico_id     || undefined,
-        departamento_id: form.departamento_id ? parseInt(form.departamento_id) : undefined,
-        ciclo_escolar:   2026,
-      }),
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     })
     const d = await res.json()
 
@@ -131,81 +165,60 @@ export default function UsuariosAdminPage() {
       body: JSON.stringify({ id: resetId, reset_password: nuevaPwd }),
     })
     const d = await res.json()
-    flash(d.mensaje ?? (res.ok ? '✅ Contraseña restablecida' : '❌ Error'), res.ok ? 'ok' : 'err')
     if (res.ok) {
-      setResetId(null); setNuevaPwd('')
-      setPwdVisible({ correo: '(usuario)', pwd: nuevaPwd })
+      setResetId(null)
+      setNuevaPwd('')
+      setPwdVisible(null)
+      flash(d.mensaje ?? '✅ Contraseña restablecida', 'ok')
+    } else {
+      flash('❌ ' + (d.error ?? 'Error'), 'err')
     }
     setSavingReset(false)
   }
 
   const getNombrePerfil = (u: any) => {
     const p = u.perfil
-    if (!p) return <span className="text-gray-300 text-xs italic">Sin perfil configurado</span>
-    const nombre = `${p.primer_nombre ?? ''} ${p.primer_apellido ?? ''}`.trim()
-    const extra  = p.codigo_tecnico ? ` · ${p.codigo_tecnico}` : p.cargo ? ` · ${p.cargo}` : ''
-    const sede   = p.sede?.nombre   ? ` — ${p.sede.nombre}` : ''
-    const tecnico = p.tecnico ? ` [${p.tecnico.primer_nombre} ${p.tecnico.primer_apellido}]` : ''
-    return (
-      <span className="font-semibold">
-        {nombre}
-        {extra && <span className="text-gray-400 font-normal text-xs">{extra}</span>}
-        {sede   && <span className="text-orange-500 text-xs"> {sede}</span>}
-        {tecnico && <span className="text-blue-400 text-xs"> {tecnico}</span>}
-      </span>
-    )
+    if (!p) return u.correo
+    const nom = `${p.primer_nombre ?? ''} ${p.primer_apellido ?? ''}`.trim()
+    if (p.codigo_tecnico) return `${nom} (${p.codigo_tecnico})`
+    if (p.telefono) return `${nom} (${p.telefono})`
+    return nom || u.correo
   }
 
   const filtrados = usuarios.filter(u => {
-    const txt = `${u.correo} ${u.perfil?.primer_nombre ?? ''} ${u.perfil?.primer_apellido ?? ''} ${u.perfil?.codigo_tecnico ?? ''}`.toLowerCase()
-    return (!buscar || txt.includes(buscar.toLowerCase())) && (!filtroRol || u.rol === filtroRol)
+    if (filtroRol && u.rol !== filtroRol) return false
+    if (!buscar.trim()) return true
+    const txt = `${u.correo} ${getNombrePerfil(u)}`.toLowerCase()
+    return txt.includes(buscar.toLowerCase())
   })
 
   return (
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">👥 Gestión de Usuarios</div>
-          <div className="text-xs text-gray-400">{filtrados.length} usuario(s)</div>
+          <div className="page-title">👥 Usuarios del sistema</div>
+          <div className="text-xs text-gray-400">{usuarios.length} usuarios registrados</div>
         </div>
-        <button className="btn btn-p" onClick={abrirCrear}>＋ Crear usuario</button>
+        <button onClick={abrirCrear} className="btn btn-p">＋ Crear usuario</button>
       </header>
 
-      <div className="pc">
+      <div className="space-y-4">
         {msg && (
-          <div className={`alert mb-4 ${msgType === 'ok' ? 'al-s' : 'al-e'}`}>
+          <div className={`card border-l-4 ${msgType === 'ok' ? 'border-green-500 bg-green-50 text-green-700' : 'border-red-500 bg-red-50 text-red-700'} text-sm font-bold`}>
             {msg}
           </div>
         )}
 
-        {/* Contraseña generada */}
-        {pwdVisible && (
-          <div className="alert al-w mb-4">
-            <div className="font-bold text-sm">🔑 Contraseña generada — compártela con el usuario:</div>
-            <div className="text-xs text-gray-600 mt-1">Correo: <b>{pwdVisible.correo}</b></div>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="font-mono text-lg bg-white px-3 py-1 rounded border">{pwdVisible.pwd}</span>
-              <button className="btn btn-g btn-sm"
-                onClick={() => { navigator.clipboard.writeText(pwdVisible.pwd); flash('✅ Contraseña copiada') }}>
-                📋 Copiar
-              </button>
-              <button className="btn btn-g btn-sm" onClick={() => setPwdVisible(null)}>✕</button>
-            </div>
+        <div className="card flex gap-2 flex-wrap items-center">
+          <div className="flex-1 min-w-48">
+            <input className="inp" placeholder="🔍 Buscar por correo o nombre..."
+              value={buscar} onChange={e => setBuscar(e.target.value)} />
           </div>
-        )}
-
-        <div className="card mb-4">
-          <div className="flex gap-3 flex-wrap">
-            <div className="flex-1 min-w-48">
-              <input className="inp" placeholder="🔍 Buscar por correo o nombre..."
-                value={buscar} onChange={e => setBuscar(e.target.value)} />
-            </div>
-            <div className="w-48">
-              <select className="inp" value={filtroRol} onChange={e => setFiltroRol(e.target.value)}>
-                <option value="">Todos los roles</option>
-                {Object.entries(ROL_LABEL).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </div>
+          <div className="w-48">
+            <select className="inp" value={filtroRol} onChange={e => setFiltroRol(e.target.value)}>
+              <option value="">Todos los roles</option>
+              {Object.entries(ROL_LABEL).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
           </div>
         </div>
 
@@ -409,12 +422,7 @@ export default function UsuariosAdminPage() {
               <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex-shrink-0">
                 <button className="btn btn-g" onClick={() => setModal(false)}>Cancelar</button>
                 <button className="btn btn-p" onClick={crear} disabled={saving}>
-                  {saving
-                    ? <span className="flex items-center gap-2">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Creando...
-                      </span>
-                    : '✅ Crear usuario'}
+                  {saving ? '⏳ Creando...' : '✓ Crear usuario'}
                 </button>
               </div>
             </div>
@@ -424,21 +432,38 @@ export default function UsuariosAdminPage() {
 
       {/* Modal restablecer contraseña */}
       {resetId && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <h3 className="text-base font-extrabold mb-4">🔑 Restablecer contraseña</h3>
-            <div className="fg mb-4">
-              <label className="lbl">Nueva contraseña (mínimo 6 caracteres)</label>
-              <input type="text" className="inp font-mono text-lg" value={nuevaPwd}
-                onChange={e => setNuevaPwd(e.target.value)}
-                placeholder="Escribe la nueva contraseña..." />
-            </div>
-            <div className="flex justify-end gap-3">
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-base mb-4">🔑 Restablecer contraseña</h3>
+            <input type="password" className="inp w-full mb-3" placeholder="Nueva contraseña (mín. 6 caracteres)"
+              value={nuevaPwd} onChange={e => setNuevaPwd(e.target.value)} />
+            <div className="flex gap-2 justify-end">
               <button className="btn btn-g" onClick={() => setResetId(null)}>Cancelar</button>
               <button className="btn btn-p" onClick={resetPassword} disabled={savingReset}>
-                {savingReset ? '...' : '🔑 Restablecer'}
+                {savingReset ? '...' : '✓ Restablecer'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal mostrar contraseña */}
+      {pwdVisible && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <h3 className="font-bold text-base mb-3">✅ Usuario creado correctamente</h3>
+            <div className="space-y-3 p-3 bg-blue-50 rounded-lg mb-4">
+              <div className="text-sm">
+                <span className="font-bold text-gray-700">Correo:</span>
+                <div className="font-mono text-sm bg-white p-2 rounded mt-1">{pwdVisible.correo}</div>
+              </div>
+              <div className="text-sm">
+                <span className="font-bold text-gray-700">Contraseña:</span>
+                <div className="font-mono text-sm bg-white p-2 rounded mt-1">{pwdVisible.pwd}</div>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">Copia estas credenciales antes de cerrar.</p>
+            <button className="btn btn-p w-full" onClick={() => setPwdVisible(null)}>✓ Entendido</button>
           </div>
         </div>
       )}
