@@ -2,6 +2,7 @@
 // src/app/dashboard/director/escalas/page.tsx
 // FIX: selector "Libro 1/2" — comparación consistente de tipos (todo string)
 // AGREGADO: tabla de tareas guardadas visible en el detalle
+// FIX #5: ASSIGN TÉCNICO - Funcionalidad para asignar técnico a escala pendiente
 import { useState, useEffect, useCallback } from 'react'
 
 export default function DirectorEscalasPage() {
@@ -18,6 +19,12 @@ export default function DirectorEscalasPage() {
   const [ciclo,        setCiclo]        = useState('2026')
   const [tareasVer,    setTareasVer]    = useState<any[]>([])
   const [loadTareas,   setLoadTareas]   = useState(false)
+
+  // FIX #5: Estados para asignar técnico
+  const [modalAsignarTecnico, setModalAsignarTecnico] = useState(false)
+  const [escalaPendiente, setEscalaPendiente] = useState<any>(null)
+  const [tecnicoSeleccionado, setTecnicoSeleccionado] = useState('')
+  const [asignandoTecnico, setAsignandoTecnico] = useState(false)
 
   const [form, setForm] = useState({
     etapa_id: '', libro_id: '', area_id: '',
@@ -103,6 +110,41 @@ export default function DirectorEscalasPage() {
     const d = await fetch(url).then(r => r.json()).catch(() => ({ tareas: [] }))
     setTareasVer(d.tareas ?? [])
     setLoadTareas(false)
+  }
+
+  // FIX #5: Función para asignar técnico a escala pendiente
+  const asignarTecnico = async () => {
+    if (!escalaPendiente || !tecnicoSeleccionado) {
+      flash('❌ Selecciona un técnico')
+      return
+    }
+
+    setAsignandoTecnico(true)
+    const res = await fetch('/api/escala-asignaciones', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        etapa_id: escalaPendiente.etapa_id,
+        libro_id: escalaPendiente.libro_id || undefined,
+        area_id: escalaPendiente.area_id || undefined,
+        tecnico_id: tecnicoSeleccionado,
+        ciclo_escolar: parseInt(ciclo),
+        version_libro: escalaPendiente.version_libro || 'nuevo',
+        observaciones: escalaPendiente.observaciones || null,
+      }),
+    })
+    const d = await res.json()
+
+    if (res.ok) {
+      flash('✅ Técnico asignado correctamente')
+      setModalAsignarTecnico(false)
+      setEscalaPendiente(null)
+      setTecnicoSeleccionado('')
+      await cargar()
+    } else {
+      flash('❌ ' + (d.error ?? 'Error al asignar'))
+    }
+    setAsignandoTecnico(false)
   }
 
   const guardar = async () => {
@@ -206,8 +248,14 @@ export default function DirectorEscalasPage() {
                         </span>
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
-                        <div className="font-semibold text-sm">{(a.tecnico as any)?.primer_nombre} {(a.tecnico as any)?.primer_apellido}</div>
-                        <div className="text-xs text-gray-400 font-mono">{(a.tecnico as any)?.codigo_tecnico}</div>
+                        {a.tecnico ? (
+                          <>
+                            <div className="font-semibold text-sm">{(a.tecnico as any)?.primer_nombre} {(a.tecnico as any)?.primer_apellido}</div>
+                            <div className="text-xs text-gray-400 font-mono">{(a.tecnico as any)?.codigo_tecnico}</div>
+                          </>
+                        ) : (
+                          <span className="text-xs text-orange-500 font-semibold">⚠️ Sin asignar</span>
+                        )}
                       </td>
                       <td className="px-3 py-2.5 text-center">
                         <button
@@ -223,6 +271,25 @@ export default function DirectorEscalasPage() {
                       <td className="px-3 py-2.5">
                         <div className="flex gap-1 flex-nowrap">
                           <button className="btn btn-g btn-sm" onClick={() => abrirVerTareas(a)} title="Ver tareas">👁️</button>
+                          {!a.tecnico && (
+                            <button 
+                              className="btn btn-sm btn-g" 
+                              title="Asignar técnico responsable"
+                              onClick={() => {
+                                setEscalaPendiente({
+                                  etapa_id: (a.etapa as any)?.id,
+                                  libro_id: (a.libro as any)?.id,
+                                  area_id: (a.area as any)?.id,
+                                  version_libro: a.version_libro,
+                                  observaciones: a.observaciones,
+                                })
+                                setTecnicoSeleccionado('')
+                                setModalAsignarTecnico(true)
+                              }}
+                            >
+                              🧑‍🏫 Asignar
+                            </button>
+                          )}
                           <button className="btn btn-p btn-sm" onClick={() => abrirEditar(a)} title="Editar / Transferir">✏️</button>
                           <button className="btn btn-d btn-sm" onClick={() => eliminar(a.id)} title="Eliminar">🗑️</button>
                         </div>
@@ -392,6 +459,82 @@ export default function DirectorEscalasPage() {
               <div className="flex justify-end px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
                 <button className="btn btn-g" onClick={() => setModal(null)}>Cerrar</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* FIX #5: Modal Asignar Técnico */}
+      {modalAsignarTecnico && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold text-base">🧑‍🏫 Asignar técnico responsable</h3>
+              <button 
+                onClick={() => {
+                  setModalAsignarTecnico(false)
+                  setEscalaPendiente(null)
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="px-6 py-4 space-y-4">
+              {escalaPendiente && (
+                <div className="p-3 bg-blue-50 rounded text-sm">
+                  <div className="font-bold text-blue-700">Escala seleccionada:</div>
+                  <div className="text-gray-600 mt-1">
+                    {etapas.find(e => e.id === escalaPendiente.etapa_id)?.nombre || '—'} 
+                    {escalaPendiente.libro_id ? ` - Libro ${libros.find(l => l.id === escalaPendiente.libro_id)?.numero || ''}` : ''}
+                    {escalaPendiente.area_id ? ` - Área ${areas.find(a => a.id === escalaPendiente.area_id)?.nombre || ''}` : ''}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    Versión: {escalaPendiente.version_libro === 'nuevo' ? '📗 Nuevo' : '📙 Viejo'}
+                  </div>
+                </div>
+              )}
+
+              <div className="fg">
+                <label className="lbl">Técnico responsable *</label>
+                <select 
+                  className="inp" 
+                  value={tecnicoSeleccionado} 
+                  onChange={e => setTecnicoSeleccionado(e.target.value)}
+                >
+                  <option value="">— Seleccionar técnico —</option>
+                  {tecnicos.map((t: any) => (
+                    <option key={t.id} value={t.id}>
+                      {t.primer_nombre} {t.primer_apellido} ({t.codigo_tecnico})
+                    </option>
+                  ))}
+                </select>
+                {tecnicos.length === 0 && (
+                  <div className="text-xs text-red-500 mt-1">
+                    ⚠️ No hay técnicos disponibles
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t flex justify-end gap-2 bg-gray-50 rounded-b-2xl">
+              <button 
+                className="btn btn-g" 
+                onClick={() => {
+                  setModalAsignarTecnico(false)
+                  setEscalaPendiente(null)
+                }}
+              >
+                Cancelar
+              </button>
+              <button 
+                className="btn btn-p" 
+                onClick={asignarTecnico}
+                disabled={asignandoTecnico || !tecnicoSeleccionado}
+              >
+                {asignandoTecnico ? '⏳ Asignando...' : '✓ Asignar'}
+              </button>
             </div>
           </div>
         </div>
