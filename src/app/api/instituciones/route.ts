@@ -1,6 +1,6 @@
 // src/app/api/instituciones/route.ts
-// Instituciones = Sedes (son la misma entidad en este sistema)
-// El enlace se vincula a una sede/institución
+// Las instituciones SON las sedes — no existe tabla "instituciones" separada.
+// El enlace_institucional se vincula directamente a una sede (sede_id).
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
@@ -9,31 +9,20 @@ export async function GET(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
 
-  // Intentar tabla instituciones primero
-  const { data: inst, error: eInst } = await supabaseAdmin
-    .from('instituciones')
-    .select('id, nombre, tipo, activo, municipio:municipios(id, nombre)')
-    .order('nombre')
-
-  if (!eInst && inst) {
-    return ok(inst.filter((i: any) => i.activo !== false))
-  }
-
-  // Fallback: usar sedes directamente como instituciones
-  const { data: sedes, error: eSedes } = await supabaseAdmin
+  const { data: sedes, error } = await supabaseAdmin
     .from('sedes')
     .select('id, nombre, activo, municipio:municipios(id, nombre)')
     .eq('activo', true)
     .order('nombre')
 
-  if (eSedes) return err(eSedes.message, 500)
+  if (error) return err(error.message, 500)
 
-  return ok((sedes ?? []).map((s: any) => ({
-    id:        s.id,
-    nombre:    s.nombre,
+  return ok((sedes ?? []).map((sede: any) => ({
+    id:        sede.id,
+    nombre:    sede.nombre,
     tipo:      'Sede educativa',
-    activo:    s.activo,
-    municipio: s.municipio,
+    activo:    sede.activo,
+    municipio: sede.municipio,
   })))
 }
 
@@ -44,7 +33,6 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}))
   if (!b.nombre?.trim()) return err('nombre requerido')
 
-  // Crear sede (que es la institución)
   const { data, error } = await supabaseAdmin.from('sedes').insert({
     nombre:       b.nombre.trim(),
     municipio_id: b.municipio_id ? parseInt(b.municipio_id) : null,
