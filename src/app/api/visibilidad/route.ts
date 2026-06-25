@@ -1,6 +1,4 @@
 // src/app/api/visibilidad/route.ts
-// FIX: usa sede_id (columna agregada en el SQL de limpieza) en lugar de
-// institucion_id, que es la causa de que el dropdown apareciera vacío
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
@@ -31,7 +29,6 @@ export async function POST(req: NextRequest) {
   const b = await req.json().catch(() => ({}))
   if (!b.sede_id) return err('sede_id requerido')
 
-  // Si ya existe configuración para esa sede, actualizarla en vez de duplicar
   const { data: existente } = await supabaseAdmin
     .from('visibilidad_institucion')
     .select('id').eq('sede_id', b.sede_id).maybeSingle()
@@ -49,8 +46,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { data, error } = await supabaseAdmin.from('visibilidad_institucion').insert({
-    sede_id: b.sede_id,
-    institucion_id: b.sede_id, // compat con columna vieja si aún es NOT NULL
+    sede_id:                  b.sede_id,
     visible_para_coordinador: Boolean(b.visible_para_coordinador ?? true),
     ocultar_enlace:           Boolean(b.ocultar_enlace ?? false),
     razon_ocultamiento:       b.razon_ocultamiento || null,
