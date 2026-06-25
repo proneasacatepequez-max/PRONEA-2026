@@ -33,48 +33,58 @@ export async function GET(req: NextRequest) {
 
     const ciclo = 2026
 
-    // FIX: Contar técnicos de la sede
-    const { data: tecnicos, error: tecnicosError } = await supabase
+    // ✅ CORREGIDO: Contar técnicos de la sede usando count correcto
+    const { count: totalTecnicos, error: tecnicosError } = await supabase
       .from('tecnico_sedes')
-      .select('tecnico_id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('sede_id', director.sede_id)
+      .eq('activo', true)
 
-    const totalTecnicos = tecnicos?.length || 0
+    if (tecnicosError) {
+      console.error('Error contando técnicos:', tecnicosError)
+    }
 
-    // FIX: Contar estudiantes inscritos en la sede
-    const { data: inscripciones, error: inscripcionesError } = await supabase
+    // ✅ CORREGIDO: Contar estudiantes inscritos en la sede usando count correcto
+    const { count: totalEstudiantes, error: inscripcionesError } = await supabase
       .from('inscripciones')
-      .select('id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('sede_id', director.sede_id)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
 
-    const totalEstudiantes = inscripciones?.length || 0
+    if (inscripcionesError) {
+      console.error('Error contando estudiantes:', inscripcionesError)
+    }
 
     // Contar sedes (normalmente 1 para director)
     const totalSedes = 1
 
     // Contar etapas activas
-    const { data: etapas, error: etapasError } = await supabase
+    const { count: totalEtapas, error: etapasError } = await supabase
       .from('etapas')
-      .select('id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
+      .eq('activo', true)
 
-    const totalEtapas = etapas?.length || 0
+    if (etapasError) {
+      console.error('Error contando etapas:', etapasError)
+    }
 
     // Contar escalas pendientes
-    const { data: escalasPendientes } = await supabase
+    const { count: totalEscalasPendientes, error: escalasError } = await supabase
       .from('escala_asignaciones')
-      .select('id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('estado', 'pendiente')
       .eq('ciclo_escolar', ciclo)
 
-    const totalEscalasPendientes = escalasPendientes?.length || 0
+    if (escalasError) {
+      console.error('Error contando escalas pendientes:', escalasError)
+    }
 
     // Log para debugging
     console.log(`Dashboard Director - Sede: ${director.sede_id}`)
-    console.log(`  Técnicos: ${totalTecnicos}`)
-    console.log(`  Estudiantes: ${totalEstudiantes}`)
-    console.log(`  Escalas pendientes: ${totalEscalasPendientes}`)
+    console.log(`  Técnicos: ${totalTecnicos || 0}`)
+    console.log(`  Estudiantes: ${totalEstudiantes || 0}`)
+    console.log(`  Escalas pendientes: ${totalEscalasPendientes || 0}`)
 
     return NextResponse.json({
       ok: true,
@@ -83,11 +93,11 @@ export async function GET(req: NextRequest) {
         sede_id: director.sede_id,
       },
       estadisticas: {
-        totalTecnicos,
-        totalEstudiantes,
+        totalTecnicos: totalTecnicos || 0,
+        totalEstudiantes: totalEstudiantes || 0,
         totalSedes,
-        totalEtapas,
-        totalEscalasPendientes,
+        totalEtapas: totalEtapas || 0,
+        totalEscalasPendientes: totalEscalasPendientes || 0,
       },
       ciclo,
     })
