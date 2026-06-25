@@ -1,5 +1,6 @@
 'use client'
 // src/app/dashboard/admin/autorizaciones/page.tsx
+// FIX #12: Mostrar sede cuando selecciona un enlace
 // Admin confirma o revoca autorizaciones que el director creó para sus enlaces
 import { useState, useEffect, useCallback } from 'react'
 
@@ -8,6 +9,8 @@ export default function AdminAutorizacionesPage() {
   const [loading, setLoading] = useState(true)
   const [msg,     setMsg]     = useState('')
   const [saving,  setSaving]  = useState<string | null>(null)
+  const [sede,    setSede]    = useState<any>(null)
+  const [loadingSede, setLoadingSede] = useState(false)
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
 
@@ -20,6 +23,24 @@ export default function AdminAutorizacionesPage() {
   }, [])
 
   useEffect(() => { cargar() }, [cargar])
+
+  const cargarSedeDelEnlace = async (enlaceId: string) => {
+    if (!enlaceId) {
+      setSede(null)
+      return
+    }
+
+    setLoadingSede(true)
+    const res = await fetch(`/api/enlaces-institucionales/${enlaceId}`)
+    const datos = await res.json()
+
+    if (res.ok && datos.sede) {
+      setSede(datos.sede)
+    } else {
+      setSede(null)
+    }
+    setLoadingSede(false)
+  }
 
   const confirmar = async (id: string) => {
     setSaving(id)
