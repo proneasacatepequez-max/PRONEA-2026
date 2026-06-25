@@ -33,38 +33,44 @@ export async function GET(req: NextRequest) {
 
     const ciclo = 2026
 
-    // FIX: Contar estudiantes asignados a este técnico
-    const { data: inscripciones, error: inscripcionesError } = await supabase
+    // ✅ CORREGIDO: Contar estudiantes asignados a este técnico usando count correcto
+    const { count: totalEstudiantes, error: inscripcionesError } = await supabase
       .from('inscripciones')
-      .select('id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
 
-    const totalEstudiantes = inscripciones?.length || 0
+    if (inscripcionesError) {
+      console.error('Error contando estudiantes:', inscripcionesError)
+    }
 
     // Contar escalas asignadas
-    const { data: escalas } = await supabase
+    const { count: totalEscalasAsignadas, error: escalasError } = await supabase
       .from('escala_asignaciones')
-      .select('id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
 
-    const totalEscalasAsignadas = escalas?.length || 0
+    if (escalasError) {
+      console.error('Error contando escalas:', escalasError)
+    }
 
     // Contar notas ingresadas
-    const { data: notas } = await supabase
+    const { count: totalNotasIngresadas, error: notasError } = await supabase
       .from('notas_tareas')
-      .select('id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('registrado_por', session.id)
 
-    const totalNotasIngresadas = notas?.length || 0
+    if (notasError) {
+      console.error('Error contando notas:', notasError)
+    }
 
     // Log para debugging
     console.log(`Dashboard Técnico - ID: ${tecnico.id}`)
-    console.log(`  Estudiantes: ${totalEstudiantes}`)
-    console.log(`  Escalas: ${totalEscalasAsignadas}`)
-    console.log(`  Notas: ${totalNotasIngresadas}`)
+    console.log(`  Estudiantes: ${totalEstudiantes || 0}`)
+    console.log(`  Escalas: ${totalEscalasAsignadas || 0}`)
+    console.log(`  Notas: ${totalNotasIngresadas || 0}`)
 
     return NextResponse.json({
       ok: true,
@@ -72,9 +78,9 @@ export async function GET(req: NextRequest) {
         id: tecnico.id,
       },
       estadisticas: {
-        totalEstudiantes,
-        totalEscalasAsignadas,
-        totalNotasIngresadas,
+        totalEstudiantes: totalEstudiantes || 0,
+        totalEscalasAsignadas: totalEscalasAsignadas || 0,
+        totalNotasIngresadas: totalNotasIngresadas || 0,
       },
       ciclo,
     })
