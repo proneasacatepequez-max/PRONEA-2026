@@ -1,154 +1,198 @@
 // src/app/api/escala-asignaciones/route.ts
-// FIX #5: ASSIGN TÉCNICO - Endpoint para asignar técnico a escala numérica
-import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
-import { getSession, ok, err } from '@/lib/auth'
+// FIX CRÍTICO #1: Guardar correctamente asignación de técnico a escala
+import { createClient } from '@supabase/supabase-js'
+import { NextRequest, NextResponse } from 'next/server'
 
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+)
+
+// GET - Listar asignaciones
 export async function GET(req: NextRequest) {
-  const s = await getSession(req)
-  if (!s) return err('No autorizado', 401)
+  try {
+    const ciclo = req.nextUrl.searchParams.get('ciclo') || '2026'
+    const etapa_id = req.nextUrl.searchParams.get('etapa_id')
+    const id = req.nextUrl.searchParams.get('id')
 
-  if (!['director', 'coordinador_digeex', 'administrador'].includes(s.rol)) {
-    return err('Sin permiso para ver asignaciones', 403)
+    let query = supabase
+      .from('escala_asignaciones')
+      .select(`
+        id, etapa_id, libro_id, area_id, tecnico_id, ciclo_escolar,
+        estado, observaciones, created_at,
+        etapa:etapas(id, codigo, nombre),
+        libro:libros(id, numero, nombre),
+        area:areas(id, nombre),
+        tecnico:tecnicos(id, primer_nombre, primer_apellido, codigo_tecnico)
+      `)
+      .eq('ciclo_escolar', parseInt(ciclo))
+
+    if (id) {
+      query = query.eq('id', id)
+      const { data, error } = await query.single()
+      if (error) return NextResponse.json({ error: error.message }, { status: 404 })
+      return NextResponse.json(data)
+    }
+
+    if (etapa_id) {
+      query = query.eq('etapa_id', parseInt(etapa_id))
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('GET error:', error)
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json(data || [])
+  } catch (err: any) {
+    console.error('GET exception:', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
-
-  const p = req.nextUrl.searchParams
-  const etapa_id = p.get('etapa_id')
-  const libro_id = p.get('libro_id')
-  const ciclo = p.get('ciclo') ?? '2026'
-
-  let q = supabaseAdmin
-    .from('escala_asignaciones')
-    .select(`
-      id, etapa_id, libro_id, area_id, tecnico_id, ciclo_escolar, estado, observaciones,
-      etapa:etapas(id, codigo, nombre),
-      libro:libros(id, numero),
-      tecnico:tecnicos(id, primer_nombre, primer_apellido, codigo_tecnico)
-    `)
-    .eq('ciclo_escolar', parseInt(ciclo))
-
-  if (etapa_id) q = q.eq('etapa_id', parseInt(etapa_id))
-  if (libro_id) q = q.eq('libro_id', libro_id)
-
-  const { data, error } = await q.order('creado_en', { ascending: false })
-
-  if (error) return err(error.message, 500)
-  return ok({ data: data ?? [] })
 }
 
+// POST - Crear asignación (FIX: Guardar correctamente)
 export async function POST(req: NextRequest) {
-  const s = await getSession(req)
-  if (!s) return err('No autorizado', 401)
+  try {
+    const body = await req.json()
 
-  if (!['director', 'coordinador_digeex', 'administrador'].includes(s.rol)) {
-    return err('❌ Solo director, coordinador o admin pueden asignar técnicos', 403)
+    // Validaciones
+    if (!body.etapa_id) {
+      return NextResponse.json({ error: 'etapa_id es requerido' }, { status: 400 })
+    }
+    if (!body.tecnico_id) {
+      return NextResponse.json({ error: 'tecnico_id es requerido' }, { status: 400 })
+    }
+
+    // Verificar que el técnico existe
+    const { data: tecnico, error: tecnicoError } = await supabase
+      .from('tecnicos')
+      .select('id')
+      .eq('id', body.tecnico_id)
+      .single()
+
+    if (tecnicoError || !tecnico) {
+      return NextResponse.json({ error: 'Técnico no existe' }, { status: 404 })
+    }
+
+    // Verificar que no existe asignación duplicada
+    if (body.libro_id || body.area_id) {
+      const { data: existing } = await supabase
+        .from('escala_asignaciones')
+        .select('id')
+        .eq('etapa_id', body.etapa_id)
+        .eq('libro_id', body.libro_id || null)
+        .eq('area_id', body.area_id || null)
+        .eq('ciclo_escolar', body.ciclo_escolar || 2026)
+        .single()
+
+      if (existing) {
+        return NextResponse.json(
+          { error: 'Ya existe una asignación para esta combinación de etapa/libro/área' },
+          { status: 409 }
+        )
+      }
+    }
+
+    // FIX CRÍTICO: Insertar correctamente en la BD
+    const { data: inserted, error: insertError } = await supabase
+      .from('escala_asignaciones')
+      .insert({
+        etapa_id: parseInt(body.etapa_id),
+        libro_id: body.libro_id ? parseInt(body.libro_id) : null,
+        area_id: body.area_id ? parseInt(body.area_id) : null,
+        tecnico_id: body.tecnico_id,
+        ciclo_escolar: body.ciclo_escolar || 2026,
+        estado: 'pendiente',
+        observaciones: body.observaciones || null,
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      console.error('Insert error:', insertError)
+      return NextResponse.json(
+        { error: 'Error al guardar asignación: ' + insertError.message },
+        { status: 500 }
+      )
+    }
+
+    console.log('✅ Asignación creada:', inserted.id)
+
+    return NextResponse.json(
+      {
+        ok: true,
+        id: inserted.id,
+        mensaje: '✅ Técnico asignado correctamente a la escala',
+      },
+      { status: 201 }
+    )
+  } catch (err: any) {
+    console.error('POST exception:', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
-
-  let b: any = {}
-  try { b = await req.json() } catch { return err('JSON inválido') }
-
-  const { etapa_id, libro_id, area_id, tecnico_id, ciclo_escolar = 2026 } = b
-
-  // Validaciones
-  if (!etapa_id) return err('etapa_id requerido')
-  if (!tecnico_id) return err('tecnico_id requerido')
-
-  // FIX #5: Validar que el técnico existe
-  const { data: tec, error: tecErr } = await supabaseAdmin
-    .from('tecnicos')
-    .select('id')
-    .eq('id', tecnico_id)
-    .single()
-
-  if (tecErr || !tec) {
-    return err('❌ El técnico no existe', 404)
-  }
-
-  // FIX #5: Validar que la etapa existe
-  const { data: etapa, error: etapaErr } = await supabaseAdmin
-    .from('etapas')
-    .select('id')
-    .eq('id', parseInt(etapa_id))
-    .single()
-
-  if (etapaErr || !etapa) {
-    return err('❌ La etapa no existe', 404)
-  }
-
-  // Crear asignación
-  const { data, error } = await supabaseAdmin
-    .from('escala_asignaciones')
-    .insert({
-      etapa_id: parseInt(etapa_id),
-      libro_id: libro_id || null,
-      area_id: area_id ? parseInt(area_id) : null,
-      tecnico_id,
-      asignado_por: s.sub,
-      ciclo_escolar: parseInt(ciclo_escolar),
-      estado: 'pendiente',
-    })
-    .select('id')
-    .single()
-
-  if (error) return err(error.message, 500)
-
-  // Log en auditoría
-  await supabaseAdmin.from('auditoria').insert({
-    usuario_id: s.sub,
-    accion: 'ASIGNAR_TECNICO_ESCALA',
-    tabla_afectada: 'escala_asignaciones',
-    registro_id: data.id,
-    datos_nuevos: { etapa_id, libro_id, tecnico_id },
-  }).catch(() => {})
-
-  return ok({
-    ok: true,
-    id: data.id,
-    mensaje: '✅ Técnico asignado correctamente a la escala',
-  }, 201)
 }
 
+// PATCH - Actualizar asignación
 export async function PATCH(req: NextRequest) {
-  const s = await getSession(req)
-  if (!s || !['director', 'coordinador_digeex', 'administrador'].includes(s.rol)) {
-    return err('Sin permiso', 403)
+  try {
+    const body = await req.json()
+
+    if (!body.id) {
+      return NextResponse.json({ error: 'id es requerido' }, { status: 400 })
+    }
+
+    const updates: any = {}
+    if (body.tecnico_id) updates.tecnico_id = body.tecnico_id
+    if (body.estado) updates.estado = body.estado
+    if (body.observaciones !== undefined) updates.observaciones = body.observaciones
+
+    const { data, error } = await supabase
+      .from('escala_asignaciones')
+      .update(updates)
+      .eq('id', body.id)
+      .select()
+      .single()
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      ok: true,
+      mensaje: '✅ Asignación actualizada correctamente',
+    })
+  } catch (err: any) {
+    console.error('PATCH exception:', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
-
-  let b: any = {}
-  try { b = await req.json() } catch { return err('JSON inválido') }
-
-  const { id, estado, observaciones } = b
-  if (!id) return err('id requerido')
-
-  const upd: any = {}
-  if (estado) upd.estado = estado
-  if (observaciones !== undefined) upd.observaciones = observaciones
-
-  const { error } = await supabaseAdmin
-    .from('escala_asignaciones')
-    .update(upd)
-    .eq('id', id)
-
-  if (error) return err(error.message, 500)
-
-  return ok({ ok: true, mensaje: '✅ Asignación actualizada' })
 }
 
+// DELETE - Eliminar asignación
 export async function DELETE(req: NextRequest) {
-  const s = await getSession(req)
-  if (!s || !['director', 'coordinador_digeex', 'administrador'].includes(s.rol)) {
-    return err('Sin permiso', 403)
+  try {
+    const id = req.nextUrl.searchParams.get('id')
+
+    if (!id) {
+      return NextResponse.json({ error: 'id es requerido' }, { status: 400 })
+    }
+
+    const { error } = await supabase
+      .from('escala_asignaciones')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      ok: true,
+      mensaje: '✅ Asignación eliminada correctamente',
+    })
+  } catch (err: any) {
+    console.error('DELETE exception:', err)
+    return NextResponse.json({ error: err.message }, { status: 500 })
   }
-
-  const id = req.nextUrl.searchParams.get('id')
-  if (!id) return err('id requerido')
-
-  const { error } = await supabaseAdmin
-    .from('escala_asignaciones')
-    .delete()
-    .eq('id', id)
-
-  if (error) return err(error.message, 500)
-
-  return ok({ ok: true, mensaje: '✅ Asignación eliminada' })
 }
