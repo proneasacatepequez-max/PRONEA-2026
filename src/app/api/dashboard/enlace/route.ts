@@ -1,5 +1,5 @@
-// src/app/api/autorizaciones/route.ts
-// FIX CRÍTICO #4: Crear y actualizar autorizaciones correctamente
+// src/app/api/dashboard/enlace/route.ts
+// FIX CRÍTICO #3: Mostrar estadísticas correctas del enlace
 import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { getSession } from '@/lib/auth'
@@ -9,88 +9,19 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 )
 
-// GET - Listar autorizaciones
 export async function GET(req: NextRequest) {
   try {
     const session = await getSession()
 
-    if (!session) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
+    if (!session || session.rol !== 'enlace_institucional') {
+      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    let query = supabase
-      .from('autorizaciones_director')
-      .select(`
-        id, director_id, enlace_id, permiso, activo,
-        fecha_inicio, fecha_fin, fecha_firma,
-        director:directores(id, primer_nombre, primer_apellido),
-        enlace:enlaces_institucionales(
-          id, primer_nombre, primer_apellido, usuario_id,
-          sede:sedes(id, nombre)
-        )
-      `)
-
-    // Si es director, mostrar solo sus autorizaciones
-    if (session.rol === 'director') {
-      const { data: director } = await supabase
-        .from('directores')
-        .select('id')
-        .eq('usuario_id', session.id)
-        .single()
-
-      if (director) {
-        query = query.eq('director_id', director.id)
-      }
-    }
-    // Si es admin, mostrar todas
-
-    const { data, error } = await query.order('fecha_firma', { ascending: false })
-
-    if (error) {
-      console.error('GET error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json(data || [])
-  } catch (err: any) {
-    console.error('GET exception:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// POST - Crear autorización (FIX: Guardar correctamente)
-export async function POST(req: NextRequest) {
-  try {
-    const session = await getSession()
-    const body = await req.json()
-
-    // Validaciones
-    if (!body.enlace_id) {
-      return NextResponse.json({ error: 'enlace_id es requerido' }, { status: 400 })
-    }
-    if (!body.permiso) {
-      return NextResponse.json({ error: 'permiso es requerido' }, { status: 400 })
-    }
-
-    // Obtener director del usuario actual
-    const { data: director, error: directorError } = await supabase
-      .from('directores')
-      .select('id, sede_id')
-      .eq('usuario_id', session.id)
-      .single()
-
-    if (directorError || !director) {
-      return NextResponse.json(
-        { error: 'Director no encontrado' },
-        { status: 404 }
-      )
-    }
-
-    // Verificar que enlace existe y pertenece a la misma sede
+    // Obtener enlace para sede_id
     const { data: enlace, error: enlaceError } = await supabase
       .from('enlaces_institucionales')
       .select('id, sede_id')
-      .eq('id', body.enlace_id)
+      .eq('usuario_id', session.id)
       .single()
 
     if (enlaceError || !enlace) {
@@ -100,144 +31,55 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    if (enlace.sede_id !== director.sede_id) {
-      return NextResponse.json(
-        { error: 'El enlace no pertenece a tu sede' },
-        { status: 403 }
-      )
-    }
+    const ciclo = 2026
 
-    // Verificar que el permiso existe
-    const { data: permiso, error: permisoError } = await supabase
-      .from('permisos_globales')
-      .select('id')
-      .eq('permiso', body.permiso)
-      .eq('activo', true)
-      .single()
+    // FIX: Contar estudiantes inscritos en su sede
+    const { data: inscripciones, error: inscripcionesError } = await supabase
+      .from('inscripciones')
+      .select('id', { count: 'exact' })
+      .eq('sede_id', enlace.sede_id)
+      .eq('ciclo_escolar', ciclo)
 
-    if (permisoError || !permiso) {
-      return NextResponse.json(
-        { error: 'Permiso no existe o no está activo' },
-        { status: 404 }
-      )
-    }
+    const totalEstudiantes = inscripciones?.length || 0
 
-    // Verificar que no existe autorización duplicada activa
-    const { data: existing } = await supabase
+    // Contar notas ingresadas por este enlace
+    const { data: notasIngresadas } = await supabase
+      .from('notas_tareas')
+      .select('id', { count: 'exact' })
+      .eq('registrado_por', session.id)
+
+    const totalNotasIngresadas = notasIngresadas?.length || 0
+
+    // Contar autorizaciones activas del enlace
+    const { data: autorizaciones } = await supabase
       .from('autorizaciones_director')
-      .select('id')
-      .eq('enlace_id', body.enlace_id)
-      .eq('permiso', body.permiso)
+      .select('permiso', { count: 'exact' })
+      .eq('enlace_id', enlace.id)
       .eq('activo', true)
-      .single()
 
-    if (existing) {
-      return NextResponse.json(
-        { error: 'Este enlace ya tiene esta autorización activa' },
-        { status: 409 }
-      )
-    }
+    const permisosCantidad = autorizaciones?.length || 0
 
-    // FIX CRÍTICO: Insertar correctamente la autorización
-    const today = new Date().toISOString().split('T')[0]
+    // Log para debugging
+    console.log(`Dashboard Enlace - Sede: ${enlace.sede_id}`)
+    console.log(`  Estudiantes: ${totalEstudiantes}`)
+    console.log(`  Notas ingresadas: ${totalNotasIngresadas}`)
+    console.log(`  Permisos activos: ${permisosCantidad}`)
 
-    const { data: inserted, error: insertError } = await supabase
-      .from('autorizaciones_director')
-      .insert({
-        director_id: director.id,
-        enlace_id: body.enlace_id,
-        permiso: body.permiso,
-        activo: true,
-        fecha_inicio: body.fecha_inicio || today,
-        fecha_fin: body.fecha_fin || null,
-        fecha_firma: today,
-      })
-      .select()
-      .single()
-
-    if (insertError) {
-      console.error('Insert error:', insertError)
-      return NextResponse.json(
-        { error: 'Error al guardar autorización: ' + insertError.message },
-        { status: 500 }
-      )
-    }
-
-    console.log('✅ Autorización creada:', inserted.id)
-
-    return NextResponse.json(
-      {
-        ok: true,
-        id: inserted.id,
-        mensaje: '✅ Autorización creada correctamente',
+    return NextResponse.json({
+      ok: true,
+      enlace: {
+        id: enlace.id,
+        sede_id: enlace.sede_id,
       },
-      { status: 201 }
-    )
-  } catch (err: any) {
-    console.error('POST exception:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// PATCH - Actualizar autorización
-export async function PATCH(req: NextRequest) {
-  try {
-    const body = await req.json()
-
-    if (!body.id) {
-      return NextResponse.json({ error: 'id es requerido' }, { status: 400 })
-    }
-
-    const updates: any = {}
-    if (body.activo !== undefined) updates.activo = body.activo
-    if (body.fecha_fin !== undefined) updates.fecha_fin = body.fecha_fin
-    if (body.observaciones !== undefined) updates.observaciones = body.observaciones
-
-    const { data, error } = await supabase
-      .from('autorizaciones_director')
-      .update(updates)
-      .eq('id', body.id)
-      .select()
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      mensaje: '✅ Autorización actualizada correctamente',
+      estadisticas: {
+        totalEstudiantes,
+        totalNotasIngresadas,
+        permisosCantidad,
+      },
+      ciclo,
     })
   } catch (err: any) {
-    console.error('PATCH exception:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
-}
-
-// DELETE - Revocar autorización
-export async function DELETE(req: NextRequest) {
-  try {
-    const id = req.nextUrl.searchParams.get('id')
-
-    if (!id) {
-      return NextResponse.json({ error: 'id es requerido' }, { status: 400 })
-    }
-
-    const { error } = await supabase
-      .from('autorizaciones_director')
-      .update({ activo: false })
-      .eq('id', id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      mensaje: '✅ Autorización revocada correctamente',
-    })
-  } catch (err: any) {
-    console.error('DELETE exception:', err)
+    console.error('Dashboard Enlace error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
