@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
       .from('escala_asignaciones')
       .select(`
         id, etapa_id, libro_id, area_id, tecnico_id, ciclo_escolar,
-        estado, observaciones, created_at,
+        estado, observaciones, creado_en,
         etapa:etapas(id, codigo, nombre),
         libro:libros(id, numero, nombre),
         area:areas(id, nombre),
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
       query = query.eq('etapa_id', parseInt(etapa_id))
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false })
+    const { data, error } = await query.order('creado_en', { ascending: false })
 
     if (error) {
       console.error('GET error:', error)
