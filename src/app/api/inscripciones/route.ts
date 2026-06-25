@@ -15,7 +15,6 @@ export async function GET(req: NextRequest) {
   const sede_id = p.get('sede_id')
   const estado = p.get('estado') ?? 'en_curso'
 
-  // Si pide por ID específico
   if (id) {
     const { data, error } = await supabaseAdmin
       .from('inscripciones')
@@ -28,7 +27,7 @@ export async function GET(req: NextRequest) {
         etapa:etapas(id, codigo, nombre),
         sede:sedes(id, nombre),
         tecnico:tecnicos(id, primer_nombre, primer_apellido, codigo_tecnico),
-        libro_id
+        version_libro_id
       `)
       .eq('id', id)
       .single()
@@ -37,7 +36,6 @@ export async function GET(req: NextRequest) {
     return ok(data)
   }
 
-  // FIX #3: Query base con selects necesarios
   let q = supabaseAdmin
     .from('inscripciones')
     .select(`
@@ -52,9 +50,7 @@ export async function GET(req: NextRequest) {
     `)
     .eq('ciclo_escolar', parseInt(ciclo))
 
-  // FIX #3: Filtrar por rol del usuario
   if (s.rol === 'tecnico') {
-    // Mostrar solo estudiantes del técnico actual
     const { data: tec, error: tecErr } = await supabaseAdmin
       .from('tecnicos')
       .select('id')
@@ -66,7 +62,6 @@ export async function GET(req: NextRequest) {
   }
 
   if (s.rol === 'enlace_institucional') {
-    // Mostrar solo estudiantes de la sede del enlace
     const { data: enl, error: enlErr } = await supabaseAdmin
       .from('enlaces_institucionales')
       .select('sede_id')
@@ -78,7 +73,6 @@ export async function GET(req: NextRequest) {
   }
 
   if (s.rol === 'director') {
-    // Mostrar solo estudiantes de la sede del director
     const { data: dir, error: dirErr } = await supabaseAdmin
       .from('directores')
       .select('sede_id')
@@ -89,19 +83,9 @@ export async function GET(req: NextRequest) {
     q = q.eq('sede_id', dir.sede_id)
   }
 
-  // FIX #3: Filtros adicionales permitidos para admin
-  if (etapa_id) {
-    q = q.eq('etapa_id', parseInt(etapa_id))
-  }
-
-  if (sede_id && s.rol === 'administrador') {
-    // Solo admin puede filtrar por sede
-    q = q.eq('sede_id', sede_id)
-  }
-
-  if (estado) {
-    q = q.eq('estado', estado)
-  }
+  if (etapa_id) q = q.eq('etapa_id', parseInt(etapa_id))
+  if (sede_id && s.rol === 'administrador') q = q.eq('sede_id', sede_id)
+  if (estado) q = q.eq('estado', estado)
 
   const { data, error } = await q.order('creado_en', { ascending: false })
 
@@ -120,18 +104,13 @@ export async function POST(req: NextRequest) {
   let b: any = {}
   try { b = await req.json() } catch { return err('JSON inválido') }
 
-  const {
-    estudiante_id, etapa_id, tecnico_id, sede_id,
-    modalidad_id, seccion_id, ciclo_escolar = 2026,
-  } = b
+  const { estudiante_id, etapa_id, tecnico_id, sede_id, modalidad_id, seccion_id, ciclo_escolar = 2026 } = b
 
-  // Validaciones básicas
   if (!estudiante_id) return err('estudiante_id requerido')
-  if (!etapa_id) return err('etapa_id requerido')
-  if (!tecnico_id) return err('tecnico_id requerido')
-  if (!sede_id) return err('sede_id requerido')
+  if (!etapa_id)      return err('etapa_id requerido')
+  if (!tecnico_id)    return err('tecnico_id requerido')
+  if (!sede_id)       return err('sede_id requerido')
 
-  // FIX #3: Validar permisos por rol
   if (s.rol === 'enlace_institucional') {
     const { data: enl } = await supabaseAdmin
       .from('enlaces_institucionales')
@@ -139,13 +118,11 @@ export async function POST(req: NextRequest) {
       .eq('usuario_id', s.sub)
       .single()
 
-    if (!enl || enl.sede_id !== sede_id) {
+    if (!enl || enl.sede_id !== sede_id)
       return err('❌ No puedes inscribir estudiantes fuera de tu sede', 403)
-    }
   }
 
   if (s.rol === 'tecnico') {
-    // Verificar que el técnico existe y pertenece al usuario
     const { data: tec } = await supabaseAdmin
       .from('tecnicos')
       .select('id')
@@ -153,38 +130,33 @@ export async function POST(req: NextRequest) {
       .eq('id', tecnico_id)
       .single()
 
-    if (!tec) {
-      return err('❌ No puedes usar ese técnico', 403)
-    }
+    if (!tec) return err('❌ No puedes usar ese técnico', 403)
   }
 
-  // Crear inscripción
   const { data, error } = await supabaseAdmin
     .from('inscripciones')
     .insert({
       estudiante_id,
-      etapa_id: parseInt(etapa_id),
+      etapa_id:      parseInt(etapa_id),
       tecnico_id,
       sede_id,
-      modalidad_id: modalidad_id ? parseInt(modalidad_id) : null,
-      seccion_id: seccion_id ? parseInt(seccion_id) : null,
+      modalidad_id:  modalidad_id  ? parseInt(modalidad_id)  : null,
+      seccion_id:    seccion_id    ? parseInt(seccion_id)    : null,
       ciclo_escolar: parseInt(ciclo_escolar),
-      estado: 'en_curso',
-      creado_por: s.sub,
+      estado:        'en_curso',
+      creado_por:    s.sub,
     })
     .select('id')
     .single()
 
   if (error) return err(error.message, 500)
-
   return ok({ ok: true, id: data.id, mensaje: '✅ Estudiante inscrito' }, 201)
 }
 
 export async function PATCH(req: NextRequest) {
   const s = await getSession(req)
-  if (!s || !['administrador', 'director'].includes(s.rol)) {
+  if (!s || !['administrador', 'director'].includes(s.rol))
     return err('Sin permiso', 403)
-  }
 
   let b: any = {}
   try { b = await req.json() } catch { return err('JSON inválido') }
@@ -192,9 +164,8 @@ export async function PATCH(req: NextRequest) {
   const { id, estado } = b
   if (!id) return err('id requerido')
 
-  if (!estado || !['en_curso', 'aprobado', 'reprobado', 'retirado'].includes(estado)) {
+  if (!estado || !['en_curso', 'aprobado', 'reprobado', 'retirado'].includes(estado))
     return err('estado inválido', 400)
-  }
 
   const { error } = await supabaseAdmin
     .from('inscripciones')
