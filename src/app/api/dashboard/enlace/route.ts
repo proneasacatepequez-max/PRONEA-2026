@@ -33,37 +33,44 @@ export async function GET(req: NextRequest) {
 
     const ciclo = 2026
 
-    // FIX: Contar estudiantes inscritos en su sede
-    const { data: inscripciones, error: inscripcionesError } = await supabase
+    // ✅ CORREGIDO: Contar estudiantes inscritos en su sede usando count correcto
+    const { count: totalEstudiantes, error: inscripcionesError } = await supabase
       .from('inscripciones')
-      .select('id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('sede_id', enlace.sede_id)
       .eq('ciclo_escolar', ciclo)
+      .eq('estado', 'en_curso')
 
-    const totalEstudiantes = inscripciones?.length || 0
+    if (inscripcionesError) {
+      console.error('Error contando estudiantes:', inscripcionesError)
+    }
 
     // Contar notas ingresadas por este enlace
-    const { data: notasIngresadas } = await supabase
+    const { count: totalNotasIngresadas, error: notasError } = await supabase
       .from('notas_tareas')
-      .select('id', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('registrado_por', session.id)
 
-    const totalNotasIngresadas = notasIngresadas?.length || 0
+    if (notasError) {
+      console.error('Error contando notas:', notasError)
+    }
 
     // Contar autorizaciones activas del enlace
-    const { data: autorizaciones } = await supabase
+    const { count: permisosCantidad, error: autorizacionesError } = await supabase
       .from('autorizaciones_director')
-      .select('permiso', { count: 'exact' })
+      .select('*', { count: 'exact', head: true })
       .eq('enlace_id', enlace.id)
       .eq('activo', true)
 
-    const permisosCantidad = autorizaciones?.length || 0
+    if (autorizacionesError) {
+      console.error('Error contando autorizaciones:', autorizacionesError)
+    }
 
     // Log para debugging
     console.log(`Dashboard Enlace - Sede: ${enlace.sede_id}`)
-    console.log(`  Estudiantes: ${totalEstudiantes}`)
-    console.log(`  Notas ingresadas: ${totalNotasIngresadas}`)
-    console.log(`  Permisos activos: ${permisosCantidad}`)
+    console.log(`  Estudiantes: ${totalEstudiantes || 0}`)
+    console.log(`  Notas ingresadas: ${totalNotasIngresadas || 0}`)
+    console.log(`  Permisos activos: ${permisosCantidad || 0}`)
 
     return NextResponse.json({
       ok: true,
@@ -72,9 +79,9 @@ export async function GET(req: NextRequest) {
         sede_id: enlace.sede_id,
       },
       estadisticas: {
-        totalEstudiantes,
-        totalNotasIngresadas,
-        permisosCantidad,
+        totalEstudiantes: totalEstudiantes || 0,
+        totalNotasIngresadas: totalNotasIngresadas || 0,
+        permisosCantidad: permisosCantidad || 0,
       },
       ciclo,
     })
