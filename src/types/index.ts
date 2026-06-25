@@ -29,13 +29,11 @@ export interface Modalidad { id: number; nombre: string; descripcion: string|nul
 export interface TipoDiscapacidad { id: number; codigo: string; nombre: string; descripcion: string|null }
 
 // ── Infraestructura ────────────────────────────────────────
-export interface Institucion {
-  id: string; nombre: string; tipo: string|null; municipio_id: number|null
-  direccion: string|null; telefono: string|null; correo: string|null; activo: boolean
-}
+// Institucion ya no existe como tabla separada — la Sede es la institución.
+export type Institucion = Sede & { tipo?: string|null }
 export interface Sede {
   id: string; nombre: string; municipio_id: number; direccion: string|null
-  telefono: string|null; horario: string|null; institucion_id: string|null; activo: boolean
+  telefono: string|null; horario: string|null; activo: boolean
 }
 
 // ── Personal ───────────────────────────────────────────────
@@ -50,7 +48,7 @@ export interface Director {
 }
 export interface EnlaceInstitucional {
   id: string; usuario_id: string; primer_nombre: string; primer_apellido: string
-  cui: string|null; telefono: string|null; institucion_id: string; cargo: string|null; activo: boolean
+  cui: string|null; telefono: string|null; sede_id: string; cargo: string|null; activo: boolean
 }
 
 // ── Libros y curricular ────────────────────────────────────
@@ -80,13 +78,13 @@ export interface Estudiante {
 }
 export interface Inscripcion {
   id: string; estudiante_id: string; etapa_id: number; tecnico_id: string; sede_id: string
-  institucion_id: string|null; modalidad_id: number|null; seccion_id: number|null
+  modalidad_id: number|null; seccion_id: number|null
   ciclo_escolar: number; fecha_inscripcion: string; repite_etapa: boolean
   estado: EstadoInscripcion; estado_classroom: string|null; codigo_sireex: string|null
-  version_libro: VersionLibro; tiene_ajuste_discapacidad: boolean
+  version_libro: VersionLibro; version_libro_id: string|null; tiene_ajuste_discapacidad: boolean
   observaciones: string|null; creado_en: string
   estudiante?: Estudiante; etapa?: Etapa; tecnico?: Tecnico; sede?: Sede
-  modalidad?: Modalidad; seccion?: Seccion; institucion?: Institucion
+  modalidad?: Modalidad; seccion?: Seccion
 }
 
 // ── Notas ──────────────────────────────────────────────────
@@ -132,7 +130,7 @@ export interface HistorialPermiso {
 
 // ── Visibilidad coordinador (v4) ───────────────────────────
 export interface VisibilidadInstitucion {
-  id: string; institucion_id: string; visible_para_coordinador: boolean
+  id: string; sede_id: string; visible_para_coordinador: boolean
   ocultar_enlace: boolean; razon_ocultamiento: string|null
   configurado_por: string|null; configurado_en: string
 }
