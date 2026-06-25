@@ -42,7 +42,6 @@ export async function GET(req: NextRequest) {
         query = query.eq('director_id', director.id)
       }
     }
-    // Si es admin, mostrar todas
 
     const { data, error } = await query.order('fecha_firma', { ascending: false })
 
@@ -58,7 +57,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST - Crear autorización (FIX: Guardar correctamente)
+// POST - Crear autorización
 export async function POST(req: NextRequest) {
   try {
     const session = await getSession()
@@ -107,17 +106,17 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // Verificar que el permiso existe
+    // ✅ CORREGIDO: Verificar que el permiso existe en permisos_globales
     const { data: permiso, error: permisoError } = await supabase
       .from('permisos_globales')
-      .select('id')
+      .select('permiso')
       .eq('permiso', body.permiso)
       .eq('activo', true)
       .single()
 
     if (permisoError || !permiso) {
       return NextResponse.json(
-        { error: 'Permiso no existe o no está activo' },
+        { error: `El permiso '${body.permiso}' no existe o no está activo` },
         { status: 404 }
       )
     }
@@ -138,7 +137,6 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    // FIX CRÍTICO: Insertar correctamente la autorización
     const today = new Date().toISOString().split('T')[0]
 
     const { data: inserted, error: insertError } = await supabase
@@ -150,7 +148,7 @@ export async function POST(req: NextRequest) {
         activo: true,
         fecha_inicio: body.fecha_inicio || today,
         fecha_fin: body.fecha_fin || null,
-        fecha_firma: today,
+        observaciones: body.observaciones || null,
       })
       .select()
       .single()
@@ -241,4 +239,3 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
-
