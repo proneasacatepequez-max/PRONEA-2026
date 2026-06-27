@@ -6,7 +6,7 @@ export default function EnlaceInscribirPage() {
   const [buscando,      setBuscando]      = useState(false)
   const [resultados,    setResultados]    = useState<any[]>([])
   const [etapas,        setEtapas]        = useState<any[]>([])
-  const [miPerfil,      setMiPerfil]      = useState<any>(null)
+  const [perfil,        setPerfil]        = useState<any>(null)
   const [estudianteSel, setEstudianteSel] = useState<any>(null)
   const [modalOpen,     setModalOpen]     = useState(false)
   const [etapaId,       setEtapaId]       = useState('')
@@ -15,20 +15,23 @@ export default function EnlaceInscribirPage() {
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
 
-  // Cargar perfil del enlace (para obtener sede_id y tecnico_id)
   useEffect(() => {
+    // La API devuelve { rol, perfil: { sede, tecnico, sede_id, tecnico_id, ... } }
     fetch('/api/mi-perfil')
       .then(r => r.json())
-      .then(d => setMiPerfil(d))
+      .then(d => {
+        // CORREGIDO: Acceder a d.perfil en lugar de d directamente
+        setPerfil(d?.perfil ?? null)
+      })
       .catch(() => {})
 
     fetch('/api/etapas')
       .then(r => r.json())
       .then(d => setEtapas(Array.isArray(d) ? d : []))
-      .catch(() => [])
+      .catch(() => {})
   }, [])
 
-  // Búsqueda con debounce — usa parámetro 'q' que es lo que espera la API
+  // Búsqueda con debounce — usa parámetro 'q'
   useEffect(() => {
     if (busqueda.trim().length < 3) { setResultados([]); return }
     setBuscando(true)
@@ -54,9 +57,9 @@ export default function EnlaceInscribirPage() {
       return
     }
 
-    // sede_id y tecnico_id vienen del perfil del enlace
-    const sede_id    = miPerfil?.sede_id    ?? miPerfil?.sede?.id    ?? null
-    const tecnico_id = miPerfil?.tecnico_id ?? miPerfil?.tecnico?.id ?? null
+    // CORREGIDO: Acceso correcto a los IDs del perfil
+    const sede_id    = perfil?.sede_id    ?? perfil?.sede?.id    ?? null
+    const tecnico_id = perfil?.tecnico_id ?? perfil?.tecnico?.id ?? null
 
     if (!sede_id) {
       flash('❌ Tu perfil no tiene sede asignada. Contacta al administrador.')
@@ -96,6 +99,8 @@ export default function EnlaceInscribirPage() {
     }
   }
 
+  const nombreSede = perfil?.sede?.nombre ?? (perfil?.sede_id ? 'Tu sede' : null)
+
   return (
     <div className="ap">
       <header className="topbar">
@@ -110,10 +115,17 @@ export default function EnlaceInscribirPage() {
           <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>
         )}
 
-        {/* Info de sede del enlace */}
-        {miPerfil?.sede && (
+        {/* Advertencia si no hay perfil completo */}
+        {perfil && !perfil.sede_id && !perfil.sede && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-4 text-sm text-red-700">
+            ⚠️ Tu perfil no tiene sede ni técnico asignado. Contacta al administrador antes de inscribir estudiantes.
+          </div>
+        )}
+
+        {/* Info de sede */}
+        {nombreSede && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-4 text-sm text-blue-700">
-            🏫 Sede: <strong>{miPerfil.sede.nombre ?? miPerfil.sede_id}</strong>
+            🏫 Inscribirás en: <strong>{nombreSede}</strong>
           </div>
         )}
 
@@ -175,7 +187,11 @@ export default function EnlaceInscribirPage() {
                       </div>
                     )}
                   </div>
-                  <button className="btn btn-p btn-sm ml-3 shrink-0" onClick={() => abrirModal(r)}>
+                  <button 
+                    className="btn btn-p btn-sm ml-3 shrink-0" 
+                    onClick={() => abrirModal(r)}
+                    disabled={!!r.inscripcion_activa} // Deshabilitar si ya tiene inscripción activa
+                  >
                     ➕ Inscribir
                   </button>
                 </div>
@@ -191,8 +207,12 @@ export default function EnlaceInscribirPage() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="px-6 py-4 border-b flex justify-between items-center">
               <h3 className="font-bold">➕ Inscribir en nueva etapa</h3>
-              <button onClick={() => setModalOpen(false)}
-                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+              <button 
+                onClick={() => setModalOpen(false)}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl"
+              >
+                ×
+              </button>
             </div>
 
             <div className="px-6 py-4 space-y-4">
@@ -213,8 +233,7 @@ export default function EnlaceInscribirPage() {
 
               <div className="fg">
                 <label className="lbl">Nueva etapa *</label>
-                <select className="inp" value={etapaId}
-                  onChange={e => setEtapaId(e.target.value)}>
+                <select className="inp" value={etapaId} onChange={e => setEtapaId(e.target.value)}>
                   <option value="">— Seleccionar etapa —</option>
                   {etapas.map((e: any) => (
                     <option key={e.id} value={e.id}>{e.nombre}</option>
@@ -222,17 +241,20 @@ export default function EnlaceInscribirPage() {
                 </select>
               </div>
 
-              {miPerfil?.sede && (
+              {nombreSede && (
                 <div className="text-xs text-gray-500 bg-gray-50 rounded-lg p-2">
-                  🏫 Se inscribirá en: <strong>{miPerfil.sede.nombre ?? 'tu sede'}</strong>
+                  🏫 Se inscribirá en: <strong>{nombreSede}</strong>
                 </div>
               )}
             </div>
 
             <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
               <button className="btn btn-g" onClick={() => setModalOpen(false)}>Cancelar</button>
-              <button className="btn btn-p" onClick={inscribir}
-                disabled={inscribiendo || !etapaId}>
+              <button 
+                className="btn btn-p" 
+                onClick={inscribir}
+                disabled={inscribiendo || !etapaId}
+              >
                 {inscribiendo ? '⏳ Inscribiendo...' : '✅ Confirmar'}
               </button>
             </div>
