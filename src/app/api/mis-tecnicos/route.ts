@@ -1,6 +1,4 @@
 // src/app/api/mis-tecnicos/route.ts
-// FIX: muestra TODOS los técnicos vinculados a usuarios con rol=tecnico
-// El director ve los de su sede; admin/coordinador ven todos
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
@@ -13,7 +11,6 @@ export async function GET(req: NextRequest) {
 
   const ciclo = parseInt(req.nextUrl.searchParams.get('ciclo') ?? '2026')
 
-  // Obtener TODOS los técnicos (no filtrar por activo=true solo — incluir todos)
   let qTec = supabaseAdmin
     .from('tecnicos')
     .select(`
@@ -23,7 +20,6 @@ export async function GET(req: NextRequest) {
     `)
     .order('primer_apellido')
 
-  // Director: solo técnicos de su sede
   if (s.rol === 'director') {
     const { data: dir } = await supabaseAdmin
       .from('directores').select('sede_id').eq('usuario_id', s.sub).single()
@@ -37,8 +33,6 @@ export async function GET(req: NextRequest) {
 
       const ids = (ts ?? []).map((t: any) => t.tecnico_id)
       if (ids.length === 0) {
-        // Si no hay asignaciones en tecnico_sedes, mostrar todos los técnicos activos
-        // (para cuando aún no se ha configurado la asignación)
         qTec = qTec.eq('activo', true)
       } else {
         qTec = qTec.in('id', ids)
@@ -51,7 +45,6 @@ export async function GET(req: NextRequest) {
   const { data: tecnicos, error } = await qTec
   if (error) return err(error.message, 500)
 
-  // Para cada técnico: inscripciones + sedes + enlaces
   const conEstadisticas = await Promise.all(
     (tecnicos ?? []).map(async (t: any) => {
       const [
@@ -75,7 +68,7 @@ export async function GET(req: NextRequest) {
           .select(`
             enlace:enlaces_institucionales(
               id, primer_nombre, primer_apellido, cargo,
-              institucion:instituciones(id, nombre)
+              sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre)
             )
           `)
           .eq('tecnico_id', t.id)
@@ -97,4 +90,3 @@ export async function GET(req: NextRequest) {
 
   return ok(conEstadisticas)
 }
-
