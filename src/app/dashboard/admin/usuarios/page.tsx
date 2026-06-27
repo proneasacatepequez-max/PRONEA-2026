@@ -1,447 +1,484 @@
 'use client'
-// src/app/dashboard/admin/usuarios/page.tsx
-// FIX: mensajes claros de éxito/error, campo sede_id correcto para enlace
 import { useState, useEffect, useCallback } from 'react'
+import { ROL_LABELS } from '@/types'
+import type { RolUsuario } from '@/types'
+
+interface Usuario {
+  id: string; correo: string; rol: RolUsuario; activo: boolean
+  primer_ingreso: boolean; ultimo_acceso: string | null; creado_en: string
+  perfil: {
+    primer_nombre?: string; primer_apellido?: string
+    codigo_tecnico?: string; telefono?: string; cargo?: string
+    sede?: { id: string; nombre: string } | null
+  } | null
+}
+
+interface Sede    { id: string; nombre: string }
+interface Tecnico { id: string; primer_nombre: string; primer_apellido: string; codigo_tecnico: string | null }
+
+const ROL_OPTS: { value: RolUsuario; label: string }[] = [
+  { value: 'tecnico',              label: '🛠 Técnico PRONEA' },
+  { value: 'director',             label: '🏫 Director' },
+  { value: 'enlace_institucional', label: '🔗 Enlace Institucional' },
+  { value: 'coordinador_digeex',   label: '📋 Coordinador DIGEEX' },
+  { value: 'administrador',        label: '⚙️ Administrador' },
+]
+
+const FORM0 = {
+  correo:'', contrasena:'', rol:'tecnico' as RolUsuario,
+  primer_nombre:'', segundo_nombre:'', primer_apellido:'', segundo_apellido:'',
+  telefono:'', codigo_tecnico:'', cui:'', especialidad:'',
+  cargo:'', sede_id:'', tecnico_id:'',
+}
 
 const ROL_COLOR: Record<string, string> = {
-  administrador:        'bg-purple-100 text-purple-700',
-  tecnico:              'bg-blue-100 text-blue-700',
-  director:             'bg-green-100 text-green-700',
-  coordinador_digeex:   'bg-yellow-100 text-yellow-700',
-  enlace_institucional: 'bg-orange-100 text-orange-700',
-}
-const ROL_LABEL: Record<string, string> = {
-  administrador:        'Administrador',
-  tecnico:              'Técnico',
-  director:             'Director',
-  coordinador_digeex:   'Coordinador DIGEEX',
-  enlace_institucional: 'Enlace Institucional',
+  administrador:'bg-purple-100 text-purple-800', tecnico:'bg-blue-100 text-blue-800',
+  director:'bg-green-100 text-green-800', enlace_institucional:'bg-yellow-100 text-yellow-800',
+  coordinador_digeex:'bg-orange-100 text-orange-800',
 }
 
-export default function UsuariosAdminPage() {
-  const [usuarios,    setUsuarios]    = useState<any[]>([])
-  const [sedes,       setSedes]       = useState<any[]>([])
-  const [tecnicos,    setTecnicos]    = useState<any[]>([])
-  const [loading,     setLoading]     = useState(true)
-  const [modal,       setModal]       = useState(false)
-  const [saving,      setSaving]      = useState(false)
-  const [msg,         setMsg]         = useState('')
-  const [msgType,     setMsgType]     = useState<'ok'|'err'>('ok')
-  const [buscar,      setBuscar]      = useState('')
-  const [filtroRol,   setFiltroRol]   = useState('')
-  const [resetId,     setResetId]     = useState<string|null>(null)
-  const [nuevaPwd,    setNuevaPwd]    = useState('')
-  const [savingReset, setSavingReset] = useState(false)
-  const [pwdVisible,  setPwdVisible]  = useState<{correo:string,pwd:string}|null>(null)
-
-  const [form, setForm] = useState({
-    rol: 'tecnico',
-    correo:'', contrasena:'', confirmar:'',
-    primer_nombre:'', segundo_nombre:'',
-    primer_apellido:'', segundo_apellido:'',
-    telefono:'', codigo_tecnico:'', cui:'',
-    especialidad:'', cargo:'',
-    sede_id:'', tecnico_id:'', departamento_id:'',
-  })
-
-  const flash = (m: string, tipo: 'ok'|'err' = 'ok') => {
-    setMsg(m); setMsgType(tipo)
-    setTimeout(() => setMsg(''), 6000)
-  }
+export default function AdminUsuariosPage() {
+  const [usuarios,     setUsuarios]     = useState<Usuario[]>([])
+  const [sedes,        setSedes]        = useState<Sede[]>([])
+  const [tecnicos,     setTecnicos]     = useState<Tecnico[]>([])
+  const [loading,      setLoading]      = useState(true)
+  const [busqueda,     setBusqueda]     = useState('')
+  const [filtroRol,    setFiltroRol]    = useState('')
+  const [filtroActivo, setFiltroActivo] = useState('')
+  const [modalCrear,   setModalCrear]   = useState(false)
+  const [modalReset,   setModalReset]   = useState<Usuario | null>(null)
+  const [modalDetalle, setModalDetalle] = useState<Usuario | null>(null)
+  const [form,         setForm]         = useState({ ...FORM0 })
+  const [guardando,    setGuardando]    = useState(false)
+  const [errorForm,    setErrorForm]    = useState('')
+  const [exito,        setExito]        = useState('')
+  const [nuevaPass,    setNuevaPass]    = useState('')
+  const [guardandoPass,setGuardandoPass]= useState(false)
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const [u, se, tec] = await Promise.all([
-      fetch('/api/usuarios').then(r => r.json()).catch(() => []),
-      fetch('/api/sedes?todas=1').then(r => r.json()).catch(() => []),
-      fetch('/api/mis-tecnicos').then(r => r.json()).catch(() => []),
-    ])
-    setUsuarios(Array.isArray(u) ? u : [])
-    setSedes(Array.isArray(se) ? se : [])
-    setTecnicos(Array.isArray(tec) ? tec : [])
-    setLoading(false)
+    try {
+      const [rU, rS, rT] = await Promise.all([
+        fetch('/api/usuarios'), fetch('/api/sedes'), fetch('/api/tecnicos'),
+      ])
+      const [u, s, t] = await Promise.all([rU.json(), rS.json(), rT.json()])
+      setUsuarios(Array.isArray(u) ? u : [])
+      setSedes(Array.isArray(s) ? s : [])
+      setTecnicos(Array.isArray(t) ? t : [])
+    } catch { setUsuarios([]) }
+    finally { setLoading(false) }
   }, [])
 
   useEffect(() => { cargar() }, [cargar])
 
-  const F = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement>) =>
-    setForm(p => ({ ...p, [k]: e.target.value }))
-
-  const resetForm = () => setForm({
-    rol:'tecnico', correo:'', contrasena:'', confirmar:'',
-    primer_nombre:'', segundo_nombre:'', primer_apellido:'', segundo_apellido:'',
-    telefono:'', codigo_tecnico:'', cui:'', especialidad:'', cargo:'',
-    sede_id:'', tecnico_id:'', departamento_id:'',
+  const lista = usuarios.filter(u => {
+    const nombre = `${u.perfil?.primer_nombre ?? ''} ${u.perfil?.primer_apellido ?? ''}`.toLowerCase()
+    const q = busqueda.toLowerCase()
+    return (!q || u.correo.includes(q) || nombre.includes(q))
+      && (!filtroRol    || u.rol    === filtroRol)
+      && (!filtroActivo || String(u.activo) === filtroActivo)
   })
 
-  const abrirCrear = () => { resetForm(); setModal(true) }
+  const nombreCompleto = (u: Usuario) => {
+    const p = u.perfil
+    if (!p?.primer_nombre) return u.correo
+    return `${p.primer_nombre} ${p.primer_apellido ?? ''}`.trim()
+  }
 
   const crear = async () => {
-    // Validaciones en frontend antes de enviar
-    if (!form.primer_nombre.trim())  { flash('❌ El primer nombre es requerido', 'err'); return }
-    if (!form.primer_apellido.trim()){ flash('❌ El primer apellido es requerido', 'err'); return }
-    if (!form.correo.trim())         { flash('❌ El correo electrónico es requerido', 'err'); return }
-    if (!form.contrasena.trim())     { flash('❌ La contraseña es requerida', 'err'); return }
-    if (form.contrasena !== form.confirmar) { flash('❌ Las contraseñas no coinciden', 'err'); return }
-    if (form.contrasena.length < 6)  { flash('❌ La contraseña debe tener al menos 6 caracteres', 'err'); return }
-    if (form.rol === 'enlace_institucional' && !form.sede_id) {
-      flash('❌ La sede/institución es OBLIGATORIA para crear un enlace', 'err'); return
-    }
+    setErrorForm('')
+    if (!form.correo.trim())          return setErrorForm('Correo requerido')
+    if (!form.contrasena.trim())      return setErrorForm('Contraseña requerida')
+    if (form.contrasena.length < 6)   return setErrorForm('Mínimo 6 caracteres')
+    if (!form.primer_nombre.trim())   return setErrorForm('Primer nombre requerido')
+    if (!form.primer_apellido.trim()) return setErrorForm('Primer apellido requerido')
+    if (form.rol === 'enlace_institucional' && !form.sede_id)
+      return setErrorForm('La sede es obligatoria para el enlace institucional')
 
-    setSaving(true)
-    const res = await fetch('/api/usuarios', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...form,
-        sede_id:         form.sede_id        || undefined,
-        tecnico_id:      form.tecnico_id     || undefined,
-        departamento_id: form.departamento_id ? parseInt(form.departamento_id) : undefined,
-        ciclo_escolar:   2026,
-      }),
-    })
-    const d = await res.json()
-
-    if (res.ok) {
-      setModal(false)
-      resetForm()
-      await cargar()
-      setPwdVisible({ correo: form.correo, pwd: d.contrasena ?? form.contrasena })
-      flash(d.mensaje ?? '✅ Usuario creado correctamente', 'ok')
-    } else {
-      flash('❌ ' + (d.error ?? 'Error al crear usuario'), 'err')
-    }
-    setSaving(false)
+    setGuardando(true)
+    try {
+      const res = await fetch('/api/usuarios', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form),
+      })
+      const d = await res.json()
+      if (!res.ok) { setErrorForm(d.error ?? 'Error al crear'); return }
+      setExito(`✅ Usuario creado — contraseña temporal: ${form.contrasena}`)
+      setModalCrear(false); setForm({ ...FORM0 }); cargar()
+    } catch { setErrorForm('Error de conexión') }
+    finally { setGuardando(false) }
   }
 
-  const toggleActivo = async (id: string, activo: boolean) => {
+  const toggleActivo = async (u: Usuario) => {
+    if (!confirm(`¿${u.activo ? 'Desactivar' : 'Activar'} a ${u.correo}?`)) return
+    await fetch('/api/usuarios', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: u.id, activo: !u.activo }),
+    })
+    cargar()
+  }
+
+  const resetPass = async () => {
+    if (!modalReset || nuevaPass.length < 6) return
+    setGuardandoPass(true)
     const res = await fetch('/api/usuarios', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, activo: !activo }),
+      body: JSON.stringify({ id: modalReset.id, reset_password: nuevaPass }),
     })
     const d = await res.json()
-    flash(d.mensaje ?? (res.ok ? '✅ Estado actualizado' : '❌ Error'), res.ok ? 'ok' : 'err')
-    if (res.ok) await cargar()
-  }
-
-  const resetPassword = async () => {
-    if (!nuevaPwd || nuevaPwd.length < 6) { flash('❌ Mínimo 6 caracteres', 'err'); return }
-    setSavingReset(true)
-    const res = await fetch('/api/usuarios', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: resetId, reset_password: nuevaPwd }),
-    })
-    const d = await res.json()
-    flash(d.mensaje ?? (res.ok ? '✅ Contraseña restablecida' : '❌ Error'), res.ok ? 'ok' : 'err')
+    setGuardandoPass(false)
     if (res.ok) {
-      setResetId(null); setNuevaPwd('')
-      setPwdVisible({ correo: '(usuario)', pwd: nuevaPwd })
-    }
-    setSavingReset(false)
+      setExito(`✅ Contraseña de ${modalReset.correo} restablecida`)
+      setModalReset(null); setNuevaPass('')
+    } else { alert(d.error ?? 'Error al resetear') }
   }
 
-  const getNombrePerfil = (u: any) => {
-    const p = u.perfil
-    if (!p) return <span className="text-gray-300 text-xs italic">Sin perfil configurado</span>
-    const nombre = `${p.primer_nombre ?? ''} ${p.primer_apellido ?? ''}`.trim()
-    const extra  = p.codigo_tecnico ? ` · ${p.codigo_tecnico}` : p.cargo ? ` · ${p.cargo}` : ''
-    const sede   = p.sede?.nombre   ? ` — ${p.sede.nombre}` : ''
-    const tecnico = p.tecnico ? ` [${p.tecnico.primer_nombre} ${p.tecnico.primer_apellido}]` : ''
-    return (
-      <span className="font-semibold">
-        {nombre}
-        {extra && <span className="text-gray-400 font-normal text-xs">{extra}</span>}
-        {sede   && <span className="text-orange-500 text-xs"> {sede}</span>}
-        {tecnico && <span className="text-blue-400 text-xs"> {tecnico}</span>}
-      </span>
-    )
+  const stats = {
+    total:     usuarios.length,
+    activos:   usuarios.filter(u => u.activo).length,
+    tecnicos:  usuarios.filter(u => u.rol === 'tecnico').length,
+    directores:usuarios.filter(u => u.rol === 'director').length,
   }
-
-  const filtrados = usuarios.filter(u => {
-    const txt = `${u.correo} ${u.perfil?.primer_nombre ?? ''} ${u.perfil?.primer_apellido ?? ''} ${u.perfil?.codigo_tecnico ?? ''}`.toLowerCase()
-    return (!buscar || txt.includes(buscar.toLowerCase())) && (!filtroRol || u.rol === filtroRol)
-  })
 
   return (
-    <div className="ap">
-      <header className="topbar">
+    <div className="p-6 max-w-7xl mx-auto space-y-5">
+
+      {/* Encabezado */}
+      <div className="flex items-center justify-between">
         <div>
-          <div className="page-title">👥 Gestión de Usuarios</div>
-          <div className="text-xs text-gray-400">{filtrados.length} usuario(s)</div>
+          <h1 className="text-2xl font-extrabold text-gray-800">👥 Gestión de Usuarios</h1>
+          <p className="text-sm text-gray-500 mt-1">Crear, activar y administrar cuentas del sistema</p>
         </div>
-        <button className="btn btn-p" onClick={abrirCrear}>＋ Crear usuario</button>
-      </header>
-
-      <div className="pc">
-        {msg && (
-          <div className={`alert mb-4 ${msgType === 'ok' ? 'al-s' : 'al-e'}`}>
-            {msg}
-          </div>
-        )}
-
-        {/* Contraseña generada */}
-        {pwdVisible && (
-          <div className="alert al-w mb-4">
-            <div className="font-bold text-sm">🔑 Contraseña generada — compártela con el usuario:</div>
-            <div className="text-xs text-gray-600 mt-1">Correo: <b>{pwdVisible.correo}</b></div>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="font-mono text-lg bg-white px-3 py-1 rounded border">{pwdVisible.pwd}</span>
-              <button className="btn btn-g btn-sm"
-                onClick={() => { navigator.clipboard.writeText(pwdVisible.pwd); flash('✅ Contraseña copiada') }}>
-                📋 Copiar
-              </button>
-              <button className="btn btn-g btn-sm" onClick={() => setPwdVisible(null)}>✕</button>
-            </div>
-          </div>
-        )}
-
-        <div className="card mb-4">
-          <div className="flex gap-3 flex-wrap">
-            <div className="flex-1 min-w-48">
-              <input className="inp" placeholder="🔍 Buscar por correo o nombre..."
-                value={buscar} onChange={e => setBuscar(e.target.value)} />
-            </div>
-            <div className="w-48">
-              <select className="inp" value={filtroRol} onChange={e => setFiltroRol(e.target.value)}>
-                <option value="">Todos los roles</option>
-                {Object.entries(ROL_LABEL).map(([k,v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-            </div>
-          </div>
-        </div>
-
-        <div className="card overflow-hidden">
-          {loading ? (
-            <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse min-w-[900px]">
-                <thead>
-                  <tr className="bg-gray-50 text-left border-b">
-                    {['Nombre / Perfil','Correo','Rol','Estado','Último acceso','Acciones'].map(h => (
-                      <th key={h} className="px-3 py-3 text-xs font-extrabold text-gray-500 uppercase tracking-wide whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtrados.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="text-center py-8 text-gray-400">Sin usuarios</td>
-                    </tr>
-                  ) : filtrados.map((u: any, idx: number) => (
-                    <tr key={u.id} className={`border-b hover:bg-gray-50 ${idx%2===0?'bg-white':'bg-gray-50/30'} ${!u.activo?'opacity-55':''}`}>
-                      <td className="px-3 py-2.5">{getNombrePerfil(u)}</td>
-                      <td className="px-3 py-2.5 text-xs text-gray-600">{u.correo}</td>
-                      <td className="px-3 py-2.5">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${ROL_COLOR[u.rol]??'bg-gray-100 text-gray-700'}`}>
-                          {ROL_LABEL[u.rol] ?? u.rol}
-                        </span>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span className={`badge text-xs ${u.activo?'badge-green':'badge-gray'}`}>
-                          {u.activo ? 'Activo' : 'Inactivo'}
-                        </span>
-                        {u.primer_ingreso && <span className="ml-1 badge badge-yellow text-xs">1er ingreso</span>}
-                      </td>
-                      <td className="px-3 py-2.5 text-xs text-gray-400 whitespace-nowrap">
-                        {u.ultimo_acceso ? new Date(u.ultimo_acceso).toLocaleDateString('es-GT') : 'Nunca'}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex gap-1 flex-nowrap">
-                          <button className="btn btn-g btn-sm" title="Restablecer contraseña"
-                            onClick={() => { setResetId(u.id); setNuevaPwd('') }}>🔑</button>
-                          <button className={`btn btn-sm ${u.activo?'btn-d':'btn-s'}`}
-                            onClick={() => toggleActivo(u.id, u.activo)}>
-                            {u.activo ? 'Desact.' : 'Activar'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        <button className="btn btn-p"
+          onClick={() => { setForm({ ...FORM0 }); setErrorForm(''); setModalCrear(true) }}>
+          ＋ Nuevo Usuario
+        </button>
       </div>
 
-      {/* Modal crear usuario */}
-      {modal && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm overflow-y-auto">
-          <div className="min-h-full flex items-center justify-center p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
-              <div className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
-                <h3 className="text-base font-extrabold">＋ Crear usuario</h3>
-                <button onClick={() => setModal(false)}
-                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-xl">×</button>
-              </div>
-
-              <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
-                {/* Rol */}
-                <div className="fg">
-                  <label className="lbl">Rol *</label>
-                  <select className="inp" value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value, sede_id:'', tecnico_id:'' }))}>
-                    <option value="tecnico">👨‍🏫 Técnico Docente</option>
-                    <option value="director">🏫 Director de Sede</option>
-                    <option value="enlace_institucional">🔗 Enlace Institucional</option>
-                    <option value="coordinador_digeex">📋 Coordinador DIGEEX</option>
-                    <option value="administrador">⚙️ Administrador</option>
-                  </select>
-                </div>
-
-                {/* Nombres */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="fg"><label className="lbl">Primer nombre *</label>
-                    <input className="inp" value={form.primer_nombre} onChange={F('primer_nombre')} /></div>
-                  <div className="fg"><label className="lbl">Segundo nombre</label>
-                    <input className="inp" value={form.segundo_nombre} onChange={F('segundo_nombre')} /></div>
-                  <div className="fg"><label className="lbl">Primer apellido *</label>
-                    <input className="inp" value={form.primer_apellido} onChange={F('primer_apellido')} /></div>
-                  <div className="fg"><label className="lbl">Segundo apellido</label>
-                    <input className="inp" value={form.segundo_apellido} onChange={F('segundo_apellido')} /></div>
-                </div>
-
-                <div className="fg"><label className="lbl">Teléfono</label>
-                  <input className="inp" value={form.telefono} onChange={F('telefono')} placeholder="5555-1234" /></div>
-
-                {/* Campos específicos por rol */}
-                {form.rol === 'tecnico' && (
-                  <div className="space-y-3 p-3 bg-blue-50 rounded-xl">
-                    <div className="text-xs font-bold text-blue-700 uppercase">Datos del técnico</div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="fg"><label className="lbl">CUI (13 dígitos)</label>
-                        <input className="inp font-mono" value={form.cui} onChange={F('cui')}
-                          placeholder="Se genera automáticamente si no ingresa" /></div>
-                      <div className="fg"><label className="lbl">Código técnico</label>
-                        <input className="inp font-mono" value={form.codigo_tecnico} onChange={F('codigo_tecnico')}
-                          placeholder="Auto: TEC-001" /></div>
-                    </div>
-                    <div className="fg"><label className="lbl">Especialidad</label>
-                      <input className="inp" value={form.especialidad} onChange={F('especialidad')}
-                        placeholder="Ej: Educación de Jóvenes y Adultos" /></div>
-                    <div className="fg"><label className="lbl">Sede principal (opcional)</label>
-                      <select className="inp" value={form.sede_id} onChange={F('sede_id')}>
-                        <option value="">— Sin asignar —</option>
-                        {sedes.map((sd: any) => <option key={sd.id} value={sd.id}>{sd.nombre}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {form.rol === 'enlace_institucional' && (
-                  <div className="space-y-3 p-3 bg-orange-50 rounded-xl">
-                    <div className="text-xs font-bold text-orange-700 uppercase">Datos del enlace</div>
-                    <div className="fg">
-                      <label className="lbl">Sede / Institución a cargo *</label>
-                      <select className="inp" value={form.sede_id} onChange={F('sede_id')}>
-                        <option value="">— Seleccionar sede —</option>
-                        {sedes.map((sd: any) => <option key={sd.id} value={sd.id}>{sd.nombre}</option>)}
-                      </select>
-                      {sedes.length === 0 && (
-                        <div className="text-xs text-red-500 mt-1">
-                          ⚠️ No hay sedes registradas. Crea una en Admin → Sedes primero.
-                        </div>
-                      )}
-                      {!form.sede_id && (
-                        <div className="text-xs text-orange-600 mt-1 font-semibold">
-                          ⚠️ La sede es obligatoria para que el enlace pueda inscribir estudiantes
-                        </div>
-                      )}
-                    </div>
-                    <div className="fg"><label className="lbl">Cargo</label>
-                      <input className="inp" value={form.cargo} onChange={F('cargo')}
-                        placeholder="Ej: Docente encargado, Director escolar..." /></div>
-                    <div className="fg">
-                      <label className="lbl">Técnico responsable</label>
-                      <select className="inp" value={form.tecnico_id} onChange={F('tecnico_id')}>
-                        <option value="">— Sin asignar técnico —</option>
-                        {tecnicos.map((t: any) => (
-                          <option key={t.id} value={t.id}>
-                            {t.primer_nombre} {t.primer_apellido} ({t.codigo_tecnico})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                )}
-
-                {form.rol === 'director' && (
-                  <div className="space-y-3 p-3 bg-green-50 rounded-xl">
-                    <div className="text-xs font-bold text-green-700 uppercase">Datos del director</div>
-                    <div className="fg"><label className="lbl">Sede que dirige</label>
-                      <select className="inp" value={form.sede_id} onChange={F('sede_id')}>
-                        <option value="">— Sin asignar —</option>
-                        {sedes.map((sd: any) => <option key={sd.id} value={sd.id}>{sd.nombre}</option>)}
-                      </select>
-                    </div>
-                    <div className="fg"><label className="lbl">Cargo</label>
-                      <input className="inp" value={form.cargo} onChange={F('cargo')} placeholder="Director(a)" /></div>
-                  </div>
-                )}
-
-                {form.rol === 'coordinador_digeex' && (
-                  <div className="fg">
-                    <label className="lbl">Cargo</label>
-                    <input className="inp" value={form.cargo} onChange={F('cargo')}
-                      placeholder="Coordinador Departamental" />
-                  </div>
-                )}
-
-                {/* Credenciales */}
-                <div className="p-3 bg-gray-50 rounded-xl space-y-3">
-                  <div className="text-xs font-bold text-gray-600 uppercase">🔒 Credenciales de acceso</div>
-                  <div className="fg"><label className="lbl">Correo electrónico *</label>
-                    <input type="email" className="inp" value={form.correo} onChange={F('correo')}
-                      placeholder="correo@dominio.com" /></div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="fg"><label className="lbl">Contraseña * (mín. 6 caracteres)</label>
-                      <input type="password" className="inp" value={form.contrasena} onChange={F('contrasena')} /></div>
-                    <div className="fg"><label className="lbl">Confirmar contraseña</label>
-                      <input type="password" className="inp" value={form.confirmar} onChange={F('confirmar')} /></div>
-                  </div>
-                  <div className="text-xs text-amber-600">
-                    💡 La contraseña aparecerá después de crear al usuario para que puedas compartirla.
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex-shrink-0">
-                <button className="btn btn-g" onClick={() => setModal(false)}>Cancelar</button>
-                <button className="btn btn-p" onClick={crear} disabled={saving}>
-                  {saving
-                    ? <span className="flex items-center gap-2">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Creando...
-                      </span>
-                    : '✅ Crear usuario'}
-                </button>
-              </div>
-            </div>
-          </div>
+      {exito && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex justify-between items-center">
+          <span className="text-green-800 font-semibold text-sm">{exito}</span>
+          <button onClick={() => setExito('')} className="text-green-600 text-xl font-bold">×</button>
         </div>
       )}
 
-      {/* Modal restablecer contraseña */}
-      {resetId && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-            <h3 className="text-base font-extrabold mb-4">🔑 Restablecer contraseña</h3>
-            <div className="fg mb-4">
-              <label className="lbl">Nueva contraseña (mínimo 6 caracteres)</label>
-              <input type="text" className="inp font-mono text-lg" value={nuevaPwd}
-                onChange={e => setNuevaPwd(e.target.value)}
-                placeholder="Escribe la nueva contraseña..." />
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[
+          { icon:'👥', value:stats.total,      label:'Total',      color:'blue'   },
+          { icon:'✅', value:stats.activos,    label:'Activos',    color:'green'  },
+          { icon:'🛠', value:stats.tecnicos,   label:'Técnicos',   color:'blue'   },
+          { icon:'🏫', value:stats.directores, label:'Directores', color:'yellow' },
+        ].map(s => (
+          <div key={s.label} className="card text-center py-4">
+            <div className="text-3xl mb-1">{s.icon}</div>
+            <div className="text-2xl font-extrabold text-gray-800">{s.value}</div>
+            <div className="text-xs text-gray-500">{s.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Filtros */}
+      <div className="card flex flex-wrap gap-3 items-center">
+        <input className="inp flex-1 min-w-[200px]" placeholder="🔍 Buscar nombre o correo..."
+          value={busqueda} onChange={e => setBusqueda(e.target.value)} />
+        <select className="inp w-48" value={filtroRol} onChange={e => setFiltroRol(e.target.value)}>
+          <option value="">Todos los roles</option>
+          {ROL_OPTS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+        </select>
+        <select className="inp w-36" value={filtroActivo} onChange={e => setFiltroActivo(e.target.value)}>
+          <option value="">Todos</option>
+          <option value="true">Activos</option>
+          <option value="false">Inactivos</option>
+        </select>
+        <button className="btn btn-g text-sm" onClick={cargar}>🔄 Recargar</button>
+      </div>
+
+      {/* Tabla */}
+      <div className="card overflow-hidden p-0">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <span className="ml-3 text-gray-500">Cargando usuarios...</span>
+          </div>
+        ) : lista.length === 0 ? (
+          <div className="text-center py-16 text-gray-400">
+            <div className="text-5xl mb-3">👥</div>
+            <p className="font-semibold">No se encontraron usuarios</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gradient-to-r from-blue-800 to-blue-900 text-white text-xs uppercase tracking-wide">
+                  <th className="px-4 py-3 text-left">Usuario</th>
+                  <th className="px-4 py-3 text-left">Correo</th>
+                  <th className="px-4 py-3 text-left">Rol</th>
+                  <th className="px-4 py-3 text-left">Sede / Código</th>
+                  <th className="px-4 py-3 text-center">Estado</th>
+                  <th className="px-4 py-3 text-center">1er Ingreso</th>
+                  <th className="px-4 py-3 text-center">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lista.map((u, i) => (
+                  <tr key={u.id}
+                    className={`border-b hover:bg-blue-50/40 transition-colors ${i % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}`}>
+                    <td className="px-4 py-3 font-semibold text-gray-800">{nombreCompleto(u)}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs font-mono">{u.correo}</td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${ROL_COLOR[u.rol] ?? 'bg-gray-100 text-gray-700'}`}>
+                        {ROL_LABELS[u.rol]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-600">
+                      {u.perfil?.sede?.nombre ?? u.perfil?.codigo_tecnico ?? u.perfil?.cargo ?? '—'}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${u.activo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {u.activo ? 'Activo' : 'Inactivo'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-center text-xs">
+                      {u.primer_ingreso
+                        ? <span className="text-yellow-600 font-bold">⚠ Pendiente</span>
+                        : <span className="text-green-600">✓ OK</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1 justify-center">
+                        <button className="btn btn-g btn-sm text-xs" onClick={() => setModalDetalle(u)} title="Detalles">👁</button>
+                        <button className={`btn btn-sm text-xs ${u.activo ? 'btn-red' : 'btn-green'}`}
+                          onClick={() => toggleActivo(u)} title={u.activo ? 'Desactivar' : 'Activar'}>
+                          {u.activo ? '🚫' : '✅'}
+                        </button>
+                        <button className="btn btn-g btn-sm text-xs"
+                          onClick={() => { setModalReset(u); setNuevaPass('') }} title="Resetear contraseña">
+                          🔑
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="px-4 py-2 text-xs text-gray-400 border-t">
+              Mostrando {lista.length} de {usuarios.length} usuarios
             </div>
-            <div className="flex justify-end gap-3">
-              <button className="btn btn-g" onClick={() => setResetId(null)}>Cancelar</button>
-              <button className="btn btn-p" onClick={resetPassword} disabled={savingReset}>
-                {savingReset ? '...' : '🔑 Restablecer'}
+          </div>
+        )}
+      </div>
+
+      {/* ── Modal Crear ───────────────────────────────────────── */}
+      {modalCrear && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-extrabold text-lg">➕ Nuevo Usuario</h3>
+              <button onClick={() => setModalCrear(false)} className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              {errorForm && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm font-semibold">
+                  ❌ {errorForm}
+                </div>
+              )}
+
+              {/* Acceso */}
+              <div className="bg-blue-50 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-bold text-blue-700 uppercase">Datos de acceso</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="fg">
+                    <label className="lbl">Correo *</label>
+                    <input type="email" className="inp" placeholder="correo@ejemplo.com"
+                      value={form.correo} onChange={e => setForm(f => ({ ...f, correo: e.target.value }))} />
+                  </div>
+                  <div className="fg">
+                    <label className="lbl">Contraseña temporal *</label>
+                    <input type="text" className="inp" placeholder="mínimo 6 caracteres"
+                      value={form.contrasena} onChange={e => setForm(f => ({ ...f, contrasena: e.target.value }))} />
+                  </div>
+                </div>
+                <div className="fg">
+                  <label className="lbl">Rol *</label>
+                  <select className="inp" value={form.rol}
+                    onChange={e => setForm(f => ({ ...f, rol: e.target.value as RolUsuario, sede_id:'', tecnico_id:'' }))}>
+                    {ROL_OPTS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Datos personales */}
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-bold text-gray-600 uppercase">Datos personales</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="fg"><label className="lbl">Primer nombre *</label>
+                    <input className="inp" value={form.primer_nombre} onChange={e => setForm(f => ({ ...f, primer_nombre: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Segundo nombre</label>
+                    <input className="inp" value={form.segundo_nombre} onChange={e => setForm(f => ({ ...f, segundo_nombre: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Primer apellido *</label>
+                    <input className="inp" value={form.primer_apellido} onChange={e => setForm(f => ({ ...f, primer_apellido: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Segundo apellido</label>
+                    <input className="inp" value={form.segundo_apellido} onChange={e => setForm(f => ({ ...f, segundo_apellido: e.target.value }))} /></div>
+                </div>
+                <div className="fg"><label className="lbl">Teléfono</label>
+                  <input className="inp" placeholder="5512-3456" value={form.telefono}
+                    onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} /></div>
+              </div>
+
+              {/* Técnico */}
+              {form.rol === 'tecnico' && (
+                <div className="bg-blue-50 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-blue-700 uppercase">Datos del técnico</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="fg"><label className="lbl">Código técnico</label>
+                      <input className="inp" placeholder="Auto-generado" value={form.codigo_tecnico}
+                        onChange={e => setForm(f => ({ ...f, codigo_tecnico: e.target.value }))} /></div>
+                    <div className="fg"><label className="lbl">CUI</label>
+                      <input className="inp font-mono" placeholder="Opcional" value={form.cui}
+                        onChange={e => setForm(f => ({ ...f, cui: e.target.value }))} /></div>
+                  </div>
+                  <div className="fg"><label className="lbl">Especialidad</label>
+                    <input className="inp" value={form.especialidad}
+                      onChange={e => setForm(f => ({ ...f, especialidad: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Sede principal</label>
+                    <select className="inp" value={form.sede_id}
+                      onChange={e => setForm(f => ({ ...f, sede_id: e.target.value }))}>
+                      <option value="">— Sin sede —</option>
+                      {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Director */}
+              {form.rol === 'director' && (
+                <div className="bg-green-50 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-green-700 uppercase">Datos del director</p>
+                  <div className="fg"><label className="lbl">Sede que dirige</label>
+                    <select className="inp" value={form.sede_id}
+                      onChange={e => setForm(f => ({ ...f, sede_id: e.target.value }))}>
+                      <option value="">— Seleccionar sede —</option>
+                      {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Enlace */}
+              {form.rol === 'enlace_institucional' && (
+                <div className="bg-yellow-50 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-yellow-700 uppercase">Datos del enlace institucional</p>
+                  <div className="fg"><label className="lbl">Sede / Institución *</label>
+                    <select className="inp" value={form.sede_id}
+                      onChange={e => setForm(f => ({ ...f, sede_id: e.target.value }))}>
+                      <option value="">— Seleccionar sede —</option>
+                      {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div className="fg"><label className="lbl">Cargo</label>
+                    <input className="inp" placeholder="Director de institución" value={form.cargo}
+                      onChange={e => setForm(f => ({ ...f, cargo: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Técnico asignado</label>
+                    <select className="inp" value={form.tecnico_id}
+                      onChange={e => setForm(f => ({ ...f, tecnico_id: e.target.value }))}>
+                      <option value="">— Sin técnico —</option>
+                      {tecnicos.map(t => (
+                        <option key={t.id} value={t.id}>
+                          {t.primer_nombre} {t.primer_apellido} {t.codigo_tecnico ? `(${t.codigo_tecnico})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Coordinador */}
+              {form.rol === 'coordinador_digeex' && (
+                <div className="bg-orange-50 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-orange-700 uppercase">Datos del coordinador</p>
+                  <div className="fg"><label className="lbl">Cargo</label>
+                    <input className="inp" placeholder="Coordinador Departamental" value={form.cargo}
+                      onChange={e => setForm(f => ({ ...f, cargo: e.target.value }))} /></div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+              <button className="btn btn-g" onClick={() => setModalCrear(false)}>Cancelar</button>
+              <button className="btn btn-p" onClick={crear} disabled={guardando}>
+                {guardando ? '⏳ Creando...' : '✅ Crear Usuario'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* ── Modal Detalle ─────────────────────────────────────── */}
+      {modalDetalle && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold text-base">👁 Detalle de Usuario</h3>
+              <button onClick={() => setModalDetalle(null)} className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+            <div className="px-6 py-4 space-y-2 text-sm">
+              {[
+                ['Nombre',        nombreCompleto(modalDetalle)],
+                ['Correo',        modalDetalle.correo],
+                ['Rol',           ROL_LABELS[modalDetalle.rol]],
+                ['Estado',        modalDetalle.activo ? '✅ Activo' : '🚫 Inactivo'],
+                ['Primer ingreso',modalDetalle.primer_ingreso ? '⚠ Pendiente' : '✓ Completado'],
+                ['Teléfono',      modalDetalle.perfil?.telefono ?? '—'],
+                ['Cargo',         modalDetalle.perfil?.cargo ?? '—'],
+                ['Código técnico',modalDetalle.perfil?.codigo_tecnico ?? '—'],
+                ['Sede',          modalDetalle.perfil?.sede?.nombre ?? '—'],
+                ['Último acceso', modalDetalle.ultimo_acceso ? new Date(modalDetalle.ultimo_acceso).toLocaleString('es-GT') : 'Nunca'],
+                ['Creado',        new Date(modalDetalle.creado_en).toLocaleDateString('es-GT')],
+              ].map(([k, v]) => (
+                <div key={k} className="flex justify-between py-1 border-b border-gray-100">
+                  <span className="text-gray-500 font-semibold">{k}</span>
+                  <span className="text-gray-800 text-right max-w-[60%] break-all">{v}</span>
+                </div>
+              ))}
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end">
+              <button className="btn btn-g" onClick={() => setModalDetalle(null)}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Reset Contraseña ─────────────────────────────── */}
+      {modalReset && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold">🔑 Resetear Contraseña</h3>
+              <button onClick={() => setModalReset(null)} className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                Se restablecerá la contraseña de <strong>{modalReset.correo}</strong>.
+                El usuario deberá cambiarla en su próximo ingreso.
+              </p>
+              <div className="fg">
+                <label className="lbl">Nueva contraseña temporal *</label>
+                <input type="text" className="inp" placeholder="mínimo 6 caracteres"
+                  value={nuevaPass} onChange={e => setNuevaPass(e.target.value)} />
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+              <button className="btn btn-g" onClick={() => setModalReset(null)}>Cancelar</button>
+              <button className="btn btn-p" onClick={resetPass}
+                disabled={guardandoPass || nuevaPass.length < 6}>
+                {guardandoPass ? '⏳...' : '✅ Resetear'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
