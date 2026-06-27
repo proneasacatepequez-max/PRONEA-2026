@@ -1,9 +1,15 @@
 // src/app/api/mis-enlaces/route.ts
-// FIX: devuelve enlaces vinculados a los técnicos de la sede del director
-// También devuelve TODOS los enlaces para admin
 import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
+
+// Select compartido — sede en lugar de instituciones
+const SELECT_ENLACE = `
+  id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+  cargo, telefono, activo,
+  usuario:usuarios!enlaces_institucionales_usuario_id_fkey(correo, ultimo_acceso),
+  sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre)
+`
 
 export async function GET(req: NextRequest) {
   const s = await getSession(req)
@@ -12,29 +18,21 @@ export async function GET(req: NextRequest) {
   const ciclo = parseInt(req.nextUrl.searchParams.get('ciclo') ?? '2026')
 
   if (s.rol === 'administrador') {
-    // Admin ve TODOS los enlaces
     const { data, error } = await supabaseAdmin
       .from('enlaces_institucionales')
-      .select(`
-        id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
-        cargo, telefono, activo,
-        usuario:usuarios!enlaces_institucionales_usuario_id_fkey(correo, ultimo_acceso),
-        institucion:instituciones(id, nombre, tipo)
-      `)
+      .select(SELECT_ENLACE)
       .order('primer_apellido')
     if (error) return err(error.message, 500)
     return ok(data ?? [])
   }
 
   if (s.rol === 'director') {
-    // Director ve enlaces vinculados a sus técnicos
     const { data: dir } = await supabaseAdmin
       .from('directores')
       .select('sede_id')
       .eq('usuario_id', s.sub)
       .single()
 
-    // Obtener técnicos de su sede
     let tecnicoIds: string[] = []
     if (dir?.sede_id) {
       const { data: tecSedes } = await supabaseAdmin
@@ -45,16 +43,14 @@ export async function GET(req: NextRequest) {
       tecnicoIds = (tecSedes ?? []).map((t: any) => t.tecnico_id)
     }
 
-    // Si no hay técnicos por sede, obtener todos los técnicos activos
     if (tecnicoIds.length === 0) {
-      const { data: todosLos } = await supabaseAdmin
+      const { data: todos } = await supabaseAdmin
         .from('tecnicos').select('id').eq('activo', true)
-      tecnicoIds = (todosLos ?? []).map((t: any) => t.id)
+      tecnicoIds = (todos ?? []).map((t: any) => t.id)
     }
 
     if (tecnicoIds.length === 0) return ok([])
 
-    // Obtener enlaces de esos técnicos
     const { data: teVin } = await supabaseAdmin
       .from('tecnico_enlaces')
       .select('enlace_id')
@@ -64,26 +60,18 @@ export async function GET(req: NextRequest) {
 
     const enlaceIds = (teVin ?? []).map((e: any) => e.enlace_id)
 
-    // Si no hay vinculaciones, devolver TODOS los enlaces (para cuando aún no se configuró)
-    let qEnlaces = supabaseAdmin.from('enlaces_institucionales')
-      .select(`
-        id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
-        cargo, telefono, activo,
-        usuario:usuarios!enlaces_institucionales_usuario_id_fkey(correo, ultimo_acceso),
-        institucion:instituciones(id, nombre, tipo)
-      `)
+    let q = supabaseAdmin
+      .from('enlaces_institucionales')
+      .select(SELECT_ENLACE)
 
-    if (enlaceIds.length > 0) {
-      qEnlaces = qEnlaces.in('id', enlaceIds)
-    }
+    if (enlaceIds.length > 0) q = q.in('id', enlaceIds)
 
-    const { data, error } = await qEnlaces.eq('activo', true).order('primer_apellido')
+    const { data, error } = await q.eq('activo', true).order('primer_apellido')
     if (error) return err(error.message, 500)
     return ok(data ?? [])
   }
 
   if (s.rol === 'tecnico') {
-    // Técnico ve sus propios enlaces vinculados
     const { data: tec } = await supabaseAdmin
       .from('tecnicos').select('id').eq('usuario_id', s.sub).single()
     if (!tec) return ok([])
@@ -100,12 +88,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await supabaseAdmin
       .from('enlaces_institucionales')
-      .select(`
-        id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
-        cargo, telefono, activo,
-        usuario:usuarios!enlaces_institucionales_usuario_id_fkey(correo, ultimo_acceso),
-        institucion:instituciones(id, nombre, tipo)
-      `)
+      .select(SELECT_ENLACE)
       .in('id', ids)
       .order('primer_apellido')
     if (error) return err(error.message, 500)
