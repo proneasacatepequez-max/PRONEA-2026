@@ -337,8 +337,8 @@ export default function DirectorDashboard() {
               <div className="border-t pt-4 text-xs text-gray-500">
                 <div>
                   Creado:{' '}
-                  {tecnicoSeleccionado.created_at
-                    ? new Date(tecnicoSeleccionado.created_at).toLocaleDateString('es-GT')
+                  {tecnicoSeleccionado.creado_en
+                    ? new Date(tecnicoSeleccionado.creado_en).toLocaleDateString('es-GT')
                     : '—'}
                 </div>
                 <div>
