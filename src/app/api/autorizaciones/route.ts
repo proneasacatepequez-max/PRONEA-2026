@@ -1,241 +1,155 @@
 // src/app/api/autorizaciones/route.ts
-// FIX CRÍTICO #4: Crear y actualizar autorizaciones correctamente
-import { createClient } from '@supabase/supabase-js'
-import { NextRequest, NextResponse } from 'next/server'
-import { getSession } from '@/lib/auth'
+import { NextRequest } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
+import { getSession, ok, err } from '@/lib/auth'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const SELECT_AUTH = `
+  id, director_id, enlace_id, permiso, activo,
+  fecha_inicio, fecha_fin, observaciones,
+  autorizado_por_admin, admin_confirmado_en, creado_en, actualizado_en,
+  director:directores(id, primer_nombre, primer_apellido),
+  enlace:enlaces_institucionales(
+    id, primer_nombre, primer_apellido,
+    sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre)
+  )
+`
 
-// GET - Listar autorizaciones
 export async function GET(req: NextRequest) {
-  try {
-    const session = await getSession()
+  const s = await getSession(req)
+  if (!s) return err('No autorizado', 401)
 
-    if (!session) {
-      return NextResponse.json({ error: 'No autenticado' }, { status: 401 })
-    }
+  const all = req.nextUrl.searchParams.get('all') === '1'
 
-    let query = supabase
-      .from('autorizaciones_director')
-      .select(`
-        id, director_id, enlace_id, permiso, activo,
-        fecha_inicio, fecha_fin, fecha_firma,
-        director:directores(id, primer_nombre, primer_apellido),
-        enlace:enlaces_institucionales(
-          id, primer_nombre, primer_apellido, usuario_id,
-          sede:sedes(id, nombre)
-        )
-      `)
+  let q = supabaseAdmin
+    .from('autorizaciones_director')
+    .select(SELECT_AUTH)
+    .order('creado_en', { ascending: false })
 
-    // Si es director, mostrar solo sus autorizaciones
-    if (session.rol === 'director') {
-      const { data: director } = await supabase
-        .from('directores')
-        .select('id')
-        .eq('usuario_id', session.id)
-        .single()
-
-      if (director) {
-        query = query.eq('director_id', director.id)
-      }
-    }
-
-    const { data, error } = await query.order('fecha_firma', { ascending: false })
-
-    if (error) {
-      console.error('GET error:', error)
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json(data || [])
-  } catch (err: any) {
-    console.error('GET exception:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  if (s.rol === 'director') {
+    const { data: dir } = await supabaseAdmin
+      .from('directores').select('id').eq('usuario_id', s.sub).single()
+    if (!dir) return ok([])
+    q = q.eq('director_id', dir.id)
+  } else if (s.rol !== 'administrador' && s.rol !== 'coordinador_digeex') {
+    return err('Sin permiso', 403)
   }
+
+  const { data, error } = await q
+  if (error) return err(error.message, 500)
+  return ok(data ?? [])
 }
 
-// POST - Crear autorización
 export async function POST(req: NextRequest) {
-  try {
-    const session = await getSession()
-    const body = await req.json()
+  const s = await getSession(req)
+  if (!s) return err('No autorizado', 401)
+  if (!['director', 'administrador'].includes(s.rol)) return err('Sin permiso', 403)
 
-    // Validaciones
-    if (!body.enlace_id) {
-      return NextResponse.json({ error: 'enlace_id es requerido' }, { status: 400 })
-    }
-    if (!body.permiso) {
-      return NextResponse.json({ error: 'permiso es requerido' }, { status: 400 })
-    }
+  const b = await req.json().catch(() => ({}))
+  if (!b.enlace_id) return err('enlace_id requerido')
+  if (!b.permiso)   return err('permiso requerido')
 
-    // Obtener director del usuario actual
-    const { data: director, error: directorError } = await supabase
-      .from('directores')
-      .select('id, sede_id')
-      .eq('usuario_id', session.id)
-      .single()
+  // Verificar que el permiso existe en permisos_globales
+  const { data: permisoGlobal } = await supabaseAdmin
+    .from('permisos_globales').select('permiso, activo').eq('permiso', b.permiso).maybeSingle()
+  if (!permisoGlobal) return err(`El permiso "${b.permiso}" no existe en el sistema`, 400)
+  if (!permisoGlobal.activo) return err(`El permiso "${b.permiso}" está desactivado globalmente`, 403)
 
-    if (directorError || !director) {
-      return NextResponse.json(
-        { error: 'Director no encontrado' },
-        { status: 404 }
-      )
-    }
+  // Obtener director
+  const { data: dir } = await supabaseAdmin
+    .from('directores').select('id, sede_id').eq('usuario_id', s.sub).single()
+  if (!dir && s.rol === 'director') return err('No se encontró perfil de director', 404)
 
-    // Verificar que enlace existe y pertenece a la misma sede
-    const { data: enlace, error: enlaceError } = await supabase
-      .from('enlaces_institucionales')
-      .select('id, sede_id')
-      .eq('id', body.enlace_id)
-      .single()
+  // Verificar que el enlace pertenece a la sede del director
+  if (s.rol === 'director' && dir) {
+    const { data: enl } = await supabaseAdmin
+      .from('enlaces_institucionales').select('sede_id').eq('id', b.enlace_id).single()
+    if (!enl || enl.sede_id !== dir.sede_id)
+      return err('❌ El enlace no pertenece a tu sede', 403)
+  }
 
-    if (enlaceError || !enlace) {
-      return NextResponse.json(
-        { error: 'Enlace no encontrado' },
-        { status: 404 }
-      )
-    }
+  // Verificar duplicado activo
+  const { data: dup } = await supabaseAdmin
+    .from('autorizaciones_director')
+    .select('id')
+    .eq('enlace_id', b.enlace_id)
+    .eq('permiso', b.permiso)
+    .eq('activo', true)
+    .maybeSingle()
 
-    if (enlace.sede_id !== director.sede_id) {
-      return NextResponse.json(
-        { error: 'El enlace no pertenece a tu sede' },
-        { status: 403 }
-      )
-    }
+  if (dup) return err('Ya existe una autorización activa para este enlace y permiso', 409)
 
-    // ✅ CORREGIDO: Verificar que el permiso existe en permisos_globales
-    const { data: permiso, error: permisoError } = await supabase
-      .from('permisos_globales')
-      .select('permiso')
-      .eq('permiso', body.permiso)
-      .eq('activo', true)
-      .single()
+  const { data, error } = await supabaseAdmin
+    .from('autorizaciones_director')
+    .insert({
+      director_id:  dir?.id ?? null,
+      enlace_id:    b.enlace_id,
+      permiso:      b.permiso,
+      activo:       true,
+      fecha_inicio: new Date().toISOString().split('T')[0],
+      fecha_fin:    b.fecha_fin || null,
+      observaciones:b.observaciones || null,
+    })
+    .select(SELECT_AUTH)
+    .single()
 
-    if (permisoError || !permiso) {
-      return NextResponse.json(
-        { error: `El permiso '${body.permiso}' no existe o no está activo` },
-        { status: 404 }
-      )
-    }
+  if (error) return err(error.message, 500)
+  return ok({ ok: true, data, mensaje: '✅ Autorización creada. Pendiente de confirmación del administrador.' }, 201)
+}
 
-    // Verificar que no existe autorización duplicada activa
-    const { data: existing } = await supabase
+export async function PUT(req: NextRequest) {
+  const s = await getSession(req)
+  if (!s) return err('No autorizado', 401)
+  if (!['director', 'administrador'].includes(s.rol)) return err('Sin permiso', 403)
+
+  const b = await req.json().catch(() => ({}))
+  if (!b.id) return err('id requerido')
+
+  const accion = b.accion // 'revocar' | 'confirmar' | 'extender'
+
+  if (accion === 'revocar') {
+    const { error } = await supabaseAdmin
       .from('autorizaciones_director')
-      .select('id')
-      .eq('enlace_id', body.enlace_id)
-      .eq('permiso', body.permiso)
-      .eq('activo', true)
-      .single()
+      .update({ activo: false, actualizado_en: new Date().toISOString() })
+      .eq('id', b.id)
+    if (error) return err(error.message, 500)
+    return ok({ ok: true, mensaje: '✅ Autorización revocada' })
+  }
 
-    if (existing) {
-      return NextResponse.json(
-        { error: 'Este enlace ya tiene esta autorización activa' },
-        { status: 409 }
-      )
-    }
-
-    const today = new Date().toISOString().split('T')[0]
-
-    const { data: inserted, error: insertError } = await supabase
+  if (accion === 'confirmar') {
+    if (s.rol !== 'administrador') return err('Solo el administrador puede confirmar', 403)
+    const { error } = await supabaseAdmin
       .from('autorizaciones_director')
-      .insert({
-        director_id: director.id,
-        enlace_id: body.enlace_id,
-        permiso: body.permiso,
-        activo: true,
-        fecha_inicio: body.fecha_inicio || today,
-        fecha_fin: body.fecha_fin || null,
-        observaciones: body.observaciones || null,
+      .update({
+        autorizado_por_admin: s.sub,
+        admin_confirmado_en:  new Date().toISOString(),
+        actualizado_en:       new Date().toISOString(),
       })
-      .select()
-      .single()
-
-    if (insertError) {
-      console.error('Insert error:', insertError)
-      return NextResponse.json(
-        { error: 'Error al guardar autorización: ' + insertError.message },
-        { status: 500 }
-      )
-    }
-
-    console.log('✅ Autorización creada:', inserted.id)
-
-    return NextResponse.json(
-      {
-        ok: true,
-        id: inserted.id,
-        mensaje: '✅ Autorización creada correctamente',
-      },
-      { status: 201 }
-    )
-  } catch (err: any) {
-    console.error('POST exception:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+      .eq('id', b.id)
+    if (error) return err(error.message, 500)
+    return ok({ ok: true, mensaje: '✅ Autorización confirmada' })
   }
-}
 
-// PATCH - Actualizar autorización
-export async function PATCH(req: NextRequest) {
-  try {
-    const body = await req.json()
-
-    if (!body.id) {
-      return NextResponse.json({ error: 'id es requerido' }, { status: 400 })
-    }
-
-    const updates: any = {}
-    if (body.activo !== undefined) updates.activo = body.activo
-    if (body.fecha_fin !== undefined) updates.fecha_fin = body.fecha_fin
-    if (body.observaciones !== undefined) updates.observaciones = body.observaciones
-
-    const { data, error } = await supabase
+  if (accion === 'extender') {
+    if (!b.fecha_fin) return err('fecha_fin requerida para extender')
+    const { error } = await supabaseAdmin
       .from('autorizaciones_director')
-      .update(updates)
-      .eq('id', body.id)
-      .select()
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      mensaje: '✅ Autorización actualizada correctamente',
-    })
-  } catch (err: any) {
-    console.error('PATCH exception:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+      .update({ fecha_fin: b.fecha_fin, actualizado_en: new Date().toISOString() })
+      .eq('id', b.id)
+    if (error) return err(error.message, 500)
+    return ok({ ok: true, mensaje: '✅ Fecha extendida' })
   }
+
+  return err('accion inválida — usa: revocar | confirmar | extender')
 }
 
-// DELETE - Revocar autorización
 export async function DELETE(req: NextRequest) {
-  try {
-    const id = req.nextUrl.searchParams.get('id')
+  const s = await getSession(req)
+  if (!s || s.rol !== 'administrador') return err('Solo administrador', 403)
 
-    if (!id) {
-      return NextResponse.json({ error: 'id es requerido' }, { status: 400 })
-    }
+  const id = req.nextUrl.searchParams.get('id')
+  if (!id) return err('id requerido')
 
-    const { error } = await supabase
-      .from('autorizaciones_director')
-      .update({ activo: false })
-      .eq('id', id)
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      mensaje: '✅ Autorización revocada correctamente',
-    })
-  } catch (err: any) {
-    console.error('DELETE exception:', err)
-    return NextResponse.json({ error: err.message }, { status: 500 })
-  }
+  const { error } = await supabaseAdmin.from('autorizaciones_director').delete().eq('id', id)
+  if (error) return err(error.message, 500)
+  return ok({ ok: true, mensaje: '✅ Autorización eliminada' })
 }
