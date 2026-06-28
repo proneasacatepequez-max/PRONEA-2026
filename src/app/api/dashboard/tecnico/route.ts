@@ -1,91 +1,121 @@
 // src/app/api/dashboard/tecnico/route.ts
-// FIX #5: Mostrar estudiantes correctamente en dashboard técnico
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getSession()
+    const session = await getSession(req) // ← CORREGIDO: pasar req
 
     if (!session || session.rol !== 'tecnico') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    // Obtener técnico
-    const { data: tecnico, error: tecnicoError } = await supabase
+    const ciclo = parseInt(req.nextUrl.searchParams.get('ciclo') ?? '2026')
+
+    // Obtener técnico usando session.sub (no session.id)
+    const { data: tecnico, error: tecnicoError } = await supabaseAdmin
       .from('tecnicos')
-      .select('id')
-      .eq('usuario_id', session.id)
+      .select('id, primer_nombre, primer_apellido, codigo_tecnico')
+      .eq('usuario_id', session.sub) // ← CORREGIDO: session.sub
       .single()
 
     if (tecnicoError || !tecnico) {
-      return NextResponse.json(
-        { error: 'Técnico no encontrado' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Técnico no encontrado' }, { status: 404 })
     }
 
-    const ciclo = 2026
-
-    // ✅ CORREGIDO: Contar estudiantes asignados a este técnico usando count correcto
-    const { count: totalEstudiantes, error: inscripcionesError } = await supabase
+    // Contar estudiantes activos del técnico
+    const { count: totalEstudiantes } = await supabaseAdmin
       .from('inscripciones')
       .select('*', { count: 'exact', head: true })
       .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
 
-    if (inscripcionesError) {
-      console.error('Error contando estudiantes:', inscripcionesError)
-    }
+    // Contar TODOS los estudiantes (cualquier estado) del ciclo
+    const { count: totalTodos } = await supabaseAdmin
+      .from('inscripciones')
+      .select('*', { count: 'exact', head: true })
+      .eq('tecnico_id', tecnico.id)
+      .eq('ciclo_escolar', ciclo)
 
-    // Contar escalas asignadas
-    const { count: totalEscalasAsignadas, error: escalasError } = await supabase
+    // Contar sedes del técnico
+    const { count: totalSedes } = await supabaseAdmin
+      .from('tecnico_sedes')
+      .select('*', { count: 'exact', head: true })
+      .eq('tecnico_id', tecnico.id)
+      .eq('activo', true)
+
+    // Contar enlaces del técnico
+    const { count: totalEnlaces } = await supabaseAdmin
+      .from('tecnico_enlaces')
+      .select('*', { count: 'exact', head: true })
+      .eq('tecnico_id', tecnico.id)
+      .eq('ciclo_escolar', ciclo)
+      .eq('activo', true)
+
+    // Contar notas ingresadas por el técnico
+    const { count: totalNotas } = await supabaseAdmin
+      .from('notas_tareas')
+      .select('*', { count: 'exact', head: true })
+      .eq('registrado_por', session.sub)
+
+    // Escalas asignadas
+    const { count: totalEscalas } = await supabaseAdmin
       .from('escala_asignaciones')
       .select('*', { count: 'exact', head: true })
       .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
 
-    if (escalasError) {
-      console.error('Error contando escalas:', escalasError)
-    }
+    // Distribución por etapa
+    const { data: porEtapaData } = await supabaseAdmin
+      .from('inscripciones')
+      .select('etapa:etapas(nombre)')
+      .eq('tecnico_id', tecnico.id)
+      .eq('ciclo_escolar', ciclo)
+      .eq('estado', 'en_curso')
 
-    // Contar notas ingresadas
-    const { count: totalNotasIngresadas, error: notasError } = await supabase
-      .from('notas_tareas')
-      .select('*', { count: 'exact', head: true })
-      .eq('registrado_por', session.id)
+    const porEtapa: Record<string, number> = {}
+    ;(porEtapaData ?? []).forEach((i: any) => {
+      const nombre = i.etapa?.nombre ?? '—'
+      porEtapa[nombre] = (porEtapa[nombre] ?? 0) + 1
+    })
 
-    if (notasError) {
-      console.error('Error contando notas:', notasError)
-    }
+    // Distribución por sede
+    const { data: porSedeData } = await supabaseAdmin
+      .from('inscripciones')
+      .select('sede:sedes(nombre)')
+      .eq('tecnico_id', tecnico.id)
+      .eq('ciclo_escolar', ciclo)
+      .eq('estado', 'en_curso')
 
-    // Log para debugging
-    console.log(`Dashboard Técnico - ID: ${tecnico.id}`)
-    console.log(`  Estudiantes: ${totalEstudiantes || 0}`)
-    console.log(`  Escalas: ${totalEscalasAsignadas || 0}`)
-    console.log(`  Notas: ${totalNotasIngresadas || 0}`)
+    const porSede: Record<string, number> = {}
+    ;(porSedeData ?? []).forEach((i: any) => {
+      const nombre = i.sede?.nombre ?? '—'
+      porSede[nombre] = (porSede[nombre] ?? 0) + 1
+    })
 
     return NextResponse.json({
       ok: true,
       tecnico: {
-        id: tecnico.id,
+        id:             tecnico.id,
+        primer_nombre:  tecnico.primer_nombre,
+        primer_apellido:tecnico.primer_apellido,
+        codigo_tecnico: tecnico.codigo_tecnico,
       },
       estadisticas: {
-        totalEstudiantes: totalEstudiantes || 0,
-        totalEscalasAsignadas: totalEscalasAsignadas || 0,
-        totalNotasIngresadas: totalNotasIngresadas || 0,
+        totalEstudiantes:   totalEstudiantes  ?? 0,
+        totalTodos:         totalTodos        ?? 0,
+        totalSedes:         totalSedes        ?? 0,
+        totalEnlaces:       totalEnlaces      ?? 0,
+        totalNotas:         totalNotas        ?? 0,
+        totalEscalas:       totalEscalas      ?? 0,
       },
+      porEtapa,
+      porSede,
       ciclo,
     })
   } catch (err: any) {
-    console.error('Dashboard Técnico error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
