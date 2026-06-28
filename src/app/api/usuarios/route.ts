@@ -1,5 +1,5 @@
 // src/app/api/usuarios/route.ts
-// FIX #1: ENLACE CREATION - Validar sede_id correctamente, no permitir strings vacíos
+// CORREGIDO: municipio_id y departamento_id se guardan en técnico, director y enlace
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { supabaseAdmin } from '@/lib/supabase'
@@ -14,21 +14,21 @@ export async function GET(req: NextRequest) {
       id, correo, rol, activo, ultimo_acceso, creado_en, primer_ingreso,
       tecnicos(
         id, primer_nombre, primer_apellido, telefono,
-        codigo_tecnico, cui, especialidad
+        codigo_tecnico, cui, especialidad, municipio_id, departamento_id
       ),
       directores(
-        id, primer_nombre, primer_apellido, telefono,
+        id, primer_nombre, primer_apellido, telefono, municipio_id,
         sede:sedes(id, nombre)
       ),
       enlaces_institucionales(
-        id, primer_nombre, primer_apellido, cargo, telefono,
+        id, primer_nombre, primer_apellido, cargo, telefono, municipio_id,
         sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre),
         tecnico:tecnicos!enlaces_institucionales_tecnico_id_fkey(
           id, primer_nombre, primer_apellido, codigo_tecnico
         )
       ),
       coordinadores_departamento(
-        id, primer_nombre, primer_apellido, cargo
+        id, primer_nombre, primer_apellido, cargo, municipio_id, departamento_id
       )
     `)
     .not('rol', 'eq', 'estudiante')
@@ -53,6 +53,18 @@ export async function GET(req: NextRequest) {
   return ok(lista)
 }
 
+// Helper: inferir departamento_id desde municipio_id si no viene explícito
+async function resolverDepartamentoId(
+  municipio_id: number | null,
+  departamento_id_form: any
+): Promise<number | null> {
+  if (departamento_id_form) return parseInt(String(departamento_id_form))
+  if (!municipio_id) return null
+  const { data } = await supabaseAdmin
+    .from('municipios').select('departamento_id').eq('id', municipio_id).single()
+  return data?.departamento_id ?? null
+}
+
 export async function POST(req: NextRequest) {
   const s = await getSession(req)
   if (!s || s.rol !== 'administrador') return err('Solo administrador', 403)
@@ -66,45 +78,34 @@ export async function POST(req: NextRequest) {
     segundo_nombre = '', segundo_apellido = '',
     telefono = '', codigo_tecnico = '',
     cui = '', especialidad = '',
-    cargo = '', departamento_id,
+    cargo = '',
   } = b
 
-  // FIX #1: Extraer sede_id y tecnico_id con validación explícita
-  // No permitir strings vacíos - deben ser null o UUID válido
-  const sede_id = b.sede_id && String(b.sede_id).trim() !== '' ? String(b.sede_id).trim() : null
-  const tecnico_id = b.tecnico_id && String(b.tecnico_id).trim() !== '' ? String(b.tecnico_id).trim() : null
+  const sede_id        = b.sede_id        && String(b.sede_id).trim()        !== '' ? String(b.sede_id).trim()        : null
+  const tecnico_id     = b.tecnico_id     && String(b.tecnico_id).trim()     !== '' ? String(b.tecnico_id).trim()     : null
+  const municipio_id   = b.municipio_id   ? parseInt(String(b.municipio_id)) : null
+  const departamento_id_raw = b.departamento_id ? parseInt(String(b.departamento_id)) : null
 
-  // Validaciones básicas con mensajes claros
-  if (!correo?.trim())           return err('El correo electrónico es requerido')
-  if (!contrasena?.trim())       return err('La contraseña es requerida')
-  if (!rol)                      return err('El rol es requerido')
-  if (!primer_nombre?.trim())    return err('El primer nombre es requerido')
-  if (!primer_apellido?.trim())  return err('El primer apellido es requerido')
-  if (contrasena.length < 6)     return err('La contraseña debe tener al menos 6 caracteres')
-
-  // FIX #1: Validación estricta para enlace_institucional
-  // sede_id es NOT NULL en la BD, validar que NO sea null
-  if (rol === 'enlace_institucional') {
-    if (!sede_id) {
-      return err('❌ La sede/institución es OBLIGATORIA para crear un enlace institucional. Debes seleccionar una sede.')
-    }
-  }
+  if (!correo?.trim())          return err('El correo electrónico es requerido')
+  if (!contrasena?.trim())      return err('La contraseña es requerida')
+  if (!rol)                     return err('El rol es requerido')
+  if (!primer_nombre?.trim())   return err('El primer nombre es requerido')
+  if (!primer_apellido?.trim()) return err('El primer apellido es requerido')
+  if (contrasena.length < 6)    return err('La contraseña debe tener al menos 6 caracteres')
+  if (rol === 'enlace_institucional' && !sede_id)
+    return err('❌ La sede es OBLIGATORIA para el enlace institucional')
 
   const correoNorm = correo.toLowerCase().trim()
-
-  // Verificar correo duplicado
   const { data: existe } = await supabaseAdmin.from('usuarios')
     .select('id, rol').eq('correo', correoNorm).maybeSingle()
   if (existe) return err(`Ya existe un usuario con el correo "${correoNorm}" (rol: ${existe.rol})`, 409)
 
-  // Crear usuario
   const hash = await bcrypt.hash(contrasena, 10)
   const { data: usu, error: eU } = await supabaseAdmin.from('usuarios')
     .insert({ correo: correoNorm, contrasena_hash: hash, rol, activo: true, primer_ingreso: true })
     .select('id').single()
   if (eU) return err('Error al crear el usuario: ' + eU.message, 500)
 
-  // Crear perfil según rol
   try {
     if (rol === 'tecnico') {
       let codigo = codigo_tecnico?.trim()
@@ -113,21 +114,25 @@ export async function POST(req: NextRequest) {
           .select('*', { count: 'exact', head: true })
         codigo = `TEC-${String((count ?? 0) + 1).padStart(3, '0')}`
       }
-      // CUI único — generar si no viene
       const cuiLimpio = cui?.trim()
       const cuiFinal  = cuiLimpio || `CUI-${Date.now()}-${Math.floor(Math.random() * 9000 + 1000)}`
 
+      // Resolver departamento_id desde municipio si no viene explícito
+      const deptId = await resolverDepartamentoId(municipio_id, departamento_id_raw)
+
       const { data: tecCreado, error: eTec } = await supabaseAdmin.from('tecnicos').insert({
-        usuario_id:      usu.id,
-        primer_nombre:   primer_nombre.trim(),
-        segundo_nombre:  segundo_nombre?.trim()   || null,
-        primer_apellido: primer_apellido.trim(),
-        segundo_apellido:segundo_apellido?.trim() || null,
-        telefono:        telefono                 || null,
-        codigo_tecnico:  codigo,
-        cui:             cuiFinal,
-        especialidad:    especialidad?.trim()     || null,
-        activo:          true,
+        usuario_id:       usu.id,
+        primer_nombre:    primer_nombre.trim(),
+        segundo_nombre:   segundo_nombre?.trim()   || null,
+        primer_apellido:  primer_apellido.trim(),
+        segundo_apellido: segundo_apellido?.trim() || null,
+        telefono:         telefono                 || null,
+        codigo_tecnico:   codigo,
+        cui:              cuiFinal,
+        especialidad:     especialidad?.trim()     || null,
+        municipio_id:     municipio_id,           // ← AGREGADO
+        departamento_id:  deptId,                 // ← AGREGADO
+        activo:           true,
       }).select('id').single()
 
       if (eTec) {
@@ -143,15 +148,18 @@ export async function POST(req: NextRequest) {
     }
 
     if (rol === 'director') {
+      const deptId = await resolverDepartamentoId(municipio_id, departamento_id_raw)
+
       const { error: eDir } = await supabaseAdmin.from('directores').insert({
-        usuario_id:      usu.id,
-        primer_nombre:   primer_nombre.trim(),
-        segundo_nombre:  segundo_nombre?.trim()   || null,
-        primer_apellido: primer_apellido.trim(),
-        segundo_apellido:segundo_apellido?.trim() || null,
-        telefono:        telefono                 || null,
-        activo:          true,
-        sede_id:         sede_id                  || null,
+        usuario_id:       usu.id,
+        primer_nombre:    primer_nombre.trim(),
+        segundo_nombre:   segundo_nombre?.trim()   || null,
+        primer_apellido:  primer_apellido.trim(),
+        segundo_apellido: segundo_apellido?.trim() || null,
+        telefono:         telefono                 || null,
+        municipio_id:     municipio_id,           // ← AGREGADO
+        activo:           true,
+        sede_id:          sede_id                 || null,
       })
       if (eDir) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
@@ -160,28 +168,33 @@ export async function POST(req: NextRequest) {
     }
 
     if (rol === 'enlace_institucional') {
-      // FIX #1: sede_id es NOT NULL en la BD — ya validado arriba, NUNCA será null aquí
       if (!sede_id) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
-        return err('Error interno: sede_id debe ser válido para enlace', 500)
+        return err('Error interno: sede_id obligatorio para enlace', 500)
       }
+
+      // Resolver municipio_id desde la sede si no viene explícito
+      let municipioFinal = municipio_id
+      if (!municipioFinal && sede_id) {
+        const { data: sedeData } = await supabaseAdmin
+          .from('sedes').select('municipio_id').eq('id', sede_id).single()
+        municipioFinal = sedeData?.municipio_id ?? null
+      }
+      const deptId = await resolverDepartamentoId(municipioFinal, departamento_id_raw)
 
       const enlacePayload: any = {
         usuario_id:       usu.id,
         primer_nombre:    primer_nombre.trim(),
-        segundo_nombre:   segundo_nombre?.trim() || null,
+        segundo_nombre:   segundo_nombre?.trim()   || null,
         primer_apellido:  primer_apellido.trim(),
         segundo_apellido: segundo_apellido?.trim() || null,
-        telefono:         telefono || null,
-        cargo:            cargo?.trim() || null,
-        sede_id:          sede_id,  // ✅ OBLIGATORIO, validado arriba
+        telefono:         telefono                 || null,
+        cargo:            cargo?.trim()            || null,
+        sede_id,
+        municipio_id:     municipioFinal,          // ← AGREGADO
         activo:           true,
       }
-
-      // tecnico_id es opcional
-      if (tecnico_id) {
-        enlacePayload.tecnico_id = tecnico_id
-      }
+      if (tecnico_id) enlacePayload.tecnico_id = tecnico_id
 
       const { data: enlCreado, error: eEnl } = await supabaseAdmin
         .from('enlaces_institucionales')
@@ -194,25 +207,26 @@ export async function POST(req: NextRequest) {
         return err('Error al crear perfil de enlace: ' + eEnl.message, 500)
       }
 
-      // Registrar en tecnico_enlaces si se asignó técnico
       if (tecnico_id && enlCreado) {
         await supabaseAdmin.from('tecnico_enlaces').insert({
-          tecnico_id, enlace_id: enlCreado.id,
-          ciclo_escolar: 2026, activo: true,
+          tecnico_id, enlace_id: enlCreado.id, ciclo_escolar: 2026, activo: true,
         }).catch(() => {})
       }
     }
 
     if (rol === 'coordinador_digeex') {
+      const deptId = await resolverDepartamentoId(municipio_id, departamento_id_raw)
+
       const { error: eCoord } = await supabaseAdmin.from('coordinadores_departamento').insert({
-        usuario_id:      usu.id,
-        primer_nombre:   primer_nombre.trim(),
-        segundo_nombre:  segundo_nombre?.trim()   || null,
-        primer_apellido: primer_apellido.trim(),
-        segundo_apellido:segundo_apellido?.trim() || null,
-        telefono:        telefono                 || null,
-        cargo:           cargo?.trim()            || null,
-        departamento_id: departamento_id ? parseInt(String(departamento_id)) : null,
+        usuario_id:       usu.id,
+        primer_nombre:    primer_nombre.trim(),
+        segundo_nombre:   segundo_nombre?.trim()   || null,
+        primer_apellido:  primer_apellido.trim(),
+        segundo_apellido: segundo_apellido?.trim() || null,
+        telefono:         telefono                 || null,
+        cargo:            cargo?.trim()            || null,
+        municipio_id:     municipio_id,            // ← AGREGADO
+        departamento_id:  deptId,                  // ← AGREGADO (ya existía pero ahora se resuelve automáticamente)
       })
       if (eCoord) {
         await supabaseAdmin.from('usuarios').delete().eq('id', usu.id)
@@ -231,11 +245,7 @@ export async function POST(req: NextRequest) {
   }).catch(() => {})
 
   return ok({
-    ok: true,
-    id: usu.id,
-    correo: correoNorm,
-    rol,
-    contrasena,
+    ok: true, id: usu.id, correo: correoNorm, rol, contrasena,
     mensaje: `✅ Usuario ${primer_nombre} ${primer_apellido} creado correctamente`,
   }, 201)
 }
