@@ -1,92 +1,98 @@
 // src/app/api/dashboard/enlace/route.ts
-// FIX CRÍTICO #3: Mostrar estadísticas correctas del enlace
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getSession()
+    const session = await getSession(req) // ← CORREGIDO: pasar req
 
     if (!session || session.rol !== 'enlace_institucional') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    // Obtener enlace para sede_id
-    const { data: enlace, error: enlaceError } = await supabase
+    const ciclo = parseInt(req.nextUrl.searchParams.get('ciclo') ?? '2026')
+
+    // Obtener enlace usando session.sub (no session.id)
+    const { data: enlace, error: enlaceError } = await supabaseAdmin
       .from('enlaces_institucionales')
-      .select('id, sede_id')
-      .eq('usuario_id', session.id)
+      .select(`
+        id, sede_id, primer_nombre, primer_apellido, cargo,
+        sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre),
+        tecnico:tecnicos!enlaces_institucionales_tecnico_id_fkey(
+          id, primer_nombre, primer_apellido, codigo_tecnico
+        )
+      `)
+      .eq('usuario_id', session.sub) // ← CORREGIDO: session.sub
       .single()
 
     if (enlaceError || !enlace) {
-      return NextResponse.json(
-        { error: 'Enlace no encontrado' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Enlace no encontrado' }, { status: 404 })
     }
 
-    const ciclo = 2026
-
-    // ✅ CORREGIDO: Contar estudiantes inscritos en su sede usando count correcto
-    const { count: totalEstudiantes, error: inscripcionesError } = await supabase
+    // Total estudiantes en su sede
+    const { count: totalEstudiantes } = await supabaseAdmin
       .from('inscripciones')
       .select('*', { count: 'exact', head: true })
       .eq('sede_id', enlace.sede_id)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
 
-    if (inscripcionesError) {
-      console.error('Error contando estudiantes:', inscripcionesError)
-    }
+    // Total inscripciones cualquier estado
+    const { count: totalTodos } = await supabaseAdmin
+      .from('inscripciones')
+      .select('*', { count: 'exact', head: true })
+      .eq('sede_id', enlace.sede_id)
+      .eq('ciclo_escolar', ciclo)
 
-    // Contar notas ingresadas por este enlace
-    const { count: totalNotasIngresadas, error: notasError } = await supabase
+    // Notas ingresadas por el enlace
+    const { count: totalNotas } = await supabaseAdmin
       .from('notas_tareas')
       .select('*', { count: 'exact', head: true })
-      .eq('registrado_por', session.id)
+      .eq('registrado_por', session.sub)
 
-    if (notasError) {
-      console.error('Error contando notas:', notasError)
-    }
-
-    // Contar autorizaciones activas del enlace
-    const { count: permisosCantidad, error: autorizacionesError } = await supabase
+    // Permisos/autorizaciones activas
+    const { count: totalPermisos } = await supabaseAdmin
       .from('autorizaciones_director')
       .select('*', { count: 'exact', head: true })
       .eq('enlace_id', enlace.id)
       .eq('activo', true)
 
-    if (autorizacionesError) {
-      console.error('Error contando autorizaciones:', autorizacionesError)
-    }
+    // Distribución por etapa
+    const { data: porEtapaData } = await supabaseAdmin
+      .from('inscripciones')
+      .select('etapa:etapas(nombre)')
+      .eq('sede_id', enlace.sede_id)
+      .eq('ciclo_escolar', ciclo)
+      .eq('estado', 'en_curso')
 
-    // Log para debugging
-    console.log(`Dashboard Enlace - Sede: ${enlace.sede_id}`)
-    console.log(`  Estudiantes: ${totalEstudiantes || 0}`)
-    console.log(`  Notas ingresadas: ${totalNotasIngresadas || 0}`)
-    console.log(`  Permisos activos: ${permisosCantidad || 0}`)
+    const porEtapa: Record<string, number> = {}
+    ;(porEtapaData ?? []).forEach((i: any) => {
+      const nombre = i.etapa?.nombre ?? '—'
+      porEtapa[nombre] = (porEtapa[nombre] ?? 0) + 1
+    })
 
     return NextResponse.json({
       ok: true,
       enlace: {
-        id: enlace.id,
-        sede_id: enlace.sede_id,
+        id:              enlace.id,
+        sede_id:         enlace.sede_id,
+        primer_nombre:   (enlace as any).primer_nombre,
+        primer_apellido: (enlace as any).primer_apellido,
+        cargo:           (enlace as any).cargo,
+        sede:            (enlace as any).sede,
+        tecnico:         (enlace as any).tecnico,
       },
       estadisticas: {
-        totalEstudiantes: totalEstudiantes || 0,
-        totalNotasIngresadas: totalNotasIngresadas || 0,
-        permisosCantidad: permisosCantidad || 0,
+        totalEstudiantes: totalEstudiantes ?? 0,
+        totalTodos:       totalTodos       ?? 0,
+        totalNotas:       totalNotas       ?? 0,
+        totalPermisos:    totalPermisos    ?? 0,
       },
+      porEtapa,
       ciclo,
     })
   } catch (err: any) {
-    console.error('Dashboard Enlace error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
