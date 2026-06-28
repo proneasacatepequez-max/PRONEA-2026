@@ -1,108 +1,110 @@
 // src/app/api/dashboard/director/route.ts
-// FIX CRÍTICO #2: Mostrar estadísticas correctas del director
-import { createClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import { supabaseAdmin } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await getSession()
+    const session = await getSession(req) // ← CORREGIDO: pasar req
 
     if (!session || session.rol !== 'director') {
       return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
     }
 
-    // Obtener director para sede_id
-    const { data: director, error: directorError } = await supabase
+    const ciclo = parseInt(req.nextUrl.searchParams.get('ciclo') ?? '2026')
+
+    // Obtener director usando session.sub (no session.id)
+    const { data: director, error: directorError } = await supabaseAdmin
       .from('directores')
-      .select('id, sede_id')
-      .eq('usuario_id', session.id)
+      .select(`
+        id, sede_id, primer_nombre, primer_apellido,
+        sede:sedes!directores_sede_id_fkey(id, nombre, municipio:municipios(nombre))
+      `)
+      .eq('usuario_id', session.sub) // ← CORREGIDO: session.sub
       .single()
 
     if (directorError || !director) {
-      return NextResponse.json(
-        { error: 'Director no encontrado' },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: 'Director no encontrado' }, { status: 404 })
     }
 
-    const ciclo = 2026
-
-    // ✅ CORREGIDO: Contar técnicos de la sede usando count correcto
-    const { count: totalTecnicos, error: tecnicosError } = await supabase
+    // Contar técnicos en la sede
+    const { count: totalTecnicos } = await supabaseAdmin
       .from('tecnico_sedes')
       .select('*', { count: 'exact', head: true })
       .eq('sede_id', director.sede_id)
       .eq('activo', true)
 
-    if (tecnicosError) {
-      console.error('Error contando técnicos:', tecnicosError)
-    }
+    // Contar enlaces en la sede
+    const { count: totalEnlaces } = await supabaseAdmin
+      .from('enlaces_institucionales')
+      .select('*', { count: 'exact', head: true })
+      .eq('sede_id', director.sede_id)
+      .eq('activo', true)
 
-    // ✅ CORREGIDO: Contar estudiantes inscritos en la sede usando count correcto
-    const { count: totalEstudiantes, error: inscripcionesError } = await supabase
+    // Estudiantes activos en la sede
+    const { count: totalEstudiantes } = await supabaseAdmin
       .from('inscripciones')
       .select('*', { count: 'exact', head: true })
       .eq('sede_id', director.sede_id)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
 
-    if (inscripcionesError) {
-      console.error('Error contando estudiantes:', inscripcionesError)
-    }
-
-    // Contar sedes (normalmente 1 para director)
-    const totalSedes = 1
-
-    // Contar etapas activas
-    const { count: totalEtapas, error: etapasError } = await supabase
-      .from('etapas')
+    // Total inscripciones (cualquier estado)
+    const { count: totalTodos } = await supabaseAdmin
+      .from('inscripciones')
       .select('*', { count: 'exact', head: true })
-      .eq('activo', true)
+      .eq('sede_id', director.sede_id)
+      .eq('ciclo_escolar', ciclo)
 
-    if (etapasError) {
-      console.error('Error contando etapas:', etapasError)
-    }
-
-    // Contar escalas pendientes
-    const { count: totalEscalasPendientes, error: escalasError } = await supabase
+    // Escalas pendientes
+    const { count: totalEscalasPendientes } = await supabaseAdmin
       .from('escala_asignaciones')
       .select('*', { count: 'exact', head: true })
       .eq('estado', 'pendiente')
       .eq('ciclo_escolar', ciclo)
 
-    if (escalasError) {
-      console.error('Error contando escalas pendientes:', escalasError)
-    }
+    // Autorizaciones activas del director
+    const { count: totalAutorizaciones } = await supabaseAdmin
+      .from('autorizaciones_director')
+      .select('*', { count: 'exact', head: true })
+      .eq('director_id', director.id)
+      .eq('activo', true)
 
-    // Log para debugging
-    console.log(`Dashboard Director - Sede: ${director.sede_id}`)
-    console.log(`  Técnicos: ${totalTecnicos || 0}`)
-    console.log(`  Estudiantes: ${totalEstudiantes || 0}`)
-    console.log(`  Escalas pendientes: ${totalEscalasPendientes || 0}`)
+    // Distribución por etapa
+    const { data: porEtapaData } = await supabaseAdmin
+      .from('inscripciones')
+      .select('etapa:etapas(nombre)')
+      .eq('sede_id', director.sede_id)
+      .eq('ciclo_escolar', ciclo)
+      .eq('estado', 'en_curso')
+
+    const porEtapa: Record<string, number> = {}
+    ;(porEtapaData ?? []).forEach((i: any) => {
+      const nombre = i.etapa?.nombre ?? '—'
+      porEtapa[nombre] = (porEtapa[nombre] ?? 0) + 1
+    })
 
     return NextResponse.json({
       ok: true,
       director: {
-        id: director.id,
-        sede_id: director.sede_id,
+        id:              director.id,
+        sede_id:         director.sede_id,
+        primer_nombre:   (director as any).primer_nombre,
+        primer_apellido: (director as any).primer_apellido,
+        sede:            (director as any).sede,
       },
       estadisticas: {
-        totalTecnicos: totalTecnicos || 0,
-        totalEstudiantes: totalEstudiantes || 0,
-        totalSedes,
-        totalEtapas: totalEtapas || 0,
-        totalEscalasPendientes: totalEscalasPendientes || 0,
+        totalTecnicos:         totalTecnicos         ?? 0,
+        totalEnlaces:          totalEnlaces          ?? 0,
+        totalEstudiantes:      totalEstudiantes      ?? 0,
+        totalTodos:            totalTodos            ?? 0,
+        totalEscalasPendientes:totalEscalasPendientes?? 0,
+        totalAutorizaciones:   totalAutorizaciones   ?? 0,
       },
+      porEtapa,
       ciclo,
     })
   } catch (err: any) {
-    console.error('Dashboard Director error:', err)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }
