@@ -182,12 +182,21 @@ export async function PATCH(req: NextRequest) {
 
   const camposComunes = [
     'primer_nombre','segundo_nombre','primer_apellido','segundo_apellido',
-    'telefono','correo_personal','direccion','genero','municipio_id',
+    'telefono','correo_personal','direccion','genero',
+    'municipio_id','departamento_id',   // ← CORREGIDO: departamento_id incluido
     'nivel_escolaridad','titulo_profesional',
   ]
   const upd: any = {}
   for (const campo of camposComunes) if (b[campo] !== undefined) upd[campo] = b[campo] === '' ? null : b[campo]
-  if (upd.municipio_id) upd.municipio_id = parseInt(String(upd.municipio_id))
+  if (upd.municipio_id)    upd.municipio_id    = parseInt(String(upd.municipio_id))
+  if (upd.departamento_id) upd.departamento_id = parseInt(String(upd.departamento_id))
+
+  // Si viene municipio_id pero NO departamento_id, inferirlo automáticamente
+  if (upd.municipio_id && !upd.departamento_id) {
+    const { data: muni } = await supabaseAdmin
+      .from('municipios').select('departamento_id').eq('id', upd.municipio_id).single()
+    if (muni?.departamento_id) upd.departamento_id = muni.departamento_id
+  }
 
   if (s.rol === 'estudiante') {
     const camposEst = ['telefono','correo','direccion','municipio_id',
@@ -224,9 +233,12 @@ export async function PATCH(req: NextRequest) {
   const tabla = TABLA[s.rol]
   if (!tabla) return err('Rol no soporta edición de perfil', 400)
 
+  // directores no tiene departamento_id en el schema
+  if (s.rol === 'director') delete upd.departamento_id
+
   upd.actualizado_en = new Date().toISOString()
   const { error } = await supabaseAdmin.from(tabla).update(upd).eq('usuario_id', s.sub)
   if (error) return err(error.message, 500)
-  return ok({ ok: true, mensaje: 'Perfil actualizado' })
+  return ok({ ok: true, mensaje: 'Perfil actualizado correctamente' })
 }
 
