@@ -101,15 +101,31 @@ export async function POST(req: NextRequest) {
   try { b = await req.json() } catch { return err('JSON inválido') }
 
   const {
-    estudiante_id, etapa_id, tecnico_id, sede_id,
+    estudiante_id, etapa_id, sede_id,
     modalidad_id, seccion_id, ciclo_escolar = 2026,
     version_libro = 'nuevo',
   } = b
 
+  let tecnico_id = b.tecnico_id ?? null
+
   if (!estudiante_id) return err('estudiante_id requerido')
   if (!etapa_id)      return err('etapa_id requerido')
-  if (!tecnico_id)    return err('tecnico_id requerido')
   if (!sede_id)       return err('sede_id requerido')
+
+  // Para el enlace: resolver tecnico_id automáticamente desde su perfil
+  if (s.rol === 'enlace_institucional' && !tecnico_id) {
+    const { data: enl } = await supabaseAdmin
+      .from('enlaces_institucionales')
+      .select('sede_id, tecnico_id')
+      .eq('usuario_id', s.sub)
+      .single()
+    if (!enl) return err('❌ No se encontró tu perfil de enlace', 403)
+    if (enl.sede_id !== sede_id) return err('❌ No puedes inscribir estudiantes fuera de tu sede', 403)
+    tecnico_id = enl.tecnico_id
+    if (!tecnico_id) return err('❌ Tu perfil no tiene técnico asignado. Contacta al administrador.', 403)
+  }
+
+  if (!tecnico_id) return err('tecnico_id requerido')
 
   // Verificar inscripción activa en misma etapa y ciclo (evitar duplicados)
   const { data: existe } = await supabaseAdmin
@@ -131,13 +147,6 @@ export async function POST(req: NextRequest) {
   }
 
   // Validar permisos por rol
-  if (s.rol === 'enlace_institucional') {
-    const { data: enl } = await supabaseAdmin
-      .from('enlaces_institucionales').select('sede_id').eq('usuario_id', s.sub).single()
-    if (!enl || enl.sede_id !== sede_id)
-      return err('❌ No puedes inscribir estudiantes fuera de tu sede', 403)
-  }
-
   if (s.rol === 'tecnico') {
     const { data: tec } = await supabaseAdmin
       .from('tecnicos').select('id').eq('usuario_id', s.sub).eq('id', tecnico_id).single()
