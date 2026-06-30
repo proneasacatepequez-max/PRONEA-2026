@@ -35,6 +35,28 @@ export async function GET(req: NextRequest) {
     q = q.eq('tecnico_id', tecnicoId)
   }
 
+  // CORREGIDO: coordinador_digeex solo ve grupos de sedes de SU departamento
+  if (s.rol === 'coordinador_digeex') {
+    const { data: coord } = await supabaseAdmin
+      .from('coordinadores_departamento')
+      .select('departamento_id')
+      .eq('usuario_id', s.sub)
+      .single()
+
+    if (coord?.departamento_id) {
+      const { data: sedesDept } = await supabaseAdmin
+        .from('sedes')
+        .select('id')
+        .eq('departamento_id', coord.departamento_id)
+
+      const sedeIds = (sedesDept ?? []).map((sd: any) => sd.id)
+      if (sedeIds.length === 0) return ok([])
+      q = q.in('sede_id', sedeIds)
+    } else {
+      return ok([])
+    }
+  }
+
   if (estado) q = q.eq('estado', estado)
 
   const { data, error } = await q
@@ -126,4 +148,3 @@ export async function PATCH(req: NextRequest) {
   if (error) return err(error.message, 500)
   return ok({ ok: true })
 }
-
