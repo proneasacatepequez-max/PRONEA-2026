@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback } from 'react'
 
 export default function CoordinadorPage() {
-  const [stats,     setStats]     = useState({ estudiantes: 0, tecnicos: 0, municipios_insc: 0, municipios_res: 0 })
+  const [stats,     setStats]     = useState({ estudiantes: 0, tecnicos: 0, sedes: 0, municipios_insc: 0, municipios_res: 0 })
   const [tecnicos,  setTecnicos]  = useState<any[]>([])
   const [inscrips,  setInscrips]  = useState<any[]>([])
   const [loading,   setLoading]   = useState(true)
@@ -13,27 +13,32 @@ export default function CoordinadorPage() {
   const [filtroMun, setFiltroMun] = useState('')
   const [filtroEt,  setFiltroEt]  = useState('')
   const [etapas,    setEtapas]    = useState<any[]>([])
+  const [miPerfil,  setMiPerfil]  = useState<any>(null)
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const [ins, tec, et] = await Promise.all([
+    const [ins, tec, et, perfil] = await Promise.all([
       fetch(`/api/inscripciones?ciclo=${ciclo}&estado=en_curso`).then(r => r.json()).catch(() => ({ data: [] })),
       fetch(`/api/mis-tecnicos?ciclo=${ciclo}`).then(r => r.json()).catch(() => []),
       fetch('/api/etapas').then(r => r.json()).catch(() => []),
+      fetch('/api/mi-perfil').then(r => r.json()).catch(() => null),
     ])
 
     const data = ins.data ?? []
     setInscrips(data)
     setTecnicos(Array.isArray(tec) ? tec : [])
     setEtapas(Array.isArray(et) ? et : [])
+    setMiPerfil(perfil?.perfil ?? null)
 
     // Stats reales
-    const munsInsc = new Set(data.map((i: any) => (i.sede as any)?.id).filter(Boolean))
-    const munsRes  = new Set(data.map((i: any) => (i.estudiante as any)?.municipio?.nombre).filter(Boolean))
+    const munsInsc  = new Set(data.map((i: any) => (i.sede as any)?.id).filter(Boolean))
+    const munsRes   = new Set(data.map((i: any) => (i.estudiante as any)?.municipio?.nombre).filter(Boolean))
+    const sedesUniq = new Set(data.map((i: any) => (i.sede as any)?.id).filter(Boolean))
 
     setStats({
       estudiantes:     data.length,
       tecnicos:        Array.isArray(tec) ? tec.length : 0,
+      sedes:           sedesUniq.size,
       municipios_insc: munsInsc.size,
       municipios_res:  munsRes.size,
     })
@@ -56,8 +61,12 @@ export default function CoordinadorPage() {
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">📋 Coordinador DIGEEX — Sacatepéquez</div>
-          <div className="text-xs text-gray-400">Vista de solo lectura · Ciclo {ciclo}</div>
+          <div className="page-title">
+            📋 Coordinador DIGEEX{miPerfil?.departamento?.nombre ? ` — ${miPerfil.departamento.nombre}` : ''}
+          </div>
+          <div className="text-xs text-gray-400">
+            Vista de solo lectura · {miPerfil?.primer_nombre ? `${miPerfil.primer_nombre} ${miPerfil.primer_apellido} · ` : ''}Ciclo {ciclo}
+          </div>
         </div>
         <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
           <option value="2026">2026</option>
@@ -66,9 +75,17 @@ export default function CoordinadorPage() {
       </header>
 
       <div className="pc">
+        {!miPerfil?.departamento_id && !loading && (
+          <div className="alert al-w mb-4 text-sm">
+            ⚠️ Tu perfil no tiene departamento asignado. Contacta al administrador —
+            sin esto no podrás ver datos de ninguna sede.
+          </div>
+        )}
+
         {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-5">
           {[
+            { icon:'🏫', label:'Sedes con estudiantes',  val: stats.sedes,       color:'border-t-pink-400' },
             { icon:'🎓', label:'Estudiantes inscritos', val: stats.estudiantes, color:'border-t-blue-500' },
             { icon:'👨‍🏫', label:'Técnicos activos',      val: stats.tecnicos,    color:'border-t-green-500' },
             { icon:'📍', label:'Municipios (inscripción)',val: stats.municipios_insc, color:'border-t-orange-400' },
