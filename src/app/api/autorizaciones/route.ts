@@ -54,17 +54,29 @@ export async function POST(req: NextRequest) {
   if (!permisoGlobal) return err(`El permiso "${b.permiso}" no existe en el sistema`, 400)
   if (!permisoGlobal.activo) return err(`El permiso "${b.permiso}" está desactivado globalmente`, 403)
 
-  // Obtener director
-  const { data: dir } = await supabaseAdmin
-    .from('directores').select('id, sede_id').eq('usuario_id', s.sub).single()
-  if (!dir && s.rol === 'director') return err('No se encontró perfil de director', 404)
+  // Obtener director — si es admin no necesita director
+  let dirId: string | null = null
+  let dirSedeId: string | null = null
 
-  // Verificar que el enlace pertenece a la sede del director
-  if (s.rol === 'director' && dir) {
+  if (s.rol === 'director') {
+    const { data: dir } = await supabaseAdmin
+      .from('directores').select('id, sede_id').eq('usuario_id', s.sub).single()
+    if (!dir) return err('No se encontró tu perfil de director', 404)
+    dirId      = dir.id
+    dirSedeId  = dir.sede_id
+
+    // Verificar que el enlace existe y pertenece a la sede del director
     const { data: enl } = await supabaseAdmin
-      .from('enlaces_institucionales').select('sede_id').eq('id', b.enlace_id).single()
-    if (!enl || enl.sede_id !== dir.sede_id)
-      return err('❌ El enlace no pertenece a tu sede', 403)
+      .from('enlaces_institucionales')
+      .select('id, sede_id, primer_nombre, primer_apellido')
+      .eq('id', b.enlace_id)
+      .single()
+
+    if (!enl) return err('❌ No se encontró el enlace institucional', 404)
+
+    // Solo bloquear si el director tiene sede_id definida Y el enlace es de otra sede
+    if (dirSedeId && enl.sede_id && enl.sede_id !== dirSedeId)
+      return err(`❌ El enlace "${enl.primer_nombre} ${enl.primer_apellido}" no pertenece a tu sede. Tu sede: ${dirSedeId} / Sede del enlace: ${enl.sede_id}`, 403)
   }
 
   // Verificar duplicado activo
@@ -81,7 +93,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabaseAdmin
     .from('autorizaciones_director')
     .insert({
-      director_id:  dir?.id ?? null,
+      director_id:  dirId,
       enlace_id:    b.enlace_id,
       permiso:      b.permiso,
       activo:       true,
