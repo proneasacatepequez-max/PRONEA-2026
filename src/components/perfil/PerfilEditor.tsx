@@ -43,6 +43,8 @@ export default function PerfilEditor({ rol }: Props) {
       nivel_escolaridad:  p.nivel_escolaridad  ?? '',
       titulo_profesional: p.titulo_profesional ?? '',
       direccion:          p.direccion          ?? '',
+      especialidad:       p.especialidad       ?? '',   // ← técnico
+      cargo:              p.cargo              ?? '',   // ← enlace y coordinador
       municipio_id:       p.municipio_id       ? String(p.municipio_id) : '',
       departamento_id:    p.municipio?.departamento_id ? String(p.municipio?.departamento_id)
                           : p.departamento?.id ? String(p.departamento.id) : '',
@@ -74,7 +76,10 @@ export default function PerfilEditor({ rol }: Props) {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...form,
-        municipio_id: form.municipio_id ? parseInt(form.municipio_id) : null,
+        municipio_id:    form.municipio_id    ? parseInt(form.municipio_id)    : null,
+        departamento_id: form.departamento_id ? parseInt(form.departamento_id) : null,
+        especialidad:    form.especialidad    || null,
+        cargo:           form.cargo           || null,
       }),
     })
     const d = await res.json()
@@ -255,6 +260,16 @@ export default function PerfilEditor({ rol }: Props) {
               </div>
               <div className="fg"><label className="lbl">Título profesional</label>
                 <input className="inp" value={form.titulo_profesional} onChange={F('titulo_profesional')} placeholder="Ej: Licenciado en Educación" /></div>
+              {rol === 'tecnico' && (
+                <div className="fg"><label className="lbl">Especialidad</label>
+                  <input className="inp" value={form.especialidad} onChange={F('especialidad')}
+                    placeholder="Ej: Educación Especial, Lenguaje..." /></div>
+              )}
+              {(rol === 'enlace_institucional' || rol === 'coordinador_digeex') && (
+                <div className="fg"><label className="lbl">Cargo</label>
+                  <input className="inp" value={form.cargo} onChange={F('cargo')}
+                    placeholder="Ej: Director de institución, Coordinador..." /></div>
+              )}
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
               <div className="fg"><label className="lbl">Departamento</label>
