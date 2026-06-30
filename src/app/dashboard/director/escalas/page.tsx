@@ -36,20 +36,27 @@ export default function DirectorEscalasPage() {
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const [asig, et, ar, tec] = await Promise.all([
+    const [asig, et, tec] = await Promise.all([
       fetch(`/api/escala-asignaciones?ciclo=${ciclo}`).then(r => r.json()).catch(() => []),
       fetch('/api/etapas').then(r => r.json()).catch(() => []),
-      fetch('/api/areas').then(r => r.json()).catch(() => []),
       fetch('/api/mis-tecnicos').then(r => r.json()).catch(() => []),
     ])
     setAsignaciones(Array.isArray(asig) ? asig : [])
     setEtapas(Array.isArray(et) ? et : [])
-    setAreas(Array.isArray(ar) ? ar : [])
     setTecnicos(Array.isArray(tec) ? tec : [])
     setLoading(false)
   }, [ciclo])
 
   useEffect(() => { cargar() }, [cargar])
+
+  // Cargar áreas filtradas por etapa seleccionada (bachillerato tiene áreas distintas)
+  useEffect(() => {
+    if (!form.etapa_id) { setAreas([]); return }
+    fetch(`/api/areas?etapa_id=${form.etapa_id}`)
+      .then(r => r.json())
+      .then(d => setAreas(Array.isArray(d) ? d : []))
+      .catch(() => setAreas([]))
+  }, [form.etapa_id])
 
   // FIX: cargar libros filtrados por etapa Y versión, comparando todo como string
   useEffect(() => {
