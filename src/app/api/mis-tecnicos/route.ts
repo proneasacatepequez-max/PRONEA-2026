@@ -42,6 +42,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // CORREGIDO: coordinador_digeex solo ve técnicos de SU departamento
+  if (s.rol === 'coordinador_digeex') {
+    const { data: coord } = await supabaseAdmin
+      .from('coordinadores_departamento')
+      .select('departamento_id')
+      .eq('usuario_id', s.sub)
+      .single()
+
+    if (coord?.departamento_id) {
+      qTec = qTec.eq('departamento_id', coord.departamento_id).eq('activo', true)
+    } else {
+      // Sin departamento configurado → no ve ningún técnico (evita fuga de datos)
+      return ok([])
+    }
+  }
+
   const { data: tecnicos, error } = await qTec
   if (error) return err(error.message, 500)
 
