@@ -183,17 +183,15 @@ export async function PATCH(req: NextRequest) {
   const camposComunes = [
     'primer_nombre','segundo_nombre','primer_apellido','segundo_apellido',
     'telefono','correo_personal','direccion','genero',
-    'municipio_id','departamento_id',        // ← departamento_id
+    'municipio_id','departamento_id',
     'nivel_escolaridad','titulo_profesional',
-    'especialidad',                          // ← técnico
-    'cargo',                                 // ← enlace y coordinador
+    'especialidad','cargo',
   ]
   const upd: any = {}
   for (const campo of camposComunes) if (b[campo] !== undefined) upd[campo] = b[campo] === '' ? null : b[campo]
   if (upd.municipio_id)    upd.municipio_id    = parseInt(String(upd.municipio_id))
   if (upd.departamento_id) upd.departamento_id = parseInt(String(upd.departamento_id))
 
-  // Auto-inferir departamento_id desde municipio si no viene
   if (upd.municipio_id && !upd.departamento_id) {
     const { data: muni } = await supabaseAdmin
       .from('municipios').select('departamento_id').eq('id', upd.municipio_id).single()
@@ -230,23 +228,19 @@ export async function PATCH(req: NextRequest) {
 
   const TABLA: Record<string, string> = {
     tecnico: 'tecnicos', director: 'directores',
-    enlace_institucional: 'enlaces_institucionales',
-    coordinador_digeex: 'coordinadores_departamento',
+    enlace_institucional: 'enlaces_institucionales', coordinador_digeex: 'coordinadores_departamento',
   }
   const tabla = TABLA[s.rol]
   if (!tabla) return err('Rol no soporta edición de perfil', 400)
 
-  // Remover campos que no existen en cada tabla
+  // Cada rol solo guarda los campos que existen en su tabla
   if (s.rol === 'director')   { delete upd.departamento_id; delete upd.cargo; delete upd.especialidad }
   if (s.rol === 'tecnico')    { delete upd.cargo }
   if (s.rol === 'enlace_institucional') { delete upd.departamento_id; delete upd.especialidad }
   if (s.rol === 'coordinador_digeex')   { delete upd.especialidad }
-
-  if (!Object.keys(upd).length) return err('Nada que actualizar')
 
   upd.actualizado_en = new Date().toISOString()
   const { error } = await supabaseAdmin.from(tabla).update(upd).eq('usuario_id', s.sub)
   if (error) return err(error.message, 500)
   return ok({ ok: true, mensaje: 'Perfil actualizado correctamente' })
 }
-
