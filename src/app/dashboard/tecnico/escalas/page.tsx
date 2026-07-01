@@ -1,476 +1,463 @@
 'use client'
 // src/app/dashboard/tecnico/escalas/page.tsx
-// FIX: campos proyecto/lección, botón editar tarea, áreas sin duplicados
-import { useState, useEffect, useCallback, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+// CORREGIDO: carga libros y tareas DIRECTAMENTE desde libros+tareas_catalogo
+// ya NO depende de escala_asignaciones para mostrar el catálogo
+import { useState, useEffect, useCallback } from 'react'
 
-function EscalasContent() {
-  const sp = useSearchParams()
+export default function TecnicoEscalasPage() {
+  // Navegación
+  const [etapas,     setEtapas]     = useState<any[]>([])
+  const [etapaSel,   setEtapaSel]   = useState<any>(null)
+  const [libros,     setLibros]     = useState<any[]>([])
+  const [libroSel,   setLibroSel]   = useState<any>(null)
+  const [areas,      setAreas]      = useState<any[]>([])
+  const [areaSel,    setAreaSel]    = useState('')
 
-  const [asignaciones, setAsignaciones] = useState<any[]>([])
-  const [seleccionada, setSeleccionada] = useState<any>(null)
-  const [tareas,       setTareas]       = useState<any[]>([])
-  const [examenes,     setExamenes]     = useState<any[]>([])
-  const [areas,        setAreas]        = useState<any[]>([])
-  const [loading,      setLoading]      = useState(true)
-  const [loadTareas,   setLoadTareas]   = useState(false)
-  const [saving,       setSaving]       = useState(false)
-  const [msg,          setMsg]          = useState('')
-  const [ciclo,        setCiclo]        = useState('2026')
-  const [modalTarea,   setModalTarea]   = useState(false)
-  const [editTarea,    setEditTarea]    = useState<any>(null)
+  // Datos
+  const [tareas,     setTareas]     = useState<any[]>([])
+  const [examenes,   setExamenes]   = useState<any[]>([])
+  const [loadLib,    setLoadLib]    = useState(false)
+  const [loadTareas, setLoadTareas] = useState(false)
+  const [loading,    setLoading]    = useState(true)
 
-  // Determinar si es bachillerato (tiene campo Proyecto) o básico/primaria (tiene Lección)
-  const etapaCodigo = (seleccionada?.etapa as any)?.codigo ?? ''
-  const esBachillerato = etapaCodigo.startsWith('BA')
-  const campoProyecto  = esBachillerato ? 'Proyecto' : 'Lección'
-
-  const [formTarea, setFormTarea] = useState({
-    numero_tarea: '', nombre: '', paginas: '', puntos_max: '5',
-    area_id: '', descripcion: '', proyecto: '', leccion: '',
+  // Modal tarea
+  const [modalTarea, setModalTarea] = useState(false)
+  const [editTarea,  setEditTarea]  = useState<any>(null)
+  const [formTarea,  setFormTarea]  = useState({
+    numero_tarea:'', nombre:'', paginas:'', puntos_max:'5',
+    area_id:'', proyecto:'', leccion:'',
   })
+  const [saving,  setSaving]  = useState(false)
+  const [msg,     setMsg]     = useState('')
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500) }
 
-  const cargar = useCallback(async () => {
-    setLoading(true)
-    const [asig, ar] = await Promise.all([
-      fetch(`/api/escala-asignaciones?ciclo=${ciclo}`).then(r => r.json()).catch(() => []),
+  // Cargar etapas y áreas al inicio
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/etapas').then(r => r.json()).catch(() => []),
       fetch('/api/areas').then(r => r.json()).catch(() => []),
-    ])
-    setAsignaciones(Array.isArray(asig) ? asig : [])
-    setAreas(Array.isArray(ar) ? ar : [])
-    setLoading(false)
-  }, [ciclo])
+    ]).then(([et, ar]) => {
+      setEtapas(Array.isArray(et) ? et : [])
+      setAreas(Array.isArray(ar) ? ar : [])
+      setLoading(false)
+    })
+  }, [])
 
-  useEffect(() => { cargar() }, [cargar])
+  // Cargar libros cuando cambia etapa
+  const seleccionarEtapa = async (etapa: any) => {
+    setEtapaSel(etapa)
+    setLibroSel(null)
+    setLibros([])
+    setTareas([])
+    setExamenes([])
+    setAreaSel('')
+    if (!etapa) return
+    setLoadLib(true)
+    const d = await fetch(`/api/libros?etapa_id=${etapa.id}`)
+      .then(r => r.json()).catch(() => [])
+    setLibros(Array.isArray(d) ? d : [])
+    setLoadLib(false)
+  }
 
-  const cargarTareas = useCallback(async (asig: any) => {
-    if (!asig?.libro?.id) { setTareas([]); setExamenes([]); return }
+  // Cargar tareas cuando cambia libro
+  const seleccionarLibro = useCallback(async (libro: any) => {
+    setLibroSel(libro)
+    setTareas([])
+    setExamenes([])
+    setAreaSel('')
+    if (!libro) return
     setLoadTareas(true)
-    const areaId = asig.area?.id
-    const url = `/api/tareas-catalogo?libro_id=${asig.libro.id}&tipo=ambos${areaId ? `&area_id=${areaId}` : ''}`
-    const d = await fetch(url).then(r => r.json()).catch(() => ({ tareas:[], examenes:[] }))
+    const d = await fetch(`/api/tareas-catalogo?libro_id=${libro.id}&tipo=ambos`)
+      .then(r => r.json()).catch(() => ({ tareas:[], examenes:[] }))
     setTareas(d.tareas   ?? [])
     setExamenes(d.examenes ?? [])
     setLoadTareas(false)
   }, [])
 
-  useEffect(() => {
-    if (seleccionada) cargarTareas(seleccionada)
-  }, [seleccionada, cargarTareas])
+  // Áreas que tienen tareas en este libro
+  const areasConTareas = areas.filter(a =>
+    tareas.some((t: any) => t.area?.id === a.id) ||
+    examenes.some((e: any) => e.area?.id === a.id)
+  )
 
-  // Áreas disponibles según la asignación
-  // Si la asignación tiene área específica, solo esa área
-  // Si no, todas las áreas
-  const areasDisponibles = seleccionada?.area?.id
-    ? areas.filter((a: any) => a.id === seleccionada.area.id)
-    : areas
+  // Versiones de libros disponibles
+  const versiones = [...new Set(libros.map((l: any) => l.version))]
+  const librosPorVersion = (v: string) =>
+    libros.filter((l: any) => l.version === v).sort((a: any, b: any) => a.numero - b.numero)
 
-  const abrirCrearTarea = () => {
+  // Tareas filtradas por área
+  const tareasVista  = areaSel ? tareas.filter((t: any)  => String(t.area?.id)  === areaSel) : tareas
+  const examenesVista= areaSel ? examenes.filter((e: any) => String(e.area?.id) === areaSel) : examenes
+
+  // Determinar si bachillerato
+  const esBach    = etapaSel?.codigo?.startsWith('BA') ?? false
+  const campoProy = esBach ? 'proyecto' : 'leccion'
+  const labelProy = esBach ? 'Proyecto' : 'Lección'
+
+  const abrirAgregar = () => {
     const siguiente = tareas.length > 0
       ? Math.max(...tareas.map((t: any) => t.numero_tarea ?? 0)) + 1
       : 1
     setFormTarea({
-      numero_tarea: String(siguiente),
-      nombre: '', paginas: '', puntos_max: '5',
-      area_id: areasDisponibles[0]?.id ? String(areasDisponibles[0].id) : '',
-      descripcion: '', proyecto: '', leccion: '',
+      numero_tarea: String(siguiente), nombre:'', paginas:'', puntos_max:'5',
+      area_id: areaSel || (areasConTareas[0]?.id ? String(areasConTareas[0].id) : ''),
+      proyecto:'', leccion:'',
     })
     setEditTarea(null)
     setModalTarea(true)
   }
 
-  const abrirEditarTarea = (t: any) => {
+  const abrirEditar = (t: any) => {
     setFormTarea({
       numero_tarea: String(t.numero_tarea),
-      nombre:       t.nombre       ?? '',
-      paginas:      t.paginas      ?? '',
+      nombre:       t.nombre,
+      paginas:      t.paginas   ?? '',
       puntos_max:   String(t.puntos_max ?? 5),
-      area_id:      t.area?.id     ? String(t.area.id) : '',
-      descripcion:  t.descripcion  ?? '',
-      proyecto:     t.proyecto     ?? '',
-      leccion:      t.leccion      ?? '',
+      area_id:      String(t.area?.id   ?? ''),
+      proyecto:     t.proyecto  ?? '',
+      leccion:      t.leccion   ?? '',
     })
     setEditTarea(t)
     setModalTarea(true)
   }
 
   const guardarTarea = async () => {
-    if (!formTarea.nombre.trim()) { flash('❌ La descripción de la tarea es requerida'); return }
-    if (!formTarea.area_id)       { flash('❌ El área es requerida'); return }
-    if (!seleccionada?.libro?.id) { flash('❌ Selecciona una escala primero'); return }
-
+    if (!formTarea.nombre.trim()) { flash('❌ Nombre requerido'); return }
+    if (!formTarea.area_id)       { flash('❌ Área requerida');   return }
+    if (!libroSel?.id)            { flash('❌ Selecciona un libro'); return }
     setSaving(true)
-    const body: any = {
-      tipo:         'tarea',
-      libro_id:     seleccionada.libro.id,
+    const body = {
+      libro_id:     libroSel.id,
       area_id:      parseInt(formTarea.area_id),
-      numero_tarea: parseInt(formTarea.numero_tarea) || tareas.length + 1,
+      numero_tarea: parseInt(formTarea.numero_tarea),
       nombre:       formTarea.nombre.trim(),
-      paginas:      formTarea.paginas.trim()     || null,
+      paginas:      formTarea.paginas || null,
       puntos_max:   parseFloat(formTarea.puntos_max) || 5,
-      descripcion:  formTarea.descripcion.trim() || null,
+      proyecto:     formTarea.proyecto || null,
+      leccion:      formTarea.leccion  || null,
     }
-
-    // Proyecto o lección según el nivel
-    if (esBachillerato) {
-      body.proyecto = formTarea.proyecto.trim() || null
-    } else {
-      body.leccion  = formTarea.leccion.trim()  || null
-    }
-
-    if (editTarea) body.id = editTarea.id
-
-    const res = await fetch('/api/tareas-catalogo', {
-      method:  editTarea ? 'PATCH' : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+    const url    = editTarea ? `/api/tareas-catalogo?id=${editTarea.id}` : '/api/tareas-catalogo'
+    const method = editTarea ? 'PATCH' : 'POST'
+    const res = await fetch(url, {
+      method, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
     })
     const d = await res.json()
-    flash(res.ok ? `✅ Tarea ${editTarea ? 'actualizada' : 'agregada'}` : '❌ ' + (d.error ?? 'Error'))
     if (res.ok) {
+      flash(editTarea ? '✅ Tarea actualizada' : '✅ Tarea agregada')
       setModalTarea(false)
-      await cargarTareas(seleccionada)
-      // Actualizar estado a en_progreso
-      if (seleccionada.estado === 'pendiente') {
-        await fetch('/api/escala-asignaciones', {
-          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: seleccionada.id, estado: 'en_progreso' }),
-        })
-        await cargar()
-      }
+      seleccionarLibro(libroSel)
+    } else {
+      flash('❌ ' + (d.error ?? 'Error'))
     }
     setSaving(false)
   }
 
-  const crearExamen = async (areaId: string, areaNombre: string) => {
-    if (!seleccionada?.libro?.id) return
-    setSaving(true)
-    const res = await fetch('/api/tareas-catalogo', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        tipo: 'examen', libro_id: seleccionada.libro.id,
-        area_id: parseInt(areaId), area_nombre: areaNombre,
-        nombre: `Examen — ${areaNombre}`,
-      }),
-    })
-    const d = await res.json()
-    flash(res.ok ? '✅ Examen creado' : '❌ ' + (d.error ?? 'Error'))
-    if (res.ok) await cargarTareas(seleccionada)
-    setSaving(false)
-  }
-
-  const eliminarTarea = async (id: string, tipo: string) => {
-    if (!confirm('¿Eliminar esta tarea?')) return
-    const res = await fetch(`/api/tareas-catalogo?id=${id}&tipo=${tipo}`, { method: 'DELETE' })
-    const d   = await res.json()
-    flash(res.ok ? (d.mensaje ? '⚠️ ' + d.mensaje : '✅ Eliminada') : '❌ Error')
-    if (res.ok) await cargarTareas(seleccionada)
-  }
-
-  const marcarCompletado = async () => {
-    if (!seleccionada) return
-    const res = await fetch('/api/escala-asignaciones', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: seleccionada.id, estado: 'completado' }),
-    })
-    flash(res.ok ? '✅ Escala completada — visible para todos los técnicos' : '❌ Error')
-    if (res.ok) {
-      await cargar()
-      setSeleccionada((p: any) => ({ ...p, estado: 'completado' }))
-    }
-  }
-
-  const FT = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement|HTMLTextAreaElement>) =>
-    setFormTarea(p => ({ ...p, [k]: e.target.value }))
-
-  // Agrupar tareas por área
-  const tareasPorArea = areas.reduce((acc: Record<string, any[]>, area: any) => {
-    acc[area.id] = tareas.filter((t: any) => t.area?.id === area.id)
-    return acc
-  }, {})
-
-  const ESTADO_COLOR: Record<string, string> = {
-    pendiente: 'badge-yellow', en_progreso: 'badge-blue', completado: 'badge-green',
+  const eliminarTarea = async (id: string) => {
+    if (!confirm('¿Eliminar esta tarea del catálogo?')) return
+    const res = await fetch(`/api/tareas-catalogo?id=${id}`, { method: 'DELETE' })
+    if (res.ok) { flash('✅ Tarea eliminada'); seleccionarLibro(libroSel) }
+    else flash('❌ Error al eliminar')
   }
 
   return (
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">📊 Escalas Numéricas</div>
-          <div className="text-xs text-gray-400">Construye las escalas asignadas por el director</div>
+          <div className="page-title">📊 Escalas Numéricas — Catálogo de Tareas</div>
+          <div className="text-xs text-gray-400">
+            Consulta y administra el catálogo de tareas por etapa y libro
+          </div>
         </div>
-        <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
-          <option value="2026">2026</option>
-          <option value="2025">2025</option>
-        </select>
+        {libroSel && (
+          <button className="btn btn-p text-sm" onClick={abrirAgregar}>
+            ＋ Agregar tarea
+          </button>
+        )}
       </header>
 
       <div className="pc">
-        {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : msg.startsWith('⚠️') ? 'al-w' : 'al-e'}`}>{msg}</div>}
+        {msg && (
+          <div className={`alert mb-3 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>
+        )}
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-          {/* Lista de escalas */}
-          <div className="md:col-span-1">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+
+          {/* ── PANEL IZQUIERDO ────────────────────────────── */}
+          <div className="lg:col-span-1 space-y-3">
+
+            {/* Selector de etapa */}
             <div className="card">
-              <div className="card-title">📋 Mis escalas asignadas</div>
+              <div className="card-title text-sm mb-2">📚 Etapa</div>
               {loading ? (
-                <div className="flex justify-center py-8">
-                  <div className="w-6 h-6 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
-                </div>
-              ) : asignaciones.length === 0 ? (
-                <div className="text-center py-8 text-gray-400 text-sm">
-                  <div className="text-3xl mb-2">📊</div>
-                  El director aún no ha asignado escalas
+                <div className="flex justify-center py-4">
+                  <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {asignaciones.map((a: any) => (
-                    <button key={a.id} onClick={() => setSeleccionada(a)}
-                      className={`w-full text-left px-3 py-3 rounded-xl border-2 transition-all ${
-                        seleccionada?.id === a.id
-                          ? 'border-pronea bg-blue-50'
+                <div className="space-y-1">
+                  {etapas.map((et: any) => (
+                    <button key={et.id}
+                      onClick={() => seleccionarEtapa(et)}
+                      className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all ${
+                        etapaSel?.id === et.id
+                          ? 'border-blue-500 bg-blue-50 font-bold'
                           : 'border-gray-100 hover:border-blue-200 hover:bg-blue-50/30'
                       }`}>
-                      <div className="font-semibold text-sm">{(a.etapa as any)?.nombre}</div>
-                      <div className="text-xs text-gray-500 mt-0.5">
-                        {(a.libro as any)?.nombre ?? 'Todos los libros'}
-                        {(a.area as any)?.nombre && <span className="ml-1">· {(a.area as any).nombre}</span>}
-                      </div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className={`badge text-xs ${ESTADO_COLOR[a.estado]??'badge-gray'}`}>{a.estado}</span>
-                        <span className="text-xs text-gray-400">{a.tareas_construidas} tareas</span>
-                      </div>
+                      {et.nombre}
                     </button>
                   ))}
                 </div>
               )}
             </div>
+
+            {/* Selector de libro */}
+            {etapaSel && (
+              <div className="card">
+                <div className="card-title text-sm mb-2">📖 Libro</div>
+                {loadLib ? (
+                  <div className="flex justify-center py-3">
+                    <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : libros.length === 0 ? (
+                  <div className="text-xs text-orange-500 text-center py-3">
+                    ⚠️ Sin libros para esta etapa
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {versiones.map(ver => (
+                      <div key={ver}>
+                        <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">
+                          {ver === 'nuevo' ? '📗 Libro Nuevo' : '📙 Libro Viejo'}
+                        </div>
+                        {librosPorVersion(ver).map((l: any) => (
+                          <button key={l.id}
+                            onClick={() => seleccionarLibro(l)}
+                            className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all mb-1 ${
+                              libroSel?.id === l.id
+                                ? 'border-blue-500 bg-blue-50 font-bold'
+                                : 'border-gray-100 hover:border-blue-200'
+                            }`}>
+                            Libro {l.numero} — {l.nombre}
+                          </button>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Filtro por área */}
+            {libroSel && areasConTareas.length > 0 && (
+              <div className="card">
+                <div className="card-title text-sm mb-2">📌 Área</div>
+                <button
+                  onClick={() => setAreaSel('')}
+                  className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs mb-1 transition-all ${
+                    !areaSel ? 'border-blue-500 bg-blue-50 font-bold' : 'border-gray-100 hover:border-blue-200'
+                  }`}>
+                  Todas las áreas
+                </button>
+                {areasConTareas.map((a: any) => (
+                  <button key={a.id}
+                    onClick={() => setAreaSel(String(a.id))}
+                    className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs mb-1 transition-all ${
+                      areaSel === String(a.id)
+                        ? 'border-blue-500 bg-blue-50 font-bold'
+                        : 'border-gray-100 hover:border-blue-200'
+                    }`}>
+                    {a.nombre}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Constructor */}
-          <div className="md:col-span-2">
-            {!seleccionada ? (
+          {/* ── PANEL DERECHO — CATÁLOGO ─────────────────── */}
+          <div className="lg:col-span-3">
+            {!etapaSel ? (
               <div className="card text-center py-16 text-gray-400">
-                <div className="text-5xl mb-3">👈</div>
-                <div className="font-semibold text-gray-600">Selecciona una escala</div>
-                <div className="text-sm mt-1">para ver y construir las tareas</div>
+                <div className="text-5xl mb-3">📚</div>
+                <div className="font-semibold text-gray-600">Selecciona una etapa</div>
+              </div>
+            ) : !libroSel ? (
+              <div className="card text-center py-16 text-gray-400">
+                <div className="text-5xl mb-3">📖</div>
+                <div className="font-semibold text-gray-600">Selecciona un libro</div>
+              </div>
+            ) : loadTareas ? (
+              <div className="card flex justify-center py-12">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : tareas.length === 0 && examenes.length === 0 ? (
+              <div className="card text-center py-12 text-gray-400">
+                <div className="text-4xl mb-3">📋</div>
+                <div className="font-semibold text-gray-600">Sin tareas en este libro</div>
+                <p className="text-xs mt-2 max-w-sm mx-auto text-gray-400">
+                  El catálogo de tareas para{' '}
+                  <b>{etapaSel.nombre} — Libro {libroSel.numero} ({libroSel.version})</b>{' '}
+                  está vacío.
+                </p>
+                <button className="btn btn-p mt-4" onClick={abrirAgregar}>
+                  ＋ Agregar primera tarea
+                </button>
               </div>
             ) : (
               <div className="space-y-4">
-                <div className={`card border-l-4 ${seleccionada.estado==='completado'?'border-l-green-400':'border-l-blue-400'}`}>
-                  <div className="flex items-start justify-between gap-3">
+
+                {/* Encabezado del libro */}
+                <div className="card py-3 border-l-4 border-l-blue-500">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
                     <div>
-                      <div className="text-lg font-extrabold">{(seleccionada.etapa as any)?.nombre}</div>
-                      <div className="text-sm text-gray-500 mt-0.5">
-                        {seleccionada.version_libro==='nuevo'?'📗 Libro Nuevo':'📙 Libro Viejo'}
-                        {(seleccionada.libro as any)?.nombre && ` — ${(seleccionada.libro as any).nombre} (Libro ${(seleccionada.libro as any).numero})`}
-                        {(seleccionada.area as any)?.nombre  && ` — ${(seleccionada.area as any).nombre}`}
+                      <div className="font-extrabold text-gray-800">
+                        {etapaSel.nombre} — Libro {libroSel.numero}
+                        <span className="ml-2 text-xs font-normal text-gray-400">
+                          ({libroSel.version === 'nuevo' ? '📗 Libro Nuevo' : '📙 Libro Viejo'})
+                        </span>
                       </div>
-                      {seleccionada.observaciones && (
-                        <div className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded mt-1">
-                          📌 {seleccionada.observaciones}
-                        </div>
-                      )}
-                      <div className="text-xs text-gray-400 mt-1">
-                        Campo: <b>{campoProyecto}</b>
-                        {esBachillerato ? ' (Proyecto — específico de Bachillerato)' : ' (Lección — Primaria y Básico)'}
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {tareasVista.length} tareas · {examenesVista.length} exámenes
+                        {areaSel && ' · Filtrado por área'}
                       </div>
                     </div>
-                    <div className="flex gap-2 flex-shrink-0 flex-wrap">
-                      {seleccionada.estado !== 'completado' && (
-                        <button className="btn btn-s btn-sm" onClick={marcarCompletado}>
-                          ✅ Marcar completa
-                        </button>
-                      )}
-                      <button className="btn btn-p btn-sm" onClick={abrirCrearTarea}>
-                        ＋ Agregar tarea
-                      </button>
-                    </div>
+                    <button className="btn btn-p btn-sm" onClick={abrirAgregar}>
+                      ＋ Agregar tarea
+                    </button>
                   </div>
                 </div>
 
-                {loadTareas ? (
-                  <div className="flex justify-center py-8">
-                    <div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {areasDisponibles.map((area: any) => {
-                      const tareasArea = tareasPorArea[area.id] ?? []
-                      const examenArea = examenes.find((e: any) => e.area?.id === area.id)
-                      return (
-                        <div key={area.id} className="card">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="font-extrabold text-gray-700">
-                              📌 {area.nombre}
-                              <span className="text-xs font-normal text-gray-400 ml-2">({tareasArea.length} tareas)</span>
-                            </div>
-                            {!examenArea && (
-                              <button className="btn btn-g btn-sm text-xs"
-                                onClick={() => crearExamen(area.id, area.nombre)}>
-                                ＋ Examen
-                              </button>
-                            )}
-                          </div>
+                {/* Bloques por área */}
+                {areasConTareas
+                  .filter(a => !areaSel || String(a.id) === areaSel)
+                  .map((area: any) => {
+                    const tareasArea = tareasVista
+                      .filter((t: any) => t.area?.id === area.id)
+                      .sort((a: any, b: any) => a.numero_tarea - b.numero_tarea)
+                    const examenArea = examenesVista.find((e: any) => e.area?.id === area.id)
+                    if (tareasArea.length === 0 && !examenArea) return null
+                    const ptsMax = tareasArea.reduce((s: number, t: any) => s + (t.puntos_max ?? 5), 0)
 
-                          {tareasArea.length === 0 ? (
-                            <div className="text-xs text-gray-400 text-center py-3 bg-gray-50 rounded-lg">
-                              Sin tareas — usa "＋ Agregar tarea" para iniciar
-                            </div>
-                          ) : (
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-xs border-collapse">
-                                <thead>
-                                  <tr className="bg-gray-50">
-                                    <th className="px-2 py-1.5 text-left font-bold w-8">#</th>
-                                    <th className="px-2 py-1.5 text-left font-bold w-24">{campoProyecto}</th>
-                                    <th className="px-2 py-1.5 text-left font-bold w-14">Pág.</th>
-                                    <th className="px-2 py-1.5 text-left font-bold">Descripción de la actividad</th>
-                                    <th className="px-2 py-1.5 text-center font-bold w-12">Pts.</th>
-                                    <th className="px-2 py-1.5 text-center font-bold w-16">Acción</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {tareasArea
-                                    .sort((a: any, b: any) => a.numero_tarea - b.numero_tarea)
-                                    .map((t: any) => (
-                                      <tr key={t.id} className="border-b hover:bg-gray-50">
-                                        <td className="px-2 py-1.5 font-mono text-gray-500">{t.numero_tarea}</td>
-                                        <td className="px-2 py-1.5 text-gray-500 text-xs">
-                                          {(esBachillerato ? t.proyecto : t.leccion) ?? '—'}
-                                        </td>
-                                        <td className="px-2 py-1.5 font-mono text-gray-500">{t.paginas ?? '—'}</td>
-                                        <td className="px-2 py-1.5 font-semibold">{t.nombre}</td>
-                                        <td className="px-2 py-1.5 text-center font-bold text-blue-600">{t.puntos_max}</td>
-                                        <td className="px-2 py-1.5">
-                                          <div className="flex gap-1 justify-center">
-                                            <button className="btn btn-p btn-sm" onClick={() => abrirEditarTarea(t)} title="Editar">✏️</button>
-                                            <button className="btn btn-d btn-sm" onClick={() => eliminarTarea(t.id, 'tarea')} title="Eliminar">🗑️</button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          )}
-
-                          {examenArea && (
-                            <div className="mt-3 bg-purple-50 rounded-lg px-3 py-2 flex items-center justify-between">
-                              <div className="text-sm">
-                                <span className="font-bold text-purple-700">📝 Examen:</span>
-                                <span className="ml-2">{examenArea.nombre}</span>
-                                <span className="ml-2 text-xs text-gray-400">— 20 puntos</span>
-                              </div>
-                              <button className="btn btn-d btn-sm text-xs"
-                                onClick={() => eliminarTarea(examenArea.id, 'examen')}>🗑️</button>
-                            </div>
-                          )}
+                    return (
+                      <div key={area.id} className="card">
+                        <div className="font-extrabold text-gray-700 text-sm mb-3 flex items-center justify-between">
+                          <span>📌 {area.nombre}</span>
+                          <span className="text-xs font-normal text-gray-400">
+                            {tareasArea.length} tareas · zona máx {ptsMax} pts
+                          </span>
                         </div>
-                      )
-                    })}
-                  </div>
-                )}
+
+                        {tareasArea.length > 0 && (
+                          <div className="overflow-x-auto mb-3">
+                            <table className="w-full text-xs border-collapse min-w-[560px]">
+                              <thead>
+                                <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide text-left">
+                                  <th className="px-2 py-1.5 w-8">#</th>
+                                  <th className="px-2 py-1.5 w-20">{labelProy}</th>
+                                  <th className="px-2 py-1.5 w-12">Pág.</th>
+                                  <th className="px-2 py-1.5">Descripción de la tarea</th>
+                                  <th className="px-2 py-1.5 text-center w-12">Pts</th>
+                                  <th className="px-2 py-1.5 text-center w-16">Acciones</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {tareasArea.map((t: any, idx: number) => (
+                                  <tr key={t.id}
+                                    className={`border-b hover:bg-blue-50/30 ${idx%2===0?'bg-white':'bg-gray-50/50'}`}>
+                                    <td className="px-2 py-1.5 font-mono text-gray-400 font-bold">{t.numero_tarea}</td>
+                                    <td className="px-2 py-1.5 text-gray-400 truncate max-w-[80px]">
+                                      {t[campoProy] ?? '—'}
+                                    </td>
+                                    <td className="px-2 py-1.5 font-mono text-gray-400">{t.paginas ?? '—'}</td>
+                                    <td className="px-2 py-1.5 text-gray-700">{t.nombre}</td>
+                                    <td className="px-2 py-1.5 text-center font-bold text-blue-600">{t.puntos_max}</td>
+                                    <td className="px-2 py-1.5 text-center">
+                                      <div className="flex gap-1 justify-center">
+                                        <button onClick={() => abrirEditar(t)}
+                                          className="text-blue-500 hover:text-blue-700 px-1" title="Editar">✏️</button>
+                                        <button onClick={() => eliminarTarea(t.id)}
+                                          className="text-red-400 hover:text-red-600 px-1" title="Eliminar">🗑</button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        {examenArea && (
+                          <div className="bg-purple-50 border border-purple-100 rounded-xl px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
+                            <div>
+                              <div className="text-sm font-bold text-purple-700">📝 {examenArea.nombre}</div>
+                              <div className="text-xs text-gray-400">Examen · máx. {examenArea.puntos_max} pts (/100 → /{examenArea.puntos_max})</div>
+                            </div>
+                            <span className="text-xs text-purple-500 bg-purple-100 px-2 py-0.5 rounded-full font-bold">
+                              Examen de área
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {/* Modal agregar/editar tarea */}
+      {/* ── Modal agregar/editar tarea ─────────────────── */}
       {modalTarea && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm overflow-y-auto">
-          <div className="min-h-full flex items-start justify-center p-4 pt-16">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-              <div className="flex items-center justify-between px-6 py-4 border-b">
-                <h3 className="text-base font-extrabold">
-                  {editTarea ? '✏️ Editar tarea' : '＋ Agregar tarea'}
-                </h3>
-                <button onClick={() => setModalTarea(false)}
-                  className="w-8 h-8 flex items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 text-xl">×</button>
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold">{editTarea ? '✏️ Editar tarea' : '➕ Agregar tarea'}</h3>
+              <button onClick={() => setModalTarea(false)}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+            <div className="px-6 py-4 space-y-3">
+              <div className="grid grid-cols-3 gap-3">
+                <div className="fg"><label className="lbl">No. Tarea *</label>
+                  <input type="number" className="inp" min="1"
+                    value={formTarea.numero_tarea}
+                    onChange={e => setFormTarea(f => ({ ...f, numero_tarea: e.target.value }))} /></div>
+                <div className="fg"><label className="lbl">Página</label>
+                  <input className="inp font-mono" placeholder="ej. 45"
+                    value={formTarea.paginas}
+                    onChange={e => setFormTarea(f => ({ ...f, paginas: e.target.value }))} /></div>
+                <div className="fg"><label className="lbl">Pts. máx</label>
+                  <input type="number" className="inp" min="1" max="10" step="0.5"
+                    value={formTarea.puntos_max}
+                    onChange={e => setFormTarea(f => ({ ...f, puntos_max: e.target.value }))} /></div>
               </div>
-              <div className="px-6 py-5 space-y-3">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="fg">
-                    <label className="lbl">N° de tarea</label>
-                    <input type="number" className="inp font-mono" value={formTarea.numero_tarea}
-                      onChange={FT('numero_tarea')} min="1" />
-                  </div>
-                  <div className="fg">
-                    <label className="lbl">Página del libro</label>
-                    <input className="inp font-mono" value={formTarea.paginas}
-                      onChange={FT('paginas')} placeholder="Ej: 19 ó 35-40" />
-                  </div>
-                </div>
-
-                {/* Campo Proyecto o Lección según nivel */}
-                <div className="fg">
-                  <label className="lbl">{campoProyecto}</label>
-                  {esBachillerato ? (
-                    <input className="inp" value={formTarea.proyecto} onChange={FT('proyecto')}
-                      placeholder="Ej: Cuidado del Medio Ambiente Proyecto" />
-                  ) : (
-                    <input className="inp" value={formTarea.leccion} onChange={FT('leccion')}
-                      placeholder="Ej: Lección 3, Unidad 1" />
-                  )}
-                </div>
-
-                <div className="fg">
-                  <label className="lbl">Descripción de la actividad *</label>
-                  <textarea className="inp" rows={3} value={formTarea.nombre} onChange={FT('nombre')}
-                    placeholder="Ej: Expreso en forma algebraica los siguientes casos usando variables" />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="fg">
-                    <label className="lbl">Área *</label>
-                    <select className="inp" value={formTarea.area_id} onChange={FT('area_id')}>
-                      <option value="">— Seleccionar —</option>
-                      {areasDisponibles.map((a: any) => (
-                        <option key={a.id} value={a.id}>{a.nombre}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="fg">
-                    <label className="lbl">Puntos máx. (sobre 5)</label>
-                    <input type="number" className="inp" value={formTarea.puntos_max}
-                      onChange={FT('puntos_max')} min="0.5" max="5" step="0.5" />
-                  </div>
-                </div>
+              <div className="fg"><label className="lbl">Área *</label>
+                <select className="inp" value={formTarea.area_id}
+                  onChange={e => setFormTarea(f => ({ ...f, area_id: e.target.value }))}>
+                  <option value="">— Seleccionar —</option>
+                  {areas.map((a: any) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                </select>
               </div>
-              <div className="flex justify-end gap-3 px-6 py-4 border-t bg-gray-50 rounded-b-2xl">
-                <button className="btn btn-g" onClick={() => setModalTarea(false)}>Cancelar</button>
-                <button className="btn btn-p" onClick={guardarTarea} disabled={saving}>
-                  {saving
-                    ? <span className="flex items-center gap-2">
-                        <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                        Guardando...
-                      </span>
-                    : editTarea ? '💾 Actualizar' : '✅ Agregar tarea'}
-                </button>
-              </div>
+              <div className="fg"><label className="lbl">{labelProy}</label>
+                <input className="inp"
+                  value={esBach ? formTarea.proyecto : formTarea.leccion}
+                  onChange={e => setFormTarea(f => esBach
+                    ? { ...f, proyecto: e.target.value }
+                    : { ...f, leccion:  e.target.value }
+                  )} /></div>
+              <div className="fg"><label className="lbl">Descripción / Nombre de la tarea *</label>
+                <textarea className="inp" rows={3} placeholder="Descripción de la actividad..."
+                  value={formTarea.nombre}
+                  onChange={e => setFormTarea(f => ({ ...f, nombre: e.target.value }))} /></div>
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+              <button className="btn btn-g" onClick={() => setModalTarea(false)}>Cancelar</button>
+              <button className="btn btn-p" onClick={guardarTarea} disabled={saving}>
+                {saving ? '⏳ Guardando...' : '✅ Guardar'}
+              </button>
             </div>
           </div>
         </div>
       )}
     </div>
-  )
-}
-
-export default function TecnicoEscalasPage() {
-  return (
-    <Suspense fallback={
-      <div className="ap">
-        <header className="topbar"><div className="page-title">📊 Escalas Numéricas</div></header>
-        <div className="pc flex justify-center py-16">
-          <div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
-        </div>
-      </div>
-    }>
-      <EscalasContent />
-    </Suspense>
   )
 }
