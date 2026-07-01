@@ -46,18 +46,20 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
 
   tecnico: [
     { section: 'Principal', items: [
-      { href: '/dashboard/tecnico',             icon: '📊', label: 'Mi Dashboard'   },
-      { href: '/dashboard/tecnico/estudiantes', icon: '🎓', label: 'Mis Estudiantes'},
-      { href: '/dashboard/tecnico/inscribir',   icon: '➕', label: 'Inscribir'      },
+      { href: '/dashboard/tecnico',             icon: '📊', label: 'Mi Dashboard'    },
+      { href: '/dashboard/tecnico/estudiantes', icon: '🎓', label: 'Mis Estudiantes' },
+      { href: '/dashboard/tecnico/inscribir',   icon: '➕', label: 'Inscribir'       },
     ]},
     { section: 'Notas y Escalas', items: [
       { href: '/dashboard/tecnico/notas',   icon: '📝', label: 'Registrar Notas'   },
       { href: '/dashboard/tecnico/escalas', icon: '📊', label: 'Escalas Numéricas' },
     ]},
     { section: 'Gestión', items: [
-      { href: '/dashboard/tecnico/sireex',  icon: '📤', label: 'Grupos SIREEX' },
-      { href: '/dashboard/tecnico/ajustes', icon: '♿', label: 'Adecuaciones'   },
-      { href: '/dashboard/tecnico/dua',     icon: '📐', label: 'Planif. DUA'    },
+      { href: '/dashboard/tecnico/sedes-enlaces', icon: '🏢', label: 'Mis Sedes y Enlaces' },
+      { href: '/dashboard/tecnico/sireex',        icon: '📤', label: 'Grupos SIREEX'       },
+      { href: '/dashboard/tecnico/ajustes',       icon: '♿', label: 'Adecuaciones'         },
+      { href: '/dashboard/tecnico/dua',           icon: '📐', label: 'Planif. DUA'          },
+      { href: '/dashboard/tecnico/sesiones',      icon: '🗓️', label: 'Sesiones'             },
     ]},
     { section: 'Recursos', items: [
       { href: '/dashboard/tecnico/recursos', icon: '🎬', label: 'Recursos Apoyo' },
@@ -66,12 +68,12 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
 
   director: [
     { section: 'Mi Sede', items: [
-      { href: '/dashboard/director',             icon: '📊', label: 'Resumen'            },
-      { href: '/dashboard/director/tecnicos',    icon: '👨‍🏫', label: 'Técnicos y Enlaces' },
-      { href: '/dashboard/director/estudiantes', icon: '🎓', label: 'Estudiantes'         },
+      { href: '/dashboard/director',             icon: '📊', label: 'Resumen'             },
+      { href: '/dashboard/director/tecnicos',    icon: '👨‍🏫', label: 'Técnicos y Enlaces'  },
+      { href: '/dashboard/director/estudiantes', icon: '🎓', label: 'Estudiantes'          },
     ]},
-    { section: 'Escalas', items: [
-      { href: '/dashboard/director/escalas', icon: '📊', label: 'Asignar Escalas' },
+    { section: 'Escalas y Notas', items: [
+      { href: '/dashboard/director/escalas', icon: '📊', label: 'Escalas Numéricas' },
     ]},
     { section: 'SIREEX', items: [
       { href: '/dashboard/director/sireex', icon: '📤', label: 'Grupos SIREEX' },
@@ -82,9 +84,12 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
   ],
 
   coordinador_digeex: [
-    { section: 'SIREEX', items: [
-      { href: '/dashboard/coordinador',          icon: '✅', label: 'Validación' },
-      { href: '/dashboard/coordinador/grupos',   icon: '📤', label: 'Grupos'    },
+    { section: 'Principal', items: [
+      { href: '/dashboard/coordinador',        icon: '📊', label: 'Dashboard'   },
+      { href: '/dashboard/coordinador/grupos', icon: '📤', label: 'Grupos SIREEX' },
+    ]},
+    { section: 'Exportar', items: [
+      { href: '/dashboard/coordinador/exportar', icon: '📥', label: 'Exportar datos' },
     ]},
   ],
 
@@ -93,7 +98,13 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
       { href: '/dashboard/enlace',             icon: '📊', label: 'Resumen'     },
       { href: '/dashboard/enlace/estudiantes', icon: '🎓', label: 'Estudiantes' },
       { href: '/dashboard/enlace/inscribir',   icon: '➕', label: 'Inscribir'   },
-      { href: '/dashboard/enlace/notas',       icon: '📝', label: 'Notas'       },
+    ]},
+    { section: 'Notas y Escalas', items: [
+      { href: '/dashboard/enlace/notas',   icon: '📝', label: 'Notas'             },
+      { href: '/dashboard/enlace/escalas', icon: '📊', label: 'Escalas Numéricas' },
+    ]},
+    { section: 'Recursos', items: [
+      { href: '/dashboard/enlace/recursos', icon: '🎬', label: 'Recursos Apoyo' },
     ]},
   ],
 
