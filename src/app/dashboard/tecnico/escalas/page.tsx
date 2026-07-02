@@ -1,71 +1,72 @@
 'use client'
 // src/app/dashboard/tecnico/escalas/page.tsx
-// CORREGIDO: carga libros y tareas DIRECTAMENTE desde libros+tareas_catalogo
-// ya NO depende de escala_asignaciones para mostrar el catálogo
-import { useState, useEffect, useCallback } from 'react'
+// FLUJO: Etapa → Libro → Estudiante → Tabla de tareas con campo de nota
+import { useState, useEffect, useCallback, Suspense } from 'react'
 
-export default function TecnicoEscalasPage() {
-  // Navegación
+function EscalasContent() {
+  // Catálogo
   const [etapas,     setEtapas]     = useState<any[]>([])
   const [etapaSel,   setEtapaSel]   = useState<any>(null)
   const [libros,     setLibros]     = useState<any[]>([])
   const [libroSel,   setLibroSel]   = useState<any>(null)
-  const [areas,      setAreas]      = useState<any[]>([])
-  const [areaSel,    setAreaSel]    = useState('')
-
-  // Datos
   const [tareas,     setTareas]     = useState<any[]>([])
   const [examenes,   setExamenes]   = useState<any[]>([])
+  const [areas,      setAreas]      = useState<any[]>([])
+  const [areaSel,    setAreaSel]    = useState('')
   const [loadLib,    setLoadLib]    = useState(false)
   const [loadTareas, setLoadTareas] = useState(false)
   const [loading,    setLoading]    = useState(true)
 
-  // Modal tarea
-  const [modalTarea, setModalTarea] = useState(false)
-  const [editTarea,  setEditTarea]  = useState<any>(null)
-  const [formTarea,  setFormTarea]  = useState({
-    numero_tarea:'', nombre:'', paginas:'', puntos_max:'5',
-    area_id:'', proyecto:'', leccion:'',
-  })
-  const [saving,  setSaving]  = useState(false)
-  const [msg,     setMsg]     = useState('')
+  // Estudiantes
+  const [inscripciones, setInscripciones] = useState<any[]>([])
+  const [loadInsc,      setLoadInsc]      = useState(false)
+  const [buscarEst,     setBuscarEst]     = useState('')
+  const [inscSel,       setInscSel]       = useState<any>(null)
 
-  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500) }
+  // Notas
+  const [notasMap, setNotasMap] = useState<Record<string, number | null>>({})
+  const [saving,   setSaving]   = useState<string | null>(null)
+  const [msg,      setMsg]      = useState('')
 
-  // Cargar etapas y áreas al inicio
+  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
+
   useEffect(() => {
     Promise.all([
       fetch('/api/etapas').then(r => r.json()).catch(() => []),
       fetch('/api/areas').then(r => r.json()).catch(() => []),
     ]).then(([et, ar]) => {
       setEtapas(Array.isArray(et) ? et : [])
-      setAreas(Array.isArray(ar) ? ar : [])
+      setAreas(Array.isArray(ar)  ? ar  : [])
       setLoading(false)
     })
   }, [])
 
-  // Cargar libros cuando cambia etapa
+  // Etapa → libros + inscripciones
   const seleccionarEtapa = async (etapa: any) => {
     setEtapaSel(etapa)
-    setLibroSel(null)
-    setLibros([])
-    setTareas([])
-    setExamenes([])
-    setAreaSel('')
+    setLibroSel(null); setLibros([])
+    setTareas([]); setExamenes([])
+    setInscSel(null); setInscripciones([])
+    setNotasMap({}); setAreaSel('')
     if (!etapa) return
     setLoadLib(true)
-    const d = await fetch(`/api/libros?etapa_id=${etapa.id}`)
-      .then(r => r.json()).catch(() => [])
-    setLibros(Array.isArray(d) ? d : [])
+    setLoadInsc(true)
+    const [lb, ins] = await Promise.all([
+      fetch(`/api/libros?etapa_id=${etapa.id}`).then(r => r.json()).catch(() => []),
+      fetch(`/api/inscripciones?etapa_id=${etapa.id}&estado=en_curso&ciclo=2026`)
+        .then(r => r.json()).catch(() => ({ data: [] })),
+    ])
+    setLibros(Array.isArray(lb) ? lb : [])
+    setInscripciones(ins.data ?? [])
     setLoadLib(false)
+    setLoadInsc(false)
   }
 
-  // Cargar tareas cuando cambia libro
+  // Libro → tareas
   const seleccionarLibro = useCallback(async (libro: any) => {
     setLibroSel(libro)
-    setTareas([])
-    setExamenes([])
-    setAreaSel('')
+    setTareas([]); setExamenes([])
+    setNotasMap({}); setAreaSel('')
     if (!libro) return
     setLoadTareas(true)
     const d = await fetch(`/api/tareas-catalogo?libro_id=${libro.id}&tipo=ambos`)
@@ -75,134 +76,145 @@ export default function TecnicoEscalasPage() {
     setLoadTareas(false)
   }, [])
 
-  // Áreas que tienen tareas en este libro
+  // Cuando cambia el libro y hay estudiante → recargar notas
+  useEffect(() => {
+    if (!libroSel || !inscSel) return
+    cargarNotas(inscSel, libroSel)
+  }, [libroSel])
+
+  // Estudiante → cargar notas
+  const seleccionarEstudiante = async (insc: any) => {
+    setInscSel(insc)
+    setNotasMap({})
+    if (!libroSel) return
+    await cargarNotas(insc, libroSel)
+  }
+
+  const cargarNotas = async (insc: any, libro: any) => {
+    const [nt, ne] = await Promise.all([
+      fetch(`/api/notas?inscripcion_id=${insc.id}&libro_id=${libro.id}&tipo=tareas`)
+        .then(r => r.json()).catch(() => ({ tareas: [] })),
+      fetch(`/api/notas?inscripcion_id=${insc.id}&libro_id=${libro.id}&tipo=examenes`)
+        .then(r => r.json()).catch(() => ({ examenes: [] })),
+    ])
+    const mapa: Record<string, number | null> = {}
+    for (const n of (nt.tareas   ?? [])) mapa[`t-${n.tarea_id}`]  = n.nota
+    for (const n of (ne.examenes ?? [])) mapa[`e-${n.examen_id}`] = n.nota_original
+    setNotasMap(mapa)
+  }
+
+  // Guardar nota
+  const guardarNota = async (tipo: 'tarea' | 'examen', itemId: string, nota: number | null) => {
+    if (nota === null || nota === undefined) return
+    if (!inscSel?.id) { flash('❌ Selecciona un estudiante primero'); return }
+    if (tipo === 'tarea'  && (nota < 0 || nota > 5))   { flash('❌ Nota de tarea: 0 a 5');   return }
+    if (tipo === 'examen' && (nota < 0 || nota > 100)) { flash('❌ Nota de examen: 0 a 100'); return }
+
+    const key = tipo === 'tarea' ? `t-${itemId}` : `e-${itemId}`
+    setSaving(key)
+
+    const body = tipo === 'tarea'
+      ? { inscripcion_id: inscSel.id, tarea_id: itemId, nota, tipo: 'tarea' }
+      : { inscripcion_id: inscSel.id, examen_id: itemId, nota_original: nota, tipo: 'examen' }
+
+    const res = await fetch('/api/notas', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    const d = await res.json()
+    if (res.ok) {
+      setNotasMap(prev => ({ ...prev, [key]: nota }))
+      flash('✅ Nota guardada')
+    } else {
+      flash('❌ ' + (d.error ?? 'Error'))
+    }
+    setSaving(null)
+  }
+
+  // Helpers
+  const esBach      = etapaSel?.codigo?.startsWith('BA') ?? false
+  const campoProy   = esBach ? 'proyecto' : 'leccion'
+  const labelProy   = esBach ? 'Proyecto' : 'Lección'
+  const versiones   = [...new Set(libros.map((l: any) => l.version))]
+  const librosPorVer= (v: string) =>
+    libros.filter((l: any) => l.version === v).sort((a: any, b: any) => a.numero - b.numero)
+
   const areasConTareas = areas.filter(a =>
     tareas.some((t: any) => t.area?.id === a.id) ||
     examenes.some((e: any) => e.area?.id === a.id)
   )
 
-  // Versiones de libros disponibles
-  const versiones = [...new Set(libros.map((l: any) => l.version))]
-  const librosPorVersion = (v: string) =>
-    libros.filter((l: any) => l.version === v).sort((a: any, b: any) => a.numero - b.numero)
-
-  // Tareas filtradas por área
-  const tareasVista  = areaSel ? tareas.filter((t: any)  => String(t.area?.id)  === areaSel) : tareas
-  const examenesVista= areaSel ? examenes.filter((e: any) => String(e.area?.id) === areaSel) : examenes
-
-  // Determinar si bachillerato
-  const esBach    = etapaSel?.codigo?.startsWith('BA') ?? false
-  const campoProy = esBach ? 'proyecto' : 'leccion'
-  const labelProy = esBach ? 'Proyecto' : 'Lección'
-
-  const abrirAgregar = () => {
-    const siguiente = tareas.length > 0
-      ? Math.max(...tareas.map((t: any) => t.numero_tarea ?? 0)) + 1
-      : 1
-    setFormTarea({
-      numero_tarea: String(siguiente), nombre:'', paginas:'', puntos_max:'5',
-      area_id: areaSel || (areasConTareas[0]?.id ? String(areasConTareas[0].id) : ''),
-      proyecto:'', leccion:'',
+  const tareasVista   = (areaSel
+    ? tareas.filter((t: any)   => String(t.area?.id) === areaSel)
+    : tareas).sort((a: any, b: any) => {
+      const aA = a.area?.nombre ?? ''; const aB = b.area?.nombre ?? ''
+      return aA !== aB ? aA.localeCompare(aB) : a.numero_tarea - b.numero_tarea
     })
-    setEditTarea(null)
-    setModalTarea(true)
-  }
+  const examenesVista = areaSel
+    ? examenes.filter((e: any) => String(e.area?.id) === areaSel)
+    : examenes
 
-  const abrirEditar = (t: any) => {
-    setFormTarea({
-      numero_tarea: String(t.numero_tarea),
-      nombre:       t.nombre,
-      paginas:      t.paginas   ?? '',
-      puntos_max:   String(t.puntos_max ?? 5),
-      area_id:      String(t.area?.id   ?? ''),
-      proyecto:     t.proyecto  ?? '',
-      leccion:      t.leccion   ?? '',
-    })
-    setEditTarea(t)
-    setModalTarea(true)
-  }
+  const inscFiltradas = inscripciones.filter(i => {
+    if (!buscarEst.trim()) return true
+    const est = i.estudiante as any
+    return `${est?.primer_nombre} ${est?.primer_apellido} ${est?.segundo_apellido} ${est?.codigo_estudiante} ${est?.cui}`
+      .toLowerCase().includes(buscarEst.toLowerCase())
+  })
 
-  const guardarTarea = async () => {
-    if (!formTarea.nombre.trim()) { flash('❌ Nombre requerido'); return }
-    if (!formTarea.area_id)       { flash('❌ Área requerida');   return }
-    if (!libroSel?.id)            { flash('❌ Selecciona un libro'); return }
-    setSaving(true)
-    const body = {
-      libro_id:     libroSel.id,
-      area_id:      parseInt(formTarea.area_id),
-      numero_tarea: parseInt(formTarea.numero_tarea),
-      nombre:       formTarea.nombre.trim(),
-      paginas:      formTarea.paginas || null,
-      puntos_max:   parseFloat(formTarea.puntos_max) || 5,
-      proyecto:     formTarea.proyecto || null,
-      leccion:      formTarea.leccion  || null,
-    }
-    const url    = editTarea ? `/api/tareas-catalogo?id=${editTarea.id}` : '/api/tareas-catalogo'
-    const method = editTarea ? 'PATCH' : 'POST'
-    const res = await fetch(url, {
-      method, headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    })
-    const d = await res.json()
-    if (res.ok) {
-      flash(editTarea ? '✅ Tarea actualizada' : '✅ Tarea agregada')
-      setModalTarea(false)
-      seleccionarLibro(libroSel)
-    } else {
-      flash('❌ ' + (d.error ?? 'Error'))
-    }
-    setSaving(false)
-  }
+  // Stats del estudiante
+  const tareasConNota  = tareas.filter((t: any) => notasMap[`t-${t.id}`] != null).length
+  const puntosObtenidos= tareas.reduce((s: number, t: any) => s + (Number(notasMap[`t-${t.id}`] ?? 0)), 0)
+  const puntosMaximos  = tareas.reduce((s: number, t: any) => s + (t.puntos_max ?? 5), 0)
+  const zona           = tareasConNota > 0 && puntosMaximos > 0
+    ? Math.round((puntosObtenidos / puntosMaximos) * 30 * 100) / 100 : null
 
-  const eliminarTarea = async (id: string) => {
-    if (!confirm('¿Eliminar esta tarea del catálogo?')) return
-    const res = await fetch(`/api/tareas-catalogo?id=${id}`, { method: 'DELETE' })
-    if (res.ok) { flash('✅ Tarea eliminada'); seleccionarLibro(libroSel) }
-    else flash('❌ Error al eliminar')
+  const colorNota = (nota: number | null, max: number) => {
+    if (nota == null) return ''
+    if (nota >= max)        return 'border-green-400 bg-green-50 text-green-700'
+    if (nota >= max * 0.6)  return 'border-blue-300 bg-blue-50 text-blue-700'
+    if (nota > 0)           return 'border-yellow-300 bg-yellow-50 text-yellow-700'
+    return 'border-red-300 bg-red-50 text-red-600'
   }
 
   return (
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">📊 Escalas Numéricas — Catálogo de Tareas</div>
+          <div className="page-title">📊 Escalas Numéricas — Registro de Notas</div>
           <div className="text-xs text-gray-400">
-            Consulta y administra el catálogo de tareas por etapa y libro
+            Etapa → Libro → Estudiante → Ingresa notas en la tabla
           </div>
         </div>
-        {libroSel && (
-          <button className="btn btn-p text-sm" onClick={abrirAgregar}>
-            ＋ Agregar tarea
-          </button>
+        {msg && (
+          <span className={`text-xs font-bold px-3 py-1 rounded-full ${
+            msg.startsWith('✅') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'
+          }`}>{msg}</span>
         )}
       </header>
 
       <div className="pc">
-        {msg && (
-          <div className={`alert mb-3 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>
-        )}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+          {/* ── PANEL IZQUIERDO ─────────────────────── */}
+          <div className="lg:col-span-3 space-y-3">
 
-          {/* ── PANEL IZQUIERDO ────────────────────────────── */}
-          <div className="lg:col-span-1 space-y-3">
-
-            {/* Selector de etapa */}
+            {/* 1. Etapa */}
             <div className="card">
-              <div className="card-title text-sm mb-2">📚 Etapa</div>
+              <div className="card-title text-xs mb-2 text-blue-600 uppercase tracking-wide">
+                1️⃣ Etapa
+              </div>
               {loading ? (
-                <div className="flex justify-center py-4">
+                <div className="flex justify-center py-3">
                   <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : (
                 <div className="space-y-1">
                   {etapas.map((et: any) => (
-                    <button key={et.id}
-                      onClick={() => seleccionarEtapa(et)}
-                      className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all ${
+                    <button key={et.id} onClick={() => seleccionarEtapa(et)}
+                      className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs font-semibold transition-all ${
                         etapaSel?.id === et.id
-                          ? 'border-blue-500 bg-blue-50 font-bold'
-                          : 'border-gray-100 hover:border-blue-200 hover:bg-blue-50/30'
+                          ? 'border-blue-500 bg-blue-50 text-blue-700'
+                          : 'border-gray-100 hover:border-blue-200 hover:bg-blue-50/30 text-gray-600'
                       }`}>
                       {et.nombre}
                     </button>
@@ -211,254 +223,428 @@ export default function TecnicoEscalasPage() {
               )}
             </div>
 
-            {/* Selector de libro */}
+            {/* 2. Libro */}
             {etapaSel && (
               <div className="card">
-                <div className="card-title text-sm mb-2">📖 Libro</div>
+                <div className="card-title text-xs mb-2 text-blue-600 uppercase tracking-wide">
+                  2️⃣ Libro
+                </div>
                 {loadLib ? (
                   <div className="flex justify-center py-3">
                     <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : libros.length === 0 ? (
-                  <div className="text-xs text-orange-500 text-center py-3">
-                    ⚠️ Sin libros para esta etapa
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {versiones.map(ver => (
-                      <div key={ver}>
-                        <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">
-                          {ver === 'nuevo' ? '📗 Libro Nuevo' : '📙 Libro Viejo'}
-                        </div>
-                        {librosPorVersion(ver).map((l: any) => (
-                          <button key={l.id}
-                            onClick={() => seleccionarLibro(l)}
-                            className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all mb-1 ${
-                              libroSel?.id === l.id
-                                ? 'border-blue-500 bg-blue-50 font-bold'
-                                : 'border-gray-100 hover:border-blue-200'
-                            }`}>
-                            Libro {l.numero} — {l.nombre}
-                          </button>
-                        ))}
-                      </div>
+                  <p className="text-xs text-orange-500 text-center py-2">⚠️ Sin libros</p>
+                ) : versiones.map(ver => (
+                  <div key={ver} className="mb-2">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">
+                      {ver === 'nuevo' ? '📗 Nuevo' : '📙 Viejo'}
+                    </p>
+                    {librosPorVer(ver).map((l: any) => (
+                      <button key={l.id} onClick={() => seleccionarLibro(l)}
+                        className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all mb-1 ${
+                          libroSel?.id === l.id
+                            ? 'border-blue-500 bg-blue-50 text-blue-700 font-bold'
+                            : 'border-gray-100 hover:border-blue-200 text-gray-600'
+                        }`}>
+                        <span className="font-semibold">Libro {l.numero}</span>
+                        <span className="text-gray-400 ml-1">— {l.nombre}</span>
+                      </button>
                     ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 3. Estudiante */}
+            {etapaSel && libroSel && (
+              <div className="card">
+                <div className="card-title text-xs mb-2 text-blue-600 uppercase tracking-wide">
+                  3️⃣ Estudiante
+                </div>
+                <input className="inp text-xs mb-2"
+                  placeholder="🔍 Nombre, código, CUI..."
+                  value={buscarEst}
+                  onChange={e => setBuscarEst(e.target.value)} />
+                {loadInsc ? (
+                  <div className="flex justify-center py-3">
+                    <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : inscFiltradas.length === 0 ? (
+                  <p className="text-xs text-gray-400 text-center py-2">
+                    {buscarEst ? 'Sin resultados' : 'Sin inscripciones activas'}
+                  </p>
+                ) : (
+                  <div className="space-y-1 max-h-72 overflow-y-auto">
+                    {inscFiltradas.map((i: any) => {
+                      const est = i.estudiante as any
+                      const sel = inscSel?.id === i.id
+                      return (
+                        <button key={i.id} onClick={() => seleccionarEstudiante(i)}
+                          className={`w-full text-left px-3 py-2 rounded-xl border-2 transition-all ${
+                            sel
+                              ? 'border-green-500 bg-green-50'
+                              : 'border-gray-100 hover:border-green-200 hover:bg-green-50/30'
+                          }`}>
+                          <div className={`text-xs font-bold truncate ${sel ? 'text-green-700' : 'text-gray-700'}`}>
+                            {sel && '✓ '}{est?.primer_apellido} {est?.primer_nombre}
+                          </div>
+                          <div className="text-xs text-gray-400 font-mono truncate">
+                            {est?.codigo_estudiante}
+                            {est?.cui && <span className="ml-1 text-gray-300">· {est.cui}</span>}
+                          </div>
+                          <div className="text-xs text-gray-400 truncate">
+                            🏫 {(i.sede as any)?.nombre ?? '—'}
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 )}
               </div>
             )}
 
-            {/* Filtro por área */}
-            {libroSel && areasConTareas.length > 0 && (
-              <div className="card">
-                <div className="card-title text-sm mb-2">📌 Área</div>
-                <button
-                  onClick={() => setAreaSel('')}
-                  className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs mb-1 transition-all ${
-                    !areaSel ? 'border-blue-500 bg-blue-50 font-bold' : 'border-gray-100 hover:border-blue-200'
-                  }`}>
-                  Todas las áreas
-                </button>
-                {areasConTareas.map((a: any) => (
-                  <button key={a.id}
-                    onClick={() => setAreaSel(String(a.id))}
-                    className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs mb-1 transition-all ${
-                      areaSel === String(a.id)
-                        ? 'border-blue-500 bg-blue-50 font-bold'
-                        : 'border-gray-100 hover:border-blue-200'
-                    }`}>
-                    {a.nombre}
-                  </button>
-                ))}
+            {/* Stats del estudiante */}
+            {inscSel && tareas.length > 0 && (
+              <div className="card bg-gradient-to-br from-blue-600 to-blue-700 text-white">
+                <div className="text-xs font-bold uppercase tracking-wide opacity-80 mb-2">
+                  Resumen actual
+                </div>
+                <div className="font-bold text-sm mb-3 truncate">
+                  {(inscSel.estudiante as any)?.primer_apellido},{' '}
+                  {(inscSel.estudiante as any)?.primer_nombre}
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-white/20 rounded-xl p-2 text-center">
+                    <div className="text-xl font-extrabold">{tareasConNota}/{tareas.length}</div>
+                    <div className="text-xs opacity-80">Tareas</div>
+                  </div>
+                  <div className="bg-white/20 rounded-xl p-2 text-center">
+                    <div className={`text-xl font-extrabold ${zona !== null && zona >= 18 ? 'text-green-300' : 'text-yellow-300'}`}>
+                      {zona !== null ? `${zona}` : '—'}
+                    </div>
+                    <div className="text-xs opacity-80">Zona /30</div>
+                  </div>
+                </div>
+                {zona !== null && (
+                  <div className="mt-2 bg-white/10 rounded-lg p-1.5">
+                    <div className="h-2 bg-white/20 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${zona >= 18 ? 'bg-green-400' : zona >= 12 ? 'bg-yellow-400' : 'bg-red-400'}`}
+                        style={{ width: `${Math.min((zona/30)*100, 100)}%` }}
+                      />
+                    </div>
+                    <div className="text-xs text-center mt-1 opacity-80">
+                      {zona >= 18 ? '✅ Aprobado' : zona >= 12 ? '⚠️ En riesgo' : '❌ Por debajo'}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* ── PANEL DERECHO — CATÁLOGO ─────────────────── */}
-          <div className="lg:col-span-3">
+          {/* ── PANEL DERECHO: TABLA DE TAREAS ─────── */}
+          <div className="lg:col-span-9">
             {!etapaSel ? (
-              <div className="card text-center py-16 text-gray-400">
-                <div className="text-5xl mb-3">📚</div>
-                <div className="font-semibold text-gray-600">Selecciona una etapa</div>
+              <div className="card text-center py-20 text-gray-400">
+                <div className="text-6xl mb-4">📚</div>
+                <div className="font-bold text-lg text-gray-500">Selecciona una etapa</div>
+                <div className="text-sm mt-1">para ver el catálogo de tareas</div>
               </div>
             ) : !libroSel ? (
-              <div className="card text-center py-16 text-gray-400">
-                <div className="text-5xl mb-3">📖</div>
-                <div className="font-semibold text-gray-600">Selecciona un libro</div>
+              <div className="card text-center py-20 text-gray-400">
+                <div className="text-6xl mb-4">📖</div>
+                <div className="font-bold text-lg text-gray-500">Selecciona un libro</div>
+                <div className="text-sm mt-1">Libro 1 y Libro 2 tienen tareas distintas</div>
               </div>
             ) : loadTareas ? (
-              <div className="card flex justify-center py-12">
-                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              <div className="card flex flex-col items-center justify-center py-20 text-gray-400">
+                <div className="w-10 h-10 border-2 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
+                <div className="text-sm">Cargando catálogo de tareas...</div>
               </div>
             ) : tareas.length === 0 && examenes.length === 0 ? (
-              <div className="card text-center py-12 text-gray-400">
-                <div className="text-4xl mb-3">📋</div>
-                <div className="font-semibold text-gray-600">Sin tareas en este libro</div>
-                <p className="text-xs mt-2 max-w-sm mx-auto text-gray-400">
-                  El catálogo de tareas para{' '}
-                  <b>{etapaSel.nombre} — Libro {libroSel.numero} ({libroSel.version})</b>{' '}
-                  está vacío.
-                </p>
-                <button className="btn btn-p mt-4" onClick={abrirAgregar}>
-                  ＋ Agregar primera tarea
-                </button>
+              <div className="card text-center py-16 text-gray-400">
+                <div className="text-5xl mb-3">📋</div>
+                <div className="font-bold text-gray-600">Sin tareas en este libro</div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="card overflow-hidden p-0">
 
-                {/* Encabezado del libro */}
-                <div className="card py-3 border-l-4 border-l-blue-500">
-                  <div className="flex items-center justify-between flex-wrap gap-2">
-                    <div>
-                      <div className="font-extrabold text-gray-800">
-                        {etapaSel.nombre} — Libro {libroSel.numero}
-                        <span className="ml-2 text-xs font-normal text-gray-400">
-                          ({libroSel.version === 'nuevo' ? '📗 Libro Nuevo' : '📙 Libro Viejo'})
-                        </span>
-                      </div>
-                      <div className="text-xs text-gray-400 mt-0.5">
-                        {tareasVista.length} tareas · {examenesVista.length} exámenes
-                        {areaSel && ' · Filtrado por área'}
-                      </div>
+                {/* Cabecera de tabla */}
+                <div className="px-4 py-3 bg-gradient-to-r from-blue-700 to-blue-800 text-white flex items-center justify-between flex-wrap gap-2">
+                  <div>
+                    <div className="font-extrabold">
+                      {etapaSel.nombre} — Libro {libroSel.numero}
+                      <span className="ml-2 text-xs font-normal text-blue-200">
+                        ({libroSel.version === 'nuevo' ? '📗 Nuevo' : '📙 Viejo'})
+                      </span>
                     </div>
-                    <button className="btn btn-p btn-sm" onClick={abrirAgregar}>
-                      ＋ Agregar tarea
-                    </button>
+                    {inscSel ? (
+                      <div className="text-xs text-green-300 font-semibold mt-0.5">
+                        ✅ {(inscSel.estudiante as any)?.primer_apellido},{' '}
+                        {(inscSel.estudiante as any)?.primer_nombre}
+                        {' '}· {(inscSel.estudiante as any)?.codigo_estudiante}
+                      </div>
+                    ) : (
+                      <div className="text-xs text-blue-200 mt-0.5">
+                        ← Selecciona un estudiante para registrar notas
+                      </div>
+                    )}
                   </div>
+                  {/* Filtro de área inline */}
+                  {areasConTareas.length > 1 && (
+                    <select
+                      className="inp text-xs w-44 bg-white/10 border-white/20 text-white"
+                      value={areaSel}
+                      onChange={e => setAreaSel(e.target.value)}>
+                      <option value="">Todas las áreas</option>
+                      {areasConTareas.map((a: any) => (
+                        <option key={a.id} value={a.id}>{a.nombre}</option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
-                {/* Bloques por área */}
-                {areasConTareas
-                  .filter(a => !areaSel || String(a.id) === areaSel)
-                  .map((area: any) => {
-                    const tareasArea = tareasVista
-                      .filter((t: any) => t.area?.id === area.id)
-                      .sort((a: any, b: any) => a.numero_tarea - b.numero_tarea)
-                    const examenArea = examenesVista.find((e: any) => e.area?.id === area.id)
-                    if (tareasArea.length === 0 && !examenArea) return null
-                    const ptsMax = tareasArea.reduce((s: number, t: any) => s + (t.puntos_max ?? 5), 0)
+                {/* Tabla */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs border-collapse" style={{ minWidth: 640 }}>
+                    <thead>
+                      <tr className="bg-gray-50 border-b-2 border-gray-200 text-gray-500 uppercase tracking-wide text-left">
+                        <th className="px-3 py-2.5 text-center w-12">No.</th>
+                        <th className="px-3 py-2.5">Descripción de la tarea</th>
+                        <th className="px-3 py-2.5 w-20 hidden sm:table-cell">{labelProy}</th>
+                        <th className="px-3 py-2.5 w-12 text-center">Pág.</th>
+                        <th className="px-3 py-2.5 w-32 hidden md:table-cell">Área</th>
+                        <th className="px-3 py-2.5 w-16 text-center">Pts<br/>máx</th>
+                        <th className={`px-3 py-2.5 w-28 text-center ${inscSel ? 'text-blue-600 font-extrabold' : ''}`}>
+                          {inscSel ? '✏️ Nota' : 'Nota'}
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tareasVista.map((t: any, idx: number) => {
+                        const key      = `t-${t.id}`
+                        const notaAct  = notasMap[key] ?? null
+                        const isSav    = saving === key
+                        const ptsMax   = t.puntos_max ?? 5
+                        const hasNota  = notaAct !== null
 
-                    return (
-                      <div key={area.id} className="card">
-                        <div className="font-extrabold text-gray-700 text-sm mb-3 flex items-center justify-between">
-                          <span>📌 {area.nombre}</span>
-                          <span className="text-xs font-normal text-gray-400">
-                            {tareasArea.length} tareas · zona máx {ptsMax} pts
-                          </span>
-                        </div>
+                        return (
+                          <tr key={t.id}
+                            className={`border-b transition-colors ${
+                              hasNota
+                                ? 'bg-green-50/50'
+                                : idx%2===0 ? 'bg-white' : 'bg-gray-50/30'
+                            } hover:bg-blue-50/30`}>
 
-                        {tareasArea.length > 0 && (
-                          <div className="overflow-x-auto mb-3">
-                            <table className="w-full text-xs border-collapse min-w-[560px]">
-                              <thead>
-                                <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide text-left">
-                                  <th className="px-2 py-1.5 w-8">#</th>
-                                  <th className="px-2 py-1.5 w-20">{labelProy}</th>
-                                  <th className="px-2 py-1.5 w-12">Pág.</th>
-                                  <th className="px-2 py-1.5">Descripción de la tarea</th>
-                                  <th className="px-2 py-1.5 text-center w-12">Pts</th>
-                                  <th className="px-2 py-1.5 text-center w-16">Acciones</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {tareasArea.map((t: any, idx: number) => (
-                                  <tr key={t.id}
-                                    className={`border-b hover:bg-blue-50/30 ${idx%2===0?'bg-white':'bg-gray-50/50'}`}>
-                                    <td className="px-2 py-1.5 font-mono text-gray-400 font-bold">{t.numero_tarea}</td>
-                                    <td className="px-2 py-1.5 text-gray-400 truncate max-w-[80px]">
-                                      {t[campoProy] ?? '—'}
-                                    </td>
-                                    <td className="px-2 py-1.5 font-mono text-gray-400">{t.paginas ?? '—'}</td>
-                                    <td className="px-2 py-1.5 text-gray-700">{t.nombre}</td>
-                                    <td className="px-2 py-1.5 text-center font-bold text-blue-600">{t.puntos_max}</td>
-                                    <td className="px-2 py-1.5 text-center">
-                                      <div className="flex gap-1 justify-center">
-                                        <button onClick={() => abrirEditar(t)}
-                                          className="text-blue-500 hover:text-blue-700 px-1" title="Editar">✏️</button>
-                                        <button onClick={() => eliminarTarea(t.id)}
-                                          className="text-red-400 hover:text-red-600 px-1" title="Eliminar">🗑</button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )}
+                            {/* Número */}
+                            <td className="px-3 py-2.5 text-center">
+                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-700 font-extrabold text-sm">
+                                {t.numero_tarea}
+                              </span>
+                            </td>
 
-                        {examenArea && (
-                          <div className="bg-purple-50 border border-purple-100 rounded-xl px-4 py-2.5 flex items-center justify-between flex-wrap gap-2">
-                            <div>
-                              <div className="text-sm font-bold text-purple-700">📝 {examenArea.nombre}</div>
-                              <div className="text-xs text-gray-400">Examen · máx. {examenArea.puntos_max} pts (/100 → /{examenArea.puntos_max})</div>
-                            </div>
-                            <span className="text-xs text-purple-500 bg-purple-100 px-2 py-0.5 rounded-full font-bold">
-                              Examen de área
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
+                            {/* Descripción */}
+                            <td className="px-3 py-2.5">
+                              <div className="font-semibold text-gray-800 leading-snug">{t.nombre}</div>
+                            </td>
+
+                            {/* Proyecto/Lección */}
+                            <td className="px-3 py-2.5 text-gray-400 truncate max-w-[80px] hidden sm:table-cell">
+                              {t[campoProy] ?? '—'}
+                            </td>
+
+                            {/* Página */}
+                            <td className="px-3 py-2.5 text-center font-mono text-gray-400">
+                              {t.paginas ?? '—'}
+                            </td>
+
+                            {/* Área */}
+                            <td className="px-3 py-2.5 hidden md:table-cell">
+                              <span className="inline-block bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs font-medium truncate max-w-[120px]">
+                                {t.area?.nombre ?? '—'}
+                              </span>
+                            </td>
+
+                            {/* Pts máx */}
+                            <td className="px-3 py-2.5 text-center">
+                              <span className="font-extrabold text-blue-600 text-sm">{ptsMax}</span>
+                            </td>
+
+                            {/* Campo nota */}
+                            <td className="px-3 py-2.5 text-center">
+                              {inscSel ? (
+                                <div className="flex items-center justify-center gap-1">
+                                  <input
+                                    type="number"
+                                    min={0} max={ptsMax} step={0.5}
+                                    defaultValue={notaAct ?? ''}
+                                    key={`nota-${t.id}-${notaAct}`}
+                                    onBlur={e => {
+                                      const v = e.target.value === '' ? null : parseFloat(e.target.value)
+                                      if (v !== notaAct) guardarNota('tarea', t.id, v)
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                    }}
+                                    disabled={isSav}
+                                    placeholder="—"
+                                    className={`w-16 text-center text-sm font-bold rounded-xl border-2 py-1.5 transition-all focus:outline-none focus:ring-2 focus:ring-blue-300 ${
+                                      hasNota
+                                        ? colorNota(notaAct, ptsMax)
+                                        : 'border-gray-200 bg-white text-gray-600 hover:border-blue-300'
+                                    }`}
+                                  />
+                                  <div className="w-5 flex-shrink-0 text-center">
+                                    {isSav ? (
+                                      <span className="inline-block w-3 h-3 border border-blue-500 border-t-transparent rounded-full animate-spin" />
+                                    ) : hasNota ? (
+                                      <span className="text-green-500 font-bold text-sm">✓</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-gray-200 text-lg">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+
+                      {/* Separador exámenes */}
+                      {examenesVista.length > 0 && (
+                        <tr className="bg-purple-100 border-y-2 border-purple-200">
+                          <td colSpan={7} className="px-4 py-2 text-xs font-extrabold text-purple-800 uppercase tracking-wide">
+                            📝 Exámenes de área — ingresar nota sobre 100
+                            <span className="font-normal text-purple-500 ml-2">(se convierte automáticamente a puntos)</span>
+                          </td>
+                        </tr>
+                      )}
+
+                      {/* Exámenes */}
+                      {examenesVista.map((ex: any, idx: number) => {
+                        const key      = `e-${ex.id}`
+                        const notaAct  = notasMap[key] ?? null
+                        const isSav    = saving === key
+                        const ptsConv  = notaAct != null
+                          ? Math.round((notaAct / 100) * ex.puntos_max * 10) / 10 : null
+
+                        return (
+                          <tr key={ex.id}
+                            className={`border-b transition-colors ${
+                              notaAct != null
+                                ? 'bg-purple-50/60'
+                                : idx%2===0 ? 'bg-white' : 'bg-gray-50/30'
+                            } hover:bg-purple-50/30`}>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-purple-100 text-purple-700 font-extrabold text-xs">
+                                EX
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="font-semibold text-gray-800">{ex.nombre}</div>
+                              {ptsConv !== null && (
+                                <div className="text-xs text-purple-600 mt-0.5 font-semibold">
+                                  = {ptsConv} / {ex.puntos_max} pts
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-300 hidden sm:table-cell">—</td>
+                            <td className="px-3 py-2.5 text-center text-gray-300">—</td>
+                            <td className="px-3 py-2.5 hidden md:table-cell">
+                              <span className="inline-block bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full text-xs font-medium">
+                                {ex.area?.nombre ?? '—'}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className="font-extrabold text-purple-600 text-sm">/100</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-center">
+                              {inscSel ? (
+                                <div className="flex items-center justify-center gap-1">
+                                  <input
+                                    type="number"
+                                    min={0} max={100} step={1}
+                                    defaultValue={notaAct ?? ''}
+                                    key={`exam-${ex.id}-${notaAct}`}
+                                    onBlur={e => {
+                                      const v = e.target.value === '' ? null : parseFloat(e.target.value)
+                                      if (v !== notaAct) guardarNota('examen', ex.id, v)
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+                                    }}
+                                    disabled={isSav}
+                                    placeholder="—"
+                                    className={`w-16 text-center text-sm font-bold rounded-xl border-2 py-1.5 transition-all focus:outline-none focus:ring-2 focus:ring-purple-300 ${
+                                      notaAct != null
+                                        ? 'border-purple-400 bg-purple-50 text-purple-700'
+                                        : 'border-gray-200 bg-white text-gray-600 hover:border-purple-300'
+                                    }`}
+                                  />
+                                  <div className="w-5 flex-shrink-0 text-center">
+                                    {isSav ? (
+                                      <span className="inline-block w-3 h-3 border border-purple-500 border-t-transparent rounded-full animate-spin" />
+                                    ) : notaAct != null ? (
+                                      <span className="text-purple-500 font-bold text-sm">✓</span>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-gray-200 text-lg">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pie de tabla */}
+                <div className="px-4 py-3 bg-gray-50 border-t flex items-center justify-between flex-wrap gap-2">
+                  <div className="text-xs text-gray-400">
+                    💡 Escribe la nota y presiona{' '}
+                    <kbd className="bg-gray-200 px-1.5 py-0.5 rounded text-xs font-mono">Enter</kbd>
+                    {' '}o haz clic fuera para guardar · Verde = nota guardada
+                  </div>
+                  {inscSel && (
+                    <div className="flex items-center gap-3 text-xs font-bold">
+                      <span className="text-gray-500">
+                        {tareasConNota}/{tareas.length} tareas completadas
+                      </span>
+                      <span className={`px-3 py-1 rounded-full ${
+                        zona === null ? 'bg-gray-100 text-gray-400'
+                        : zona >= 18 ? 'bg-green-100 text-green-700'
+                        : zona >= 12 ? 'bg-yellow-100 text-yellow-700'
+                        : 'bg-red-100 text-red-600'
+                      }`}>
+                        Zona: {zona !== null ? `${zona}/30` : '—'}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>
         </div>
       </div>
-
-      {/* ── Modal agregar/editar tarea ─────────────────── */}
-      {modalTarea && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
-            <div className="px-6 py-4 border-b flex justify-between items-center">
-              <h3 className="font-bold">{editTarea ? '✏️ Editar tarea' : '➕ Agregar tarea'}</h3>
-              <button onClick={() => setModalTarea(false)}
-                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
-            </div>
-            <div className="px-6 py-4 space-y-3">
-              <div className="grid grid-cols-3 gap-3">
-                <div className="fg"><label className="lbl">No. Tarea *</label>
-                  <input type="number" className="inp" min="1"
-                    value={formTarea.numero_tarea}
-                    onChange={e => setFormTarea(f => ({ ...f, numero_tarea: e.target.value }))} /></div>
-                <div className="fg"><label className="lbl">Página</label>
-                  <input className="inp font-mono" placeholder="ej. 45"
-                    value={formTarea.paginas}
-                    onChange={e => setFormTarea(f => ({ ...f, paginas: e.target.value }))} /></div>
-                <div className="fg"><label className="lbl">Pts. máx</label>
-                  <input type="number" className="inp" min="1" max="10" step="0.5"
-                    value={formTarea.puntos_max}
-                    onChange={e => setFormTarea(f => ({ ...f, puntos_max: e.target.value }))} /></div>
-              </div>
-              <div className="fg"><label className="lbl">Área *</label>
-                <select className="inp" value={formTarea.area_id}
-                  onChange={e => setFormTarea(f => ({ ...f, area_id: e.target.value }))}>
-                  <option value="">— Seleccionar —</option>
-                  {areas.map((a: any) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
-                </select>
-              </div>
-              <div className="fg"><label className="lbl">{labelProy}</label>
-                <input className="inp"
-                  value={esBach ? formTarea.proyecto : formTarea.leccion}
-                  onChange={e => setFormTarea(f => esBach
-                    ? { ...f, proyecto: e.target.value }
-                    : { ...f, leccion:  e.target.value }
-                  )} /></div>
-              <div className="fg"><label className="lbl">Descripción / Nombre de la tarea *</label>
-                <textarea className="inp" rows={3} placeholder="Descripción de la actividad..."
-                  value={formTarea.nombre}
-                  onChange={e => setFormTarea(f => ({ ...f, nombre: e.target.value }))} /></div>
-            </div>
-            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
-              <button className="btn btn-g" onClick={() => setModalTarea(false)}>Cancelar</button>
-              <button className="btn btn-p" onClick={guardarTarea} disabled={saving}>
-                {saving ? '⏳ Guardando...' : '✅ Guardar'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
+  )
+}
+
+export default function TecnicoEscalasPage() {
+  return (
+    <Suspense fallback={
+      <div className="ap">
+        <header className="topbar"><div className="page-title">📊 Escalas Numéricas</div></header>
+        <div className="pc flex justify-center py-16">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    }>
+      <EscalasContent />
+    </Suspense>
   )
 }
 
