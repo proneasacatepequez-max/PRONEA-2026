@@ -34,26 +34,23 @@ export async function GET(req: NextRequest) {
       .eq('estado', 'en_curso')
       .order('fecha_inscripcion', { ascending: false })
 
-    // ── FIX: filtros por rol usando sede_id directo (ya no institucion_id) ──
+    // ── Filtros por rol ────────────────────────────────────────────────────
     if (s.rol === 'tecnico') {
       const { data: tec } = await supabaseAdmin.from('tecnicos')
         .select('id').eq('usuario_id', s.sub).single()
       if (!tec) return err('Tu perfil de técnico no está configurado', 404)
 
-      const { data: enlacesVinc } = await supabaseAdmin
-        .from('tecnico_enlaces')
-        .select('enlace_id').eq('tecnico_id', tec.id).eq('activo', true)
+      // CORREGIDO: mismo filtro que /api/inscripciones — ver sedes asignadas
+      const { data: tecSedes } = await supabaseAdmin
+        .from('tecnico_sedes')
+        .select('sede_id')
+        .eq('tecnico_id', tec.id)
+        .eq('activo', true)
 
-      if (enlacesVinc && enlacesVinc.length > 0) {
-        const enlaceIds = enlacesVinc.map((e: any) => e.enlace_id)
-        const { data: enlacesInfo } = await supabaseAdmin
-          .from('enlaces_institucionales').select('usuario_id').in('id', enlaceIds)
-        const uids = (enlacesInfo ?? []).map((e: any) => e.usuario_id)
-        if (uids.length > 0) {
-          q = q.or(`tecnico_id.eq.${tec.id},creado_por.in.(${uids.join(',')})`)
-        } else {
-          q = q.eq('tecnico_id', tec.id)
-        }
+      const sedeIds = (tecSedes ?? []).map((ts: any) => ts.sede_id)
+
+      if (sedeIds.length > 0) {
+        q = q.or(`tecnico_id.eq.${tec.id},sede_id.in.(${sedeIds.join(',')})`)
       } else {
         q = q.eq('tecnico_id', tec.id)
       }
