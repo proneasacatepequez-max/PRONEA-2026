@@ -215,10 +215,6 @@ export default function InscribirEstudiantePage() {
       setSaving(false)
     }
   }
-    } finally {
-      setSaving(false)
-    }
-  }
 
   const resetTodo = () => {
     setModo('buscar'); setBuscarQ(''); setResultados([]); setEstudianteSel(null); setMsg('')
