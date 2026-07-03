@@ -24,20 +24,47 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Técnico no encontrado' }, { status: 404 })
     }
 
-    // Contar estudiantes activos del técnico
-    const { count: totalEstudiantes } = await supabaseAdmin
+    // CORREGIDO: obtener sedes del técnico para contar estudiantes correctamente
+    const { data: tecSedes } = await supabaseAdmin
+      .from('tecnico_sedes')
+      .select('sede_id')
+      .eq('tecnico_id', tecnico.id)
+      .eq('activo', true)
+
+    const sedeIds = (tecSedes ?? []).map((ts: any) => ts.sede_id)
+
+    // Contar estudiantes activos — por sedes asignadas O por tecnico_id directo
+    let qEstudiantes = supabaseAdmin
       .from('inscripciones')
       .select('*', { count: 'exact', head: true })
-      .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
 
+    if (sedeIds.length > 0) {
+      qEstudiantes = qEstudiantes.or(
+        `tecnico_id.eq.${tecnico.id},sede_id.in.(${sedeIds.join(',')})`
+      )
+    } else {
+      qEstudiantes = qEstudiantes.eq('tecnico_id', tecnico.id)
+    }
+
+    const { count: totalEstudiantes } = await qEstudiantes
+
     // Contar TODOS los estudiantes (cualquier estado) del ciclo
-    const { count: totalTodos } = await supabaseAdmin
+    let qTodos = supabaseAdmin
       .from('inscripciones')
       .select('*', { count: 'exact', head: true })
-      .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
+
+    if (sedeIds.length > 0) {
+      qTodos = qTodos.or(
+        `tecnico_id.eq.${tecnico.id},sede_id.in.(${sedeIds.join(',')})`
+      )
+    } else {
+      qTodos = qTodos.eq('tecnico_id', tecnico.id)
+    }
+
+    const { count: totalTodos } = await qTodos
 
     // Contar sedes del técnico
     const { count: totalSedes } = await supabaseAdmin
@@ -46,13 +73,23 @@ export async function GET(req: NextRequest) {
       .eq('tecnico_id', tecnico.id)
       .eq('activo', true)
 
-    // Contar enlaces del técnico
-    const { count: totalEnlaces } = await supabaseAdmin
-      .from('tecnico_enlaces')
-      .select('*', { count: 'exact', head: true })
-      .eq('tecnico_id', tecnico.id)
-      .eq('ciclo_escolar', ciclo)
-      .eq('activo', true)
+    // Contar enlaces — en tecnico_enlaces (por ciclo) + asignados directamente
+    const [{ count: enlacesPorCiclo }, { count: enlacesDirectos }] = await Promise.all([
+      supabaseAdmin
+        .from('tecnico_enlaces')
+        .select('*', { count: 'exact', head: true })
+        .eq('tecnico_id', tecnico.id)
+        .eq('ciclo_escolar', ciclo)
+        .eq('activo', true),
+      supabaseAdmin
+        .from('enlaces_institucionales')
+        .select('*', { count: 'exact', head: true })
+        .eq('tecnico_id', tecnico.id)
+        .eq('activo', true),
+    ])
+
+    // Usar el mayor de los dos conteos (evitar duplicados)
+    const totalEnlaces = Math.max(enlacesPorCiclo ?? 0, enlacesDirectos ?? 0)
 
     // Contar notas ingresadas por el técnico
     const { count: totalNotas } = await supabaseAdmin
@@ -67,13 +104,20 @@ export async function GET(req: NextRequest) {
       .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
 
-    // Distribución por etapa
-    const { data: porEtapaData } = await supabaseAdmin
+    // Distribución por etapa — usando mismo filtro (sedes asignadas)
+    let qEtapa = supabaseAdmin
       .from('inscripciones')
       .select('etapa:etapas(nombre)')
-      .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
+
+    if (sedeIds.length > 0) {
+      qEtapa = qEtapa.or(`tecnico_id.eq.${tecnico.id},sede_id.in.(${sedeIds.join(',')})`)
+    } else {
+      qEtapa = qEtapa.eq('tecnico_id', tecnico.id)
+    }
+
+    const { data: porEtapaData } = await qEtapa
 
     const porEtapa: Record<string, number> = {}
     ;(porEtapaData ?? []).forEach((i: any) => {
@@ -82,12 +126,19 @@ export async function GET(req: NextRequest) {
     })
 
     // Distribución por sede
-    const { data: porSedeData } = await supabaseAdmin
+    let qSede = supabaseAdmin
       .from('inscripciones')
       .select('sede:sedes(nombre)')
-      .eq('tecnico_id', tecnico.id)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
+
+    if (sedeIds.length > 0) {
+      qSede = qSede.or(`tecnico_id.eq.${tecnico.id},sede_id.in.(${sedeIds.join(',')})`)
+    } else {
+      qSede = qSede.eq('tecnico_id', tecnico.id)
+    }
+
+    const { data: porSedeData } = await qSede
 
     const porSede: Record<string, number> = {}
     ;(porSedeData ?? []).forEach((i: any) => {
