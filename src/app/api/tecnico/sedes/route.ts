@@ -65,8 +65,3 @@ export async function GET(req: NextRequest) {
 
   return ok(sedesConConteo)
 }
-    })
-  )
-
-  return ok(sedesConConteo)
-}
