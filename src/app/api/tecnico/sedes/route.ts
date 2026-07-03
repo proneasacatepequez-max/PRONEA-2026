@@ -45,20 +45,26 @@ export async function GET(req: NextRequest) {
 
   const sedesConConteo = await Promise.all(
     (data ?? []).map(async (ts: any) => {
+      // CORREGIDO: contar por sede_id (no por tecnico_id)
+      // porque el técnico ahora ve todos los estudiantes de sus sedes
       const { count } = await supabaseAdmin
         .from('inscripciones')
         .select('*', { count: 'exact', head: true })
         .eq('sede_id', ts.sede?.id)
-        .eq('tecnico_id', tecnico_id!)
         .eq('ciclo_escolar', ciclo)
         .eq('estado', 'en_curso')
 
       return {
         ...ts.sede,
-        es_principal:     ts.es_principal,
-        asignado_en:      ts.asignado_en,
+        es_principal:      ts.es_principal,
+        asignado_en:       ts.asignado_en,
         total_estudiantes: count ?? 0,
       }
+    })
+  )
+
+  return ok(sedesConConteo)
+}
     })
   )
 
