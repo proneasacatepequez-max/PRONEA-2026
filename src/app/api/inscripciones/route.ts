@@ -60,7 +60,24 @@ export async function GET(req: NextRequest) {
     const { data: tec } = await supabaseAdmin
       .from('tecnicos').select('id').eq('usuario_id', s.sub).single()
     if (!tec) return ok({ data: [] })
-    q = q.eq('tecnico_id', tec.id)
+
+    // CORREGIDO: el técnico ve inscripciones de TODAS sus sedes asignadas
+    // No solo las que él inscribió directamente (tecnico_id)
+    const { data: tecSedes } = await supabaseAdmin
+      .from('tecnico_sedes')
+      .select('sede_id')
+      .eq('tecnico_id', tec.id)
+      .eq('activo', true)
+
+    const sedeIds = (tecSedes ?? []).map((ts: any) => ts.sede_id)
+
+    if (sedeIds.length > 0) {
+      // Ver inscripciones de sus sedes O que él inscribió (por si hay inscripciones sin sede asignada aún)
+      q = q.or(`tecnico_id.eq.${tec.id},sede_id.in.(${sedeIds.join(',')})`)
+    } else {
+      // Sin sedes asignadas: ver solo las que él inscribió directamente
+      q = q.eq('tecnico_id', tec.id)
+    }
   }
 
   if (s.rol === 'enlace_institucional') {
@@ -75,28 +92,6 @@ export async function GET(req: NextRequest) {
       .from('directores').select('sede_id').eq('usuario_id', s.sub).single()
     if (!dir) return ok({ data: [] })
     q = q.eq('sede_id', dir.sede_id)
-  }
-
-  // CORREGIDO: coordinador_digeex solo ve inscripciones de sedes de SU departamento
-  if (s.rol === 'coordinador_digeex') {
-    const { data: coord } = await supabaseAdmin
-      .from('coordinadores_departamento')
-      .select('departamento_id')
-      .eq('usuario_id', s.sub)
-      .single()
-
-    if (coord?.departamento_id) {
-      const { data: sedesDept } = await supabaseAdmin
-        .from('sedes')
-        .select('id')
-        .eq('departamento_id', coord.departamento_id)
-
-      const sedeIds = (sedesDept ?? []).map((sd: any) => sd.id)
-      if (sedeIds.length === 0) return ok({ data: [] })
-      q = q.in('sede_id', sedeIds)
-    } else {
-      return ok({ data: [] })
-    }
   }
 
   // ── Filtros opcionales ────────────────────────────────────────────────
@@ -123,15 +118,34 @@ export async function POST(req: NextRequest) {
   try { b = await req.json() } catch { return err('JSON inválido') }
 
   const {
-    estudiante_id, etapa_id, tecnico_id, sede_id,
+    estudiante_id, etapa_id, sede_id,
     modalidad_id, seccion_id, ciclo_escolar = 2026,
     version_libro = 'nuevo',
   } = b
 
+  // CORREGIDO: tecnico_id es opcional en el body — se resuelve automáticamente
+  let tecnico_id = b.tecnico_id ?? null
+
   if (!estudiante_id) return err('estudiante_id requerido')
   if (!etapa_id)      return err('etapa_id requerido')
-  if (!tecnico_id)    return err('tecnico_id requerido')
   if (!sede_id)       return err('sede_id requerido')
+
+  // Auto-resolver tecnico_id si no viene en el body
+  if (!tecnico_id && s.rol === 'tecnico') {
+    const { data: tec } = await supabaseAdmin
+      .from('tecnicos').select('id').eq('usuario_id', s.sub).single()
+    if (!tec) return err('❌ No se encontró tu perfil de técnico', 404)
+    tecnico_id = tec.id
+  }
+
+  if (!tecnico_id && s.rol === 'enlace_institucional') {
+    const { data: enl } = await supabaseAdmin
+      .from('enlaces_institucionales').select('tecnico_id').eq('usuario_id', s.sub).single()
+    if (!enl?.tecnico_id) return err('❌ Tu perfil no tiene técnico asignado. Contacta al administrador.', 403)
+    tecnico_id = enl.tecnico_id
+  }
+
+  if (!tecnico_id) return err('tecnico_id requerido')
 
   // Verificar inscripción activa en misma etapa y ciclo (evitar duplicados)
   const { data: existe } = await supabaseAdmin
