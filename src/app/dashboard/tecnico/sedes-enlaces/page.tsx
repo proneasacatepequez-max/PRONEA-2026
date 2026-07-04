@@ -29,7 +29,17 @@ export default function TecnicoSedesEnlacesPage() {
     return txt.includes(filtroEnl.toLowerCase())
   })
 
-  const totalEst = sedes.reduce((s:number, se:any) => s + (se.total_estudiantes ?? 0), 0)
+  // Total único: combina sedes propias + sedes de enlaces, evitando contar
+  // dos veces la misma sede si coincide en ambas listas
+  const totalEst = (() => {
+    const porSede = new Map<string, number>()
+    for (const se of sedes)   if (se.id) porSede.set(se.id, se.total_estudiantes ?? 0)
+    for (const enl of enlaces) {
+      const sedeId = enl.sede?.id
+      if (sedeId && !porSede.has(sedeId)) porSede.set(sedeId, enl.total_estudiantes ?? 0)
+    }
+    return [...porSede.values()].reduce((a, b) => a + b, 0)
+  })()
 
   return (
     <div className="ap">
@@ -183,3 +193,4 @@ export default function TecnicoSedesEnlacesPage() {
     </div>
   )
 }
+
