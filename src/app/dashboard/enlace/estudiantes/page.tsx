@@ -144,10 +144,15 @@ export default function EnlaceEstudiantesPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse min-w-[900px]">
+              <table className="w-full text-sm border-collapse min-w-[1850px]">
                 <thead>
                   <tr className="bg-gradient-to-r from-orange-600 to-orange-700 text-white text-left">
-                    {['Código MINEDUC','Nombre completo','CUI','Edad','Teléfono','Etapa','Versión','Municipio','Estado'].map(h => (
+                    {[
+                      'Código MINEDUC','Nombre completo','CUI','Género','Edad','Fecha nacimiento',
+                      'Teléfono','Estado civil','Etapa','Versión',
+                      'Municipio inscripción','Municipio residencia','Departamento residencia',
+                      'Técnico a cargo','Enlace a cargo','Estado','Acciones',
+                    ].map(h => (
                       <th key={h}
                         className="px-3 py-2.5 text-xs font-bold uppercase whitespace-nowrap border-r border-orange-500 last:border-0">
                         {h}
@@ -165,13 +170,22 @@ export default function EnlaceEstudiantesPage() {
                           {e?.codigo_estudiante ?? '—'}
                         </td>
                         <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                          {e?.primer_apellido} {e?.segundo_apellido}, {e?.primer_nombre}
+                          {e?.primer_apellido} {e?.segundo_apellido}, {e?.primer_nombre} {e?.segundo_nombre}
                         </td>
                         <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">
                           {e?.cui ?? '—'}
                         </td>
-                        <td className="px-3 py-2 text-xs text-gray-500">{edad(e?.fecha_nacimiento)}</td>
-                        <td className="px-3 py-2 text-xs text-gray-600">{e?.telefono ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap capitalize">
+                          {e?.genero ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{edad(e?.fecha_nacimiento)}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
+                          {e?.fecha_nacimiento ? new Date(e.fecha_nacimiento).toLocaleDateString('es-GT') : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{e?.telefono ?? '—'}</td>
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
+                          {(e?.estado_civil as any)?.nombre ?? '—'}
+                        </td>
                         <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
                           {(insc.etapa as any)?.nombre}
                         </td>
@@ -181,12 +195,30 @@ export default function EnlaceEstudiantesPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
+                          {(insc.sede as any)?.municipio?.nombre ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
                           {(e?.municipio as any)?.nombre ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
+                          {(e?.municipio as any)?.departamento?.nombre ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          {(insc.tecnico as any)?.primer_nombre} {(insc.tecnico as any)?.primer_apellido}
+                        </td>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          {miPerfil?.primer_nombre} {miPerfil?.primer_apellido}
                         </td>
                         <td className="px-3 py-2">
                           <span className={`badge text-xs ${insc.estado==='en_curso'?'badge-green':'badge-gray'}`}>
                             {insc.estado}
                           </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <Link href={`/dashboard/enlace/notas?id=${insc.id}`}
+                            className="btn btn-p btn-sm text-xs whitespace-nowrap" title="Ingresar notas">
+                            📝 Notas
+                          </Link>
                         </td>
                       </tr>
                     )
