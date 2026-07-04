@@ -46,11 +46,13 @@ export default function PerfilEditor({ rol }: Props) {
       especialidad:       p.especialidad       ?? '',   // ← técnico
       cargo:              p.cargo              ?? '',   // ← enlace y coordinador
       municipio_id:       p.municipio_id       ? String(p.municipio_id) : '',
-      departamento_id:    p.municipio?.departamento_id ? String(p.municipio?.departamento_id)
-                          : p.departamento?.id ? String(p.departamento.id) : '',
+      departamento_id:    p.departamento?.id            ? String(p.departamento.id)
+                          : p.municipio?.departamento?.id ? String(p.municipio.departamento.id)
+                          : p.municipio?.departamento_id  ? String(p.municipio.departamento_id)
+                          : '',
     })
     if (p.municipio_id) {
-      const dep = p.departamento?.id ?? p.municipio?.departamento_id
+      const dep = p.departamento?.id ?? p.municipio?.departamento?.id ?? p.municipio?.departamento_id
       if (dep) {
         fetch(`/api/municipios?departamento_id=${dep}`)
           .then(r => r.json()).then(d => setMunis(Array.isArray(d) ? d : []))
@@ -211,7 +213,7 @@ export default function PerfilEditor({ rol }: Props) {
                 ['Sede a cargo', (p.sede as any)?.nombre ?? '—'],
               ] : []),
               ...(rol === 'enlace_institucional' ? [
-                ['Institución', (p.institucion as any)?.nombre ?? '—'],
+                ['Institución', (p.institucion as any)?.nombre ?? (p.sede as any)?.nombre ?? '—'],
                 ['Cargo', p.cargo ?? '—'],
               ] : []),
               ...(rol === 'coordinador_digeex' ? [
