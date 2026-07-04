@@ -72,13 +72,39 @@ export async function GET(req: NextRequest) {
       .eq('tecnico_id', tec.id)
       .eq('activo', true)
 
-    const sedeIds = (tecSedes ?? []).map((ts: any) => ts.sede_id)
+    // CORREGIDO: además de sus sedes propias, el técnico debe ver las sedes
+    // de los ENLACES que tiene a cargo (vía tecnico_enlaces Y vía
+    // enlaces_institucionales.tecnico_id — son dos fuentes distintas y un
+    // enlace puede estar vinculado por cualquiera de las dos).
+    const [{ data: vinculos }, { data: enlacesDirec }] = await Promise.all([
+      supabaseAdmin.from('tecnico_enlaces')
+        .select('enlace_id').eq('tecnico_id', tec.id).eq('activo', true)
+        .eq('ciclo_escolar', parseInt(ciclo)),
+      supabaseAdmin.from('enlaces_institucionales')
+        .select('id, sede_id').eq('tecnico_id', tec.id).eq('activo', true),
+    ])
+
+    const idsEnlacesVinculados = (vinculos ?? []).map((v: any) => v.enlace_id)
+    let sedeIdsDeEnlaces = (enlacesDirec ?? []).map((e: any) => e.sede_id)
+
+    if (idsEnlacesVinculados.length > 0) {
+      const { data: enlacesPorVinculo } = await supabaseAdmin
+        .from('enlaces_institucionales')
+        .select('sede_id')
+        .in('id', idsEnlacesVinculados)
+      sedeIdsDeEnlaces = [...sedeIdsDeEnlaces, ...(enlacesPorVinculo ?? []).map((e: any) => e.sede_id)]
+    }
+
+    const sedeIds = [...new Set([
+      ...(tecSedes ?? []).map((ts: any) => ts.sede_id),
+      ...sedeIdsDeEnlaces,
+    ])].filter(Boolean)
 
     if (sedeIds.length > 0) {
-      // Ver inscripciones de sus sedes O que él inscribió (por si hay inscripciones sin sede asignada aún)
+      // Ver inscripciones de sus sedes (propias o de sus enlaces) O que él inscribió directamente
       q = q.or(`tecnico_id.eq.${tec.id},sede_id.in.(${sedeIds.join(',')})`)
     } else {
-      // Sin sedes asignadas: ver solo las que él inscribió directamente
+      // Sin sedes ni enlaces asignados: ver solo las que él inscribió directamente
       q = q.eq('tecnico_id', tec.id)
     }
   }
