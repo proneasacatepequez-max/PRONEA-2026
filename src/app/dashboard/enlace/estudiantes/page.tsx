@@ -29,9 +29,14 @@ export default function EnlaceEstudiantesPage() {
     setLoading(true)
     const params = new URLSearchParams({ ciclo, estado: 'en_curso' })
     if (filtro.etapa_id) params.set('etapa_id', filtro.etapa_id)
-    const d = await fetch(`/api/inscripciones?${params}`)
-      .then(r => r.json()).catch(() => ({ data: [] }))
-    setInscripciones(d.data ?? [])
+    const res  = await fetch(`/api/inscripciones?${params}`).catch(() => null)
+    const body = await res?.json().catch(() => ({})) ?? {}
+    if (!res || !res.ok) {
+      flash('❌ ' + (body?.error ?? 'Error al cargar estudiantes'))
+      setInscripciones([])
+    } else {
+      setInscripciones(body.data ?? [])
+    }
     setLoading(false)
   }, [ciclo, filtro.etapa_id])
 
@@ -232,3 +237,4 @@ export default function EnlaceEstudiantesPage() {
     </div>
   )
 }
+
