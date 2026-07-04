@@ -151,7 +151,10 @@ function NotasContent() {
       <header className="topbar">
         <div>
           <div className="page-title">📝 Registrar Notas</div>
-          <div className="text-xs text-gray-400">Selecciona estudiante → libro → ingresa notas</div>
+          <div className="text-xs text-gray-400">
+            Selecciona estudiante → libro → ingresa notas
+            <span className="text-gray-300"> · Ideal cuando ya sabes qué estudiante vas a calificar (también genera el PDF)</span>
+          </div>
         </div>
         <div className="flex gap-2">
           {inscSel && libroSel && (
