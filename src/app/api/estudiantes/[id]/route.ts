@@ -33,7 +33,7 @@ export async function GET(
       discapacidad:tipos_discapacidad(id, nombre),
       inscripciones(id, ciclo_escolar, estado, version_libro,
         etapa:etapas(id, nombre), sede:sedes(id, nombre),
-        tecnico:tecnicos(id, primer_nombre, primer_apellido))
+        tecnico:tecnicos!inscripciones_tecnico_id_fkey(id, primer_nombre, primer_apellido))
     `)
     .eq('id', id)
     .single()
