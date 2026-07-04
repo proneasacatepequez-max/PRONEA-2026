@@ -227,6 +227,10 @@ export default function TecnicoEstudiantesPage() {
                               className="btn btn-p btn-sm" title="Registrar notas">
                               📝
                             </Link>
+                            <Link href={`/dashboard/tecnico/ajustes?id=${insc.id}`}
+                              className="btn btn-g btn-sm" title="Adecuaciones curriculares">
+                              ♿
+                            </Link>
                           </div>
                         </td>
                       </tr>
