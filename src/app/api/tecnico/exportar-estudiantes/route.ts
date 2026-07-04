@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
         ),
         etapa:etapas(nombre, nivel),
         sede:sedes(nombre),
-        tecnico:tecnicos(primer_nombre, primer_apellido, codigo_tecnico)
+        tecnico:tecnicos!inscripciones_tecnico_id_fkey(primer_nombre, primer_apellido, codigo_tecnico)
       `)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
