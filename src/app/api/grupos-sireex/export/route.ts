@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
               primer_apellido, segundo_apellido, cui, telefono, fecha_nacimiento
             ),
             etapa:etapas(nombre),
-            tecnico:tecnicos(primer_nombre, primer_apellido, codigo_tecnico)
+            tecnico:tecnicos!inscripciones_tecnico_id_fkey(primer_nombre, primer_apellido, codigo_tecnico)
           )
         )
       `)
