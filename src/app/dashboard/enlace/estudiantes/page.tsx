@@ -76,7 +76,7 @@ export default function EnlaceEstudiantesPage() {
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">🎓 Estudiantes de mi Institución</div>
+          <div className="page-title">🎓 Estudiantes que he Inscrito</div>
           <div className="text-xs text-gray-400">
             {sedeNombre ? `Sede: ${sedeNombre}` : '⚠️ Sin sede asignada'}
             {tecnicoNombre && ` · Técnico: ${tecnicoNombre}`}
