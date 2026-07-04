@@ -8,6 +8,7 @@ import Link from 'next/link'
 function AjustesContent() {
   const sp     = useSearchParams()
   const inscId = sp.get('id') ?? ''
+  const [insc,        setInsc]      = useState<any>(null)
   const [ajustes,    setAjustes]    = useState<any[]>([])
   const [tiposAjuste, setTipos]    = useState<any[]>([])
   const [areas,       setAreas]    = useState<any[]>([])
@@ -31,13 +32,22 @@ function AjustesContent() {
   const cargar = useCallback(async () => {
     if (!inscId) return
     setLoading(true)
-    const [aj, ti, ar] = await Promise.all([
+    const [inscData, aj, ti, ar] = await Promise.all([
+      fetch(`/api/inscripciones?id=${inscId}`).then(r => r.json()).catch(() => null),
       fetch(`/api/ajustes?inscripcion_id=${inscId}`).then(r => r.json()).catch(() => []),
       fetch('/api/tipos-ajuste').then(r => r.json()).catch(() => []),
-      fetch('/api/etapas').then(r => r.json()).catch(() => []),
+      fetch('/api/areas').then(r => r.json()).catch(() => []),
     ])
+    setInsc(inscData)
     setAjustes(Array.isArray(aj) ? aj : [])
     setTipos(Array.isArray(ti) ? ti : [])
+    setAreas(Array.isArray(ar) ? ar : [])
+
+    if (inscData?.etapa?.id) {
+      const lib = await fetch(`/api/libros?etapa_id=${inscData.etapa.id}&version=${inscData.version_libro ?? 'nuevo'}`)
+        .then(r => r.json()).catch(() => [])
+      setLibros(Array.isArray(lib) ? lib : [])
+    }
     setLoading(false)
   }, [inscId])
 
@@ -86,7 +96,11 @@ function AjustesContent() {
       <header className="topbar">
         <div>
           <div className="page-title">♿ Adecuaciones Curriculares</div>
-          <div className="text-xs text-gray-400">Ajustes para el estudiante</div>
+          <div className="text-xs text-gray-400">
+            {insc?.estudiante
+              ? <>Estudiante: <b>{insc.estudiante.primer_nombre} {insc.estudiante.primer_apellido}</b> — {insc.etapa?.nombre}</>
+              : 'Ajustes para el estudiante'}
+          </div>
         </div>
         <div className="flex gap-2">
           <button className="btn btn-p" onClick={() => setModal(true)}>＋ Registrar ajuste</button>
@@ -180,6 +194,22 @@ function AjustesContent() {
                 <textarea className="inp" rows={3} value={form.descripcion_ajuste}
                   onChange={e => setForm(f => ({ ...f, descripcion_ajuste: e.target.value }))}
                   placeholder="Describe detalladamente el ajuste curricular aplicado..." />
+              </div>
+              <div className="fg2">
+                <div className="fg">
+                  <label className="lbl">Área (opcional)</label>
+                  <select className="inp" value={form.area_id} onChange={e => setForm(f => ({ ...f, area_id: e.target.value }))}>
+                    <option value="">— Todas las áreas —</option>
+                    {areas.map((a: any) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                  </select>
+                </div>
+                <div className="fg">
+                  <label className="lbl">Libro (opcional)</label>
+                  <select className="inp" value={form.libro_id} onChange={e => setForm(f => ({ ...f, libro_id: e.target.value }))}>
+                    <option value="">— Todos los libros —</option>
+                    {libros.map((l: any) => <option key={l.id} value={l.id}>{l.nombre}</option>)}
+                  </select>
+                </div>
               </div>
               <div className="fg2">
                 <div className="fg">
