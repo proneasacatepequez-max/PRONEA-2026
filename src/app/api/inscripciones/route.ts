@@ -115,13 +115,9 @@ export async function GET(req: NextRequest) {
     if (eEnl) return err('Error al resolver perfil de enlace: ' + eEnl.message, 500)
     if (!enl) return err('❌ No se encontró tu perfil de enlace institucional. Contacta al administrador.', 404)
 
-    // Tolerante: ve inscripciones de su sede O las de su técnico asignado
-    // (cubre casos de datos legados donde el sede_id de la inscripción no coincide)
-    if (enl.tecnico_id) {
-      q = q.or(`sede_id.eq.${enl.sede_id},tecnico_id.eq.${enl.tecnico_id}`)
-    } else {
-      q = q.eq('sede_id', enl.sede_id)
-    }
+    // El enlace solo ve los estudiantes que ÉL MISMO inscribió — no todos los
+    // del técnico compartido ni todos los de la sede (eso es alcance del técnico).
+    q = q.eq('creado_por', s.sub)
   }
 
   if (s.rol === 'director') {
