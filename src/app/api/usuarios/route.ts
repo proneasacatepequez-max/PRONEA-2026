@@ -13,22 +13,26 @@ export async function GET(req: NextRequest) {
     .select(`
       id, correo, rol, activo, ultimo_acceso, creado_en, primer_ingreso,
       tecnicos(
-        id, primer_nombre, primer_apellido, telefono,
-        codigo_tecnico, cui, especialidad, municipio_id, departamento_id
+        id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+        telefono, codigo_tecnico, cui, especialidad, municipio_id, departamento_id,
+        tecnico_sedes(sede_id, es_principal, activo)
       ),
       directores(
-        id, primer_nombre, primer_apellido, telefono, municipio_id,
+        id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+        telefono, municipio_id, sede_id,
         sede:sedes(id, nombre)
       ),
       enlaces_institucionales(
-        id, primer_nombre, primer_apellido, cargo, telefono, municipio_id,
+        id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+        cargo, telefono, municipio_id, sede_id, tecnico_id,
         sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre),
         tecnico:tecnicos!enlaces_institucionales_tecnico_id_fkey(
           id, primer_nombre, primer_apellido, codigo_tecnico
         )
       ),
       coordinadores_departamento(
-        id, primer_nombre, primer_apellido, cargo, municipio_id, departamento_id
+        id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+        cargo, municipio_id, departamento_id
       )
     `)
     .not('rol', 'eq', 'estudiante')
@@ -38,7 +42,12 @@ export async function GET(req: NextRequest) {
 
   const lista = (data ?? []).map((u: any) => {
     let perfil: any = null
-    if (u.rol === 'tecnico'              && u.tecnicos?.[0])               perfil = u.tecnicos[0]
+    if (u.rol === 'tecnico'              && u.tecnicos?.[0]) {
+      perfil = { ...u.tecnicos[0] }
+      const principal = (perfil.tecnico_sedes ?? []).find((ts: any) => ts.activo && ts.es_principal)
+      perfil.sede_id = principal?.sede_id ?? null
+      delete perfil.tecnico_sedes
+    }
     if (u.rol === 'director'             && u.directores?.[0])             perfil = u.directores[0]
     if (u.rol === 'enlace_institucional' && u.enlaces_institucionales?.[0]) perfil = u.enlaces_institucionales[0]
     if (u.rol === 'coordinador_digeex'   && u.coordinadores_departamento?.[0]) perfil = u.coordinadores_departamento[0]
@@ -274,6 +283,95 @@ export async function PATCH(req: NextRequest) {
     const { error } = await supabaseAdmin.from('usuarios').update({ activo: b.activo }).eq('id', id)
     if (error) return err(error.message, 500)
     return ok({ ok: true, activo: b.activo, mensaje: b.activo ? '✅ Usuario activado' : '✅ Usuario desactivado' })
+  }
+
+  // Edición de perfil (nombre, teléfono, sede, técnico asignado, etc.) — se evalúa ANTES
+  // del bloque simple de correo/rol porque la edición completa también envía "rol".
+  if (b.perfil && b.rol) {
+    const p = b.perfil
+
+    const nombreUpd: any = {}
+    if (p.primer_nombre    !== undefined) nombreUpd.primer_nombre    = String(p.primer_nombre).trim()
+    if (p.segundo_nombre   !== undefined) nombreUpd.segundo_nombre   = p.segundo_nombre?.trim()   || null
+    if (p.primer_apellido  !== undefined) nombreUpd.primer_apellido  = String(p.primer_apellido).trim()
+    if (p.segundo_apellido !== undefined) nombreUpd.segundo_apellido = p.segundo_apellido?.trim() || null
+    if (p.telefono         !== undefined) nombreUpd.telefono         = p.telefono?.trim()         || null
+
+    const sede_id    = p.sede_id    && String(p.sede_id).trim()    !== '' ? String(p.sede_id).trim()    : null
+    const tecnico_id = p.tecnico_id && String(p.tecnico_id).trim() !== '' ? String(p.tecnico_id).trim() : null
+
+    if (b.correo) {
+      const { error: eCorreo } = await supabaseAdmin.from('usuarios')
+        .update({ correo: b.correo.toLowerCase().trim() }).eq('id', id)
+      if (eCorreo) return err('Error al actualizar correo: ' + eCorreo.message, 500)
+    }
+
+    if (b.rol === 'tecnico') {
+      if (p.codigo_tecnico !== undefined) nombreUpd.codigo_tecnico = p.codigo_tecnico?.trim() || null
+      if (p.especialidad   !== undefined) nombreUpd.especialidad   = p.especialidad?.trim()   || null
+      if (p.cui             !== undefined) nombreUpd.cui            = p.cui?.trim()            || null
+
+      const { error: eTec } = await supabaseAdmin.from('tecnicos')
+        .update(nombreUpd).eq('usuario_id', id)
+      if (eTec) return err('Error al actualizar técnico: ' + eTec.message, 500)
+
+      if (p.sede_id !== undefined) {
+        const { data: tecRow } = await supabaseAdmin.from('tecnicos')
+          .select('id').eq('usuario_id', id).single()
+        if (tecRow) {
+          await supabaseAdmin.from('tecnico_sedes')
+            .update({ activo: false, es_principal: false })
+            .eq('tecnico_id', tecRow.id).eq('es_principal', true)
+          if (sede_id) {
+            const { data: existente } = await supabaseAdmin.from('tecnico_sedes')
+              .select('id').eq('tecnico_id', tecRow.id).eq('sede_id', sede_id).maybeSingle()
+            if (existente) {
+              await supabaseAdmin.from('tecnico_sedes')
+                .update({ activo: true, es_principal: true }).eq('id', existente.id)
+            } else {
+              await supabaseAdmin.from('tecnico_sedes').insert({
+                tecnico_id: tecRow.id, sede_id, es_principal: true, activo: true,
+              })
+            }
+          }
+        }
+      }
+    }
+
+    if (b.rol === 'director') {
+      if (p.sede_id !== undefined) nombreUpd.sede_id = sede_id
+      const { error: eDir } = await supabaseAdmin.from('directores')
+        .update(nombreUpd).eq('usuario_id', id)
+      if (eDir) return err('Error al actualizar director: ' + eDir.message, 500)
+    }
+
+    if (b.rol === 'enlace_institucional') {
+      if (p.cargo !== undefined) nombreUpd.cargo = p.cargo?.trim() || null
+      if (p.sede_id !== undefined) {
+        if (!sede_id) return err('❌ La sede es obligatoria para el enlace institucional')
+        nombreUpd.sede_id = sede_id
+      }
+      if (p.tecnico_id !== undefined) nombreUpd.tecnico_id = tecnico_id
+
+      const { error: eEnl } = await supabaseAdmin.from('enlaces_institucionales')
+        .update(nombreUpd).eq('usuario_id', id)
+      if (eEnl) return err('Error al actualizar enlace: ' + eEnl.message, 500)
+    }
+
+    if (b.rol === 'coordinador_digeex') {
+      if (p.cargo !== undefined) nombreUpd.cargo = p.cargo?.trim() || null
+      const { error: eCoord } = await supabaseAdmin.from('coordinadores_departamento')
+        .update(nombreUpd).eq('usuario_id', id)
+      if (eCoord) return err('Error al actualizar coordinador: ' + eCoord.message, 500)
+    }
+
+    await supabaseAdmin.from('auditoria').insert({
+      usuario_id: s.sub, accion: 'EDITAR_USUARIO',
+      tabla_afectada: 'usuarios', registro_id: id,
+      datos_nuevos: { perfil: nombreUpd, sede_id, tecnico_id },
+    }).catch(() => {})
+
+    return ok({ ok: true, mensaje: '✅ Usuario actualizado correctamente' })
   }
 
   if (b.correo || b.rol) {
