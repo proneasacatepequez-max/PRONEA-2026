@@ -7,9 +7,14 @@ interface Usuario {
   id: string; correo: string; rol: RolUsuario; activo: boolean
   primer_ingreso: boolean; ultimo_acceso: string | null; creado_en: string
   perfil: {
-    primer_nombre?: string; primer_apellido?: string
+    id?: string
+    primer_nombre?: string; segundo_nombre?: string
+    primer_apellido?: string; segundo_apellido?: string
     codigo_tecnico?: string; telefono?: string; cargo?: string
+    cui?: string; especialidad?: string
+    sede_id?: string | null; tecnico_id?: string | null
     sede?: { id: string; nombre: string } | null
+    tecnico?: { id: string; primer_nombre: string; primer_apellido: string } | null
   } | null
 }
 
@@ -48,6 +53,10 @@ export default function AdminUsuariosPage() {
   const [modalCrear,   setModalCrear]   = useState(false)
   const [modalReset,   setModalReset]   = useState<Usuario | null>(null)
   const [modalDetalle, setModalDetalle] = useState<Usuario | null>(null)
+  const [modalEditar,  setModalEditar]  = useState<Usuario | null>(null)
+  const [formEdit,     setFormEdit]     = useState<any>({})
+  const [guardandoEdit,setGuardandoEdit]= useState(false)
+  const [errorEdit,    setErrorEdit]    = useState('')
   const [form,         setForm]         = useState({ ...FORM0 })
   const [guardando,    setGuardando]    = useState(false)
   const [errorForm,    setErrorForm]    = useState('')
@@ -107,6 +116,53 @@ export default function AdminUsuariosPage() {
       setModalCrear(false); setForm({ ...FORM0 }); cargar()
     } catch { setErrorForm('Error de conexión') }
     finally { setGuardando(false) }
+  }
+
+  const abrirEditar = (u: Usuario) => {
+    const p = u.perfil
+    setFormEdit({
+      correo:           u.correo,
+      primer_nombre:    p?.primer_nombre    ?? '',
+      segundo_nombre:   p?.segundo_nombre   ?? '',
+      primer_apellido:  p?.primer_apellido  ?? '',
+      segundo_apellido: p?.segundo_apellido ?? '',
+      telefono:         p?.telefono         ?? '',
+      cargo:            p?.cargo            ?? '',
+      codigo_tecnico:   p?.codigo_tecnico   ?? '',
+      cui:              p?.cui              ?? '',
+      especialidad:     p?.especialidad     ?? '',
+      sede_id:          p?.sede_id ?? p?.sede?.id ?? '',
+      tecnico_id:       p?.tecnico_id ?? p?.tecnico?.id ?? '',
+    })
+    setErrorEdit('')
+    setModalEditar(u)
+  }
+
+  const guardarEdicion = async () => {
+    if (!modalEditar) return
+    setErrorEdit('')
+    if (!formEdit.primer_nombre.trim())   return setErrorEdit('Primer nombre requerido')
+    if (!formEdit.primer_apellido.trim()) return setErrorEdit('Primer apellido requerido')
+    if (modalEditar.rol === 'enlace_institucional' && !formEdit.sede_id)
+      return setErrorEdit('La sede es obligatoria para el enlace institucional')
+
+    setGuardandoEdit(true)
+    try {
+      const res = await fetch('/api/usuarios', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: modalEditar.id,
+          rol: modalEditar.rol,
+          correo: formEdit.correo,
+          perfil: formEdit,
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setErrorEdit(d.error ?? 'Error al actualizar'); return }
+      setExito(`✅ Usuario ${formEdit.primer_nombre} actualizado correctamente`)
+      setModalEditar(null); cargar()
+    } catch { setErrorEdit('Error de conexión') }
+    finally { setGuardandoEdit(false) }
   }
 
   const toggleActivo = async (u: Usuario) => {
@@ -232,7 +288,7 @@ export default function AdminUsuariosPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600">
-                      {u.perfil?.sede?.nombre ?? u.perfil?.codigo_tecnico ?? u.perfil?.cargo ?? '—'}
+                      {u.perfil?.sede?.nombre ?? sedes.find(s => s.id === u.perfil?.sede_id)?.nombre ?? u.perfil?.codigo_tecnico ?? u.perfil?.cargo ?? '—'}
                     </td>
                     <td className="px-4 py-3 text-center">
                       <span className={`text-xs font-bold px-2 py-1 rounded-full ${u.activo ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
@@ -247,6 +303,7 @@ export default function AdminUsuariosPage() {
                     <td className="px-4 py-3">
                       <div className="flex gap-1 justify-center">
                         <button className="btn btn-g btn-sm text-xs" onClick={() => setModalDetalle(u)} title="Detalles">👁</button>
+                        <button className="btn btn-g btn-sm text-xs" onClick={() => abrirEditar(u)} title="Editar">✏️</button>
                         <button className={`btn btn-sm text-xs ${u.activo ? 'btn-red' : 'btn-green'}`}
                           onClick={() => toggleActivo(u)} title={u.activo ? 'Desactivar' : 'Activar'}>
                           {u.activo ? '🚫' : '✅'}
@@ -432,7 +489,7 @@ export default function AdminUsuariosPage() {
                 ['Teléfono',      modalDetalle.perfil?.telefono ?? '—'],
                 ['Cargo',         modalDetalle.perfil?.cargo ?? '—'],
                 ['Código técnico',modalDetalle.perfil?.codigo_tecnico ?? '—'],
-                ['Sede',          modalDetalle.perfil?.sede?.nombre ?? '—'],
+                ['Sede',          modalDetalle.perfil?.sede?.nombre ?? sedes.find(s => s.id === modalDetalle.perfil?.sede_id)?.nombre ?? '—'],
                 ['Último acceso', modalDetalle.ultimo_acceso ? new Date(modalDetalle.ultimo_acceso).toLocaleString('es-GT') : 'Nunca'],
                 ['Creado',        new Date(modalDetalle.creado_en).toLocaleDateString('es-GT')],
               ].map(([k, v]) => (
@@ -442,8 +499,145 @@ export default function AdminUsuariosPage() {
                 </div>
               ))}
             </div>
-            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end">
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
               <button className="btn btn-g" onClick={() => setModalDetalle(null)}>Cerrar</button>
+              <button className="btn btn-p" onClick={() => { abrirEditar(modalDetalle); setModalDetalle(null) }}>✏️ Editar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Editar ──────────────────────────────────────── */}
+      {modalEditar && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-extrabold text-lg">✏️ Editar Usuario</h3>
+              <button onClick={() => setModalEditar(null)} className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+              {errorEdit && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-red-700 text-sm font-semibold">
+                  ❌ {errorEdit}
+                </div>
+              )}
+
+              <div className="bg-blue-50 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-bold text-blue-700 uppercase">
+                  Datos de acceso — {ROL_LABELS[modalEditar.rol]}
+                </p>
+                <div className="fg">
+                  <label className="lbl">Correo</label>
+                  <input type="email" className="inp" value={formEdit.correo ?? ''}
+                    onChange={e => setFormEdit((f: any) => ({ ...f, correo: e.target.value }))} />
+                </div>
+              </div>
+
+              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
+                <p className="text-xs font-bold text-gray-600 uppercase">Datos personales</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="fg"><label className="lbl">Primer nombre *</label>
+                    <input className="inp" value={formEdit.primer_nombre ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, primer_nombre: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Segundo nombre</label>
+                    <input className="inp" value={formEdit.segundo_nombre ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, segundo_nombre: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Primer apellido *</label>
+                    <input className="inp" value={formEdit.primer_apellido ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, primer_apellido: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Segundo apellido</label>
+                    <input className="inp" value={formEdit.segundo_apellido ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, segundo_apellido: e.target.value }))} /></div>
+                </div>
+                <div className="fg"><label className="lbl">Teléfono</label>
+                  <input className="inp" placeholder="5512-3456" value={formEdit.telefono ?? ''}
+                    onChange={e => setFormEdit((f: any) => ({ ...f, telefono: e.target.value }))} /></div>
+              </div>
+
+              {/* Técnico */}
+              {modalEditar.rol === 'tecnico' && (
+                <div className="bg-blue-50 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-blue-700 uppercase">Datos del técnico</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="fg"><label className="lbl">Código técnico</label>
+                      <input className="inp" value={formEdit.codigo_tecnico ?? ''}
+                        onChange={e => setFormEdit((f: any) => ({ ...f, codigo_tecnico: e.target.value }))} /></div>
+                    <div className="fg"><label className="lbl">CUI</label>
+                      <input className="inp font-mono" value={formEdit.cui ?? ''}
+                        onChange={e => setFormEdit((f: any) => ({ ...f, cui: e.target.value }))} /></div>
+                  </div>
+                  <div className="fg"><label className="lbl">Especialidad</label>
+                    <input className="inp" value={formEdit.especialidad ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, especialidad: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Sede principal</label>
+                    <select className="inp" value={formEdit.sede_id ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, sede_id: e.target.value }))}>
+                      <option value="">— Sin sede —</option>
+                      {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Director */}
+              {modalEditar.rol === 'director' && (
+                <div className="bg-green-50 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-green-700 uppercase">Datos del director</p>
+                  <div className="fg"><label className="lbl">Sede que dirige</label>
+                    <select className="inp" value={formEdit.sede_id ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, sede_id: e.target.value }))}>
+                      <option value="">— Seleccionar sede —</option>
+                      {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Enlace */}
+              {modalEditar.rol === 'enlace_institucional' && (
+                <div className="bg-yellow-50 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-yellow-700 uppercase">Datos del enlace institucional</p>
+                  <div className="fg"><label className="lbl">Sede / Institución *</label>
+                    <select className="inp" value={formEdit.sede_id ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, sede_id: e.target.value }))}>
+                      <option value="">— Seleccionar sede —</option>
+                      {sedes.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div className="fg"><label className="lbl">Cargo</label>
+                    <input className="inp" value={formEdit.cargo ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, cargo: e.target.value }))} /></div>
+                  <div className="fg"><label className="lbl">Técnico asignado</label>
+                    <select className="inp" value={formEdit.tecnico_id ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, tecnico_id: e.target.value }))}>
+                      <option value="">— Sin técnico —</option>
+                      {tecnicos.map(t => (
+                        <option key={t.id} value={t.id}>
+                          {t.primer_nombre} {t.primer_apellido} {t.codigo_tecnico ? `(${t.codigo_tecnico})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {/* Coordinador */}
+              {modalEditar.rol === 'coordinador_digeex' && (
+                <div className="bg-orange-50 rounded-xl p-4 space-y-3">
+                  <p className="text-xs font-bold text-orange-700 uppercase">Datos del coordinador</p>
+                  <div className="fg"><label className="lbl">Cargo</label>
+                    <input className="inp" value={formEdit.cargo ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, cargo: e.target.value }))} /></div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+              <button className="btn btn-g" onClick={() => setModalEditar(null)}>Cancelar</button>
+              <button className="btn btn-p" onClick={guardarEdicion} disabled={guardandoEdit}>
+                {guardandoEdit ? '⏳ Guardando...' : '💾 Guardar cambios'}
+              </button>
             </div>
           </div>
         </div>
