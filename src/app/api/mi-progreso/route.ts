@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
       id, ciclo_escolar, version_libro, estado, tiene_ajuste_discapacidad,
       etapa:etapas(id, nombre, nivel),
       sede:sedes(nombre),
-      tecnico:tecnicos(primer_nombre, primer_apellido)
+      tecnico:tecnicos!inscripciones_tecnico_id_fkey(primer_nombre, primer_apellido)
     `)
     .eq('estudiante_id', est.id)
     .eq('estado', 'en_curso')
@@ -141,3 +141,4 @@ export async function GET(req: NextRequest) {
 
   return ok({ estudiante: est, inscripcion: insc, resumen_etapa: re, libros })
 }
+
