@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
       discapacidad:tipos_discapacidad(id,nombre),
       inscripciones(id, ciclo_escolar, estado, version_libro,
         etapa:etapas(id,nombre), sede:sedes(id,nombre),
-        tecnico:tecnicos(id,primer_nombre,primer_apellido))
+        tecnico:tecnicos!inscripciones_tecnico_id_fkey(id,primer_nombre,primer_apellido))
     `).eq('id', id).single()
     if (error) return err(error.message, 500)
     return ok(data)
@@ -169,3 +169,4 @@ export async function POST(req: NextRequest) {
 
   return ok({ ok: true, id: data.id, codigo_estudiante: data.codigo_estudiante }, 201)
 }
+
