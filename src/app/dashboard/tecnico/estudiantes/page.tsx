@@ -26,12 +26,20 @@ export default function TecnicoEstudiantesPage() {
     if (filtro.etapa_id) params.set('etapa_id', filtro.etapa_id)
     if (filtro.sede_id)  params.set('sede_id',  filtro.sede_id)
 
-    const [ins, et, se] = await Promise.all([
-      fetch(`/api/inscripciones?${params}`).then(r => r.json()).catch(() => ({ data: [] })),
+    const [insRes, et, se] = await Promise.all([
+      fetch(`/api/inscripciones?${params}`)
+        .then(async r => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }))
+        .catch(() => ({ ok: false, status: 0, body: { error: 'Error de conexión' } })),
       fetch('/api/etapas').then(r => r.json()).catch(() => []),
       fetch('/api/sedes').then(r => r.json()).catch(() => []),
     ])
-    setInscripciones(ins.data ?? [])
+
+    if (!insRes.ok) {
+      flash('❌ ' + (insRes.body?.error ?? `Error al cargar estudiantes (${insRes.status})`))
+      setInscripciones([])
+    } else {
+      setInscripciones(insRes.body?.data ?? [])
+    }
     setEtapas(Array.isArray(et) ? et : [])
     setSedes(Array.isArray(se) ? se : [])
     setLoading(false)
@@ -245,3 +253,4 @@ export default function TecnicoEstudiantesPage() {
     </div>
   )
 }
+
