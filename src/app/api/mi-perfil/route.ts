@@ -52,6 +52,7 @@ export async function GET(req: NextRequest) {
         id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
         cui, telefono, correo_personal, activo,
         nivel_escolaridad, titulo_profesional, direccion, genero, municipio_id,
+        municipio:municipios(id, nombre, departamento:departamentos(id, nombre)),
         sede:sedes(id, nombre, municipio:municipios(nombre))
       `)
       .eq('usuario_id', s.sub)
@@ -60,17 +61,26 @@ export async function GET(req: NextRequest) {
     if (error || !dir) return ok({ rol: 'director', perfil: null })
 
     const usu = await supabaseAdmin.from('usuarios').select('correo, ultimo_acceso').eq('id', s.sub).single()
-    return ok({ rol: 'director', perfil: { ...dir, usuario: usu.data } })
+    return ok({
+      rol: 'director',
+      perfil: {
+        ...dir,
+        departamento: (dir as any).municipio?.departamento ?? null,
+        usuario: usu.data,
+      },
+    })
   }
 
   if (s.rol === 'enlace_institucional') {
     // FIX: incluir sede y tecnico responsable — clave para inscribir
+    // FIX: incluir municipio/departamento de residencia — antes no se mostraban
     const { data: enl, error } = await supabaseAdmin
       .from('enlaces_institucionales')
       .select(`
         id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
         cui, telefono, correo_personal, cargo, activo,
         nivel_escolaridad, titulo_profesional, direccion, genero, municipio_id,
+        municipio:municipios(id, nombre, departamento:departamentos(id, nombre)),
         sede:sedes!enlaces_institucionales_sede_id_fkey(id, nombre, municipio:municipios(nombre)),
         tecnico:tecnicos!enlaces_institucionales_tecnico_id_fkey(id, primer_nombre, primer_apellido, codigo_tecnico)
       `)
@@ -80,7 +90,15 @@ export async function GET(req: NextRequest) {
     if (error || !enl) return ok({ rol: 'enlace_institucional', perfil: null })
 
     const usu = await supabaseAdmin.from('usuarios').select('correo, ultimo_acceso').eq('id', s.sub).single()
-    return ok({ rol: 'enlace_institucional', perfil: { ...enl, usuario: usu.data } })
+    return ok({
+      rol: 'enlace_institucional',
+      perfil: {
+        ...enl,
+        departamento: (enl as any).municipio?.departamento ?? null,
+        institucion: (enl as any).sede ?? null, // "Institución" del enlace = su sede asignada
+        usuario: usu.data,
+      },
+    })
   }
 
   if (s.rol === 'coordinador_digeex') {
@@ -90,6 +108,7 @@ export async function GET(req: NextRequest) {
         id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
         telefono, correo_personal, cargo, activo,
         nivel_escolaridad, titulo_profesional, direccion, genero, municipio_id,
+        municipio:municipios(id, nombre),
         departamento:departamentos(id, nombre)
       `)
       .eq('usuario_id', s.sub)
