@@ -47,19 +47,22 @@ export async function GET(req: NextRequest) {
       estudiante:estudiantes(
         id, codigo_estudiante, primer_nombre, segundo_nombre,
         primer_apellido, segundo_apellido, fecha_nacimiento, cui,
-        cui_pendiente, telefono, municipio:municipios(nombre)
+        cui_pendiente, telefono, genero,
+        estado_civil:catalogo_estado_civil(nombre),
+        municipio:municipios(nombre, departamento:departamentos(nombre))
       ),
       etapa:etapas(id, codigo, nombre, nivel, orden),
-      sede:sedes(id, nombre),
+      sede:sedes(id, nombre, municipio:municipios(nombre)),
       tecnico:tecnicos(id, primer_nombre, primer_apellido, codigo_tecnico)
     `)
     .eq('ciclo_escolar', parseInt(ciclo))
 
   // ── Filtro por rol ────────────────────────────────────────────────────
   if (s.rol === 'tecnico') {
-    const { data: tec } = await supabaseAdmin
-      .from('tecnicos').select('id').eq('usuario_id', s.sub).single()
-    if (!tec) return ok({ data: [] })
+    const { data: tec, error: eTec } = await supabaseAdmin
+      .from('tecnicos').select('id').eq('usuario_id', s.sub).maybeSingle()
+    if (eTec) return err('Error al resolver perfil de técnico: ' + eTec.message, 500)
+    if (!tec) return err('❌ No se encontró tu perfil de técnico. Contacta al administrador.', 404)
 
     // CORREGIDO: el técnico ve inscripciones de TODAS sus sedes asignadas
     // No solo las que él inscribió directamente (tecnico_id)
@@ -81,16 +84,25 @@ export async function GET(req: NextRequest) {
   }
 
   if (s.rol === 'enlace_institucional') {
-    const { data: enl } = await supabaseAdmin
-      .from('enlaces_institucionales').select('sede_id').eq('usuario_id', s.sub).single()
-    if (!enl) return ok({ data: [] })
-    q = q.eq('sede_id', enl.sede_id)
+    const { data: enl, error: eEnl } = await supabaseAdmin
+      .from('enlaces_institucionales').select('sede_id, tecnico_id').eq('usuario_id', s.sub).maybeSingle()
+    if (eEnl) return err('Error al resolver perfil de enlace: ' + eEnl.message, 500)
+    if (!enl) return err('❌ No se encontró tu perfil de enlace institucional. Contacta al administrador.', 404)
+
+    // Tolerante: ve inscripciones de su sede O las de su técnico asignado
+    // (cubre casos de datos legados donde el sede_id de la inscripción no coincide)
+    if (enl.tecnico_id) {
+      q = q.or(`sede_id.eq.${enl.sede_id},tecnico_id.eq.${enl.tecnico_id}`)
+    } else {
+      q = q.eq('sede_id', enl.sede_id)
+    }
   }
 
   if (s.rol === 'director') {
-    const { data: dir } = await supabaseAdmin
-      .from('directores').select('sede_id').eq('usuario_id', s.sub).single()
-    if (!dir) return ok({ data: [] })
+    const { data: dir, error: eDir } = await supabaseAdmin
+      .from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
+    if (eDir) return err('Error al resolver perfil de director: ' + eDir.message, 500)
+    if (!dir) return err('❌ No se encontró tu perfil de director. Contacta al administrador.', 404)
     q = q.eq('sede_id', dir.sede_id)
   }
 
