@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
     ),
     etapa:etapas(id, nombre, codigo, nivel),
     sede:sedes(nombre),
-    tecnico:tecnicos(primer_nombre, primer_apellido)
+    tecnico:tecnicos!inscripciones_tecnico_id_fkey(primer_nombre, primer_apellido)
   `).eq('id', inscId).single()
 
   if (!insc) return err('Inscripción no encontrada', 404)
