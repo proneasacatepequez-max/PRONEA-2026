@@ -51,13 +51,19 @@ function EscalasContent() {
     if (!etapa) return
     setLoadLib(true)
     setLoadInsc(true)
-    const [lb, ins] = await Promise.all([
+    const [lb, insRes] = await Promise.all([
       fetch(`/api/libros?etapa_id=${etapa.id}`).then(r => r.json()).catch(() => []),
       fetch(`/api/inscripciones?etapa_id=${etapa.id}&estado=en_curso&ciclo=2026`)
-        .then(r => r.json()).catch(() => ({ data: [] })),
+        .then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }))
+        .catch(() => ({ ok: false, body: { error: 'Error de conexión' } })),
     ])
     setLibros(Array.isArray(lb) ? lb : [])
-    setInscripciones(ins.data ?? [])
+    if (!insRes.ok) {
+      flash('❌ ' + (insRes.body?.error ?? 'Error al cargar estudiantes'))
+      setInscripciones([])
+    } else {
+      setInscripciones(insRes.body?.data ?? [])
+    }
     setLoadLib(false)
     setLoadInsc(false)
   }
@@ -648,4 +654,5 @@ export default function TecnicoEscalasPage() {
     </Suspense>
   )
 }
+
 
