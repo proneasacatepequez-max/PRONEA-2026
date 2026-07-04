@@ -40,9 +40,14 @@ function NotasContent() {
     setLoading(true)
     const params = new URLSearchParams({ ciclo, estado: 'en_curso' })
     if (etapaFiltro) params.set('etapa_id', etapaFiltro)
-    const d = await fetch(`/api/inscripciones?${params}`)
-      .then(r => r.json()).catch(() => ({ data: [] }))
-    setInscripciones(d.data ?? [])
+    const res  = await fetch(`/api/inscripciones?${params}`).catch(() => null)
+    const body = await res?.json().catch(() => ({})) ?? {}
+    if (!res || !res.ok) {
+      flash('❌ ' + (body?.error ?? 'Error al cargar estudiantes'))
+      setInscripciones([])
+    } else {
+      setInscripciones(body.data ?? [])
+    }
     setLoading(false)
   }, [ciclo, etapaFiltro])
 
