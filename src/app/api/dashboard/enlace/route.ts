@@ -30,19 +30,19 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Enlace no encontrado' }, { status: 404 })
     }
 
-    // Total estudiantes en su sede
+    // Total estudiantes activos que ESTE enlace inscribió
     const { count: totalEstudiantes } = await supabaseAdmin
       .from('inscripciones')
       .select('*', { count: 'exact', head: true })
-      .eq('sede_id', enlace.sede_id)
+      .eq('creado_por', session.sub)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
 
-    // Total inscripciones cualquier estado
+    // Total inscripciones (cualquier estado) que este enlace inscribió
     const { count: totalTodos } = await supabaseAdmin
       .from('inscripciones')
       .select('*', { count: 'exact', head: true })
-      .eq('sede_id', enlace.sede_id)
+      .eq('creado_por', session.sub)
       .eq('ciclo_escolar', ciclo)
 
     // Notas ingresadas por el enlace
@@ -58,11 +58,11 @@ export async function GET(req: NextRequest) {
       .eq('enlace_id', enlace.id)
       .eq('activo', true)
 
-    // Distribución por etapa
+    // Distribución por etapa (de los estudiantes que este enlace inscribió)
     const { data: porEtapaData } = await supabaseAdmin
       .from('inscripciones')
       .select('etapa:etapas(nombre)')
-      .eq('sede_id', enlace.sede_id)
+      .eq('creado_por', session.sub)
       .eq('ciclo_escolar', ciclo)
       .eq('estado', 'en_curso')
 
