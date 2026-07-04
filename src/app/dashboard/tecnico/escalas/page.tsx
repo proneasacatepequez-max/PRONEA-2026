@@ -183,6 +183,7 @@ function EscalasContent() {
           <div className="page-title">📊 Escalas Numéricas — Registro de Notas</div>
           <div className="text-xs text-gray-400">
             Etapa → Libro → Estudiante → Ingresa notas en la tabla
+            <span className="text-gray-300"> · Ideal para calificar varios estudiantes de la misma etapa/libro seguidos</span>
           </div>
         </div>
         {msg && (
