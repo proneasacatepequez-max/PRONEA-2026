@@ -1,229 +1,130 @@
 'use client'
-// src/app/dashboard/enlace/estudiantes/page.tsx
-// FIX: muestra estudiantes de la sede del enlace, tabla horizontal
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 
-export default function EnlaceEstudiantesPage() {
-  const [inscripciones, setInscripciones] = useState<any[]>([])
-  const [loading,       setLoading]       = useState(true)
-  const [ciclo,         setCiclo]         = useState('2026')
-  const [etapas,        setEtapas]        = useState<any[]>([])
-  const [miPerfil,      setMiPerfil]      = useState<any>(null)
-  const [descargando,   setDescargando]   = useState(false)
-  const [msg,           setMsg]           = useState('')
-  const [filtro, setFiltro] = useState({ buscar: '', etapa_id: '' })
-
-  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
-
-  useEffect(() => {
-    fetch('/api/mi-perfil').then(r => r.json())
-      .then(d => setMiPerfil(d?.perfil ?? null))
-      .catch(() => {})
-    fetch('/api/etapas').then(r => r.json())
-      .then(d => setEtapas(Array.isArray(d) ? d : []))
-      .catch(() => {})
-  }, [])
+export default function EnlaceDashboard() {
+  const [stats,   setStats]   = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [ciclo,   setCiclo]   = useState('2026')
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const params = new URLSearchParams({ ciclo, estado: 'en_curso' })
-    if (filtro.etapa_id) params.set('etapa_id', filtro.etapa_id)
-    const d = await fetch(`/api/inscripciones?${params}`)
-      .then(r => r.json()).catch(() => ({ data: [] }))
-    setInscripciones(d.data ?? [])
+    try {
+      const res = await fetch(`/api/dashboard/enlace?ciclo=${ciclo}`)
+      const d   = await res.json()
+      if (res.ok) setStats(d)
+    } catch {}
     setLoading(false)
-  }, [ciclo, filtro.etapa_id])
+  }, [ciclo])
 
   useEffect(() => { cargar() }, [cargar])
 
-  const filtrados = inscripciones.filter(i => {
-    if (!filtro.buscar.trim()) return true
-    const e   = i.estudiante as any
-    const txt = `${e?.primer_nombre ?? ''} ${e?.primer_apellido ?? ''} ${e?.codigo_estudiante ?? ''} ${e?.cui ?? ''}`.toLowerCase()
-    return txt.includes(filtro.buscar.toLowerCase())
-  })
+  const e   = stats?.estadisticas ?? {}
+  const enl = stats?.enlace
 
-  const descargarExcel = async () => {
-    setDescargando(true)
-    try {
-      const res = await fetch(`/api/tecnico/exportar-estudiantes?ciclo=${ciclo}`)
-      if (!res.ok) { flash('❌ Error al exportar'); return }
-      const blob = await res.blob()
-      const a    = document.createElement('a')
-      a.href     = URL.createObjectURL(blob)
-      a.download = `Estudiantes-Enlace-${ciclo}.xlsx`
-      a.click()
-      URL.revokeObjectURL(a.href)
-      flash('✅ Excel descargado')
-    } catch { flash('❌ Error de red') }
-    finally { setDescargando(false) }
-  }
+  const porEtapa = stats?.porEtapa ?? {}
 
-  const sedeNombre   = (miPerfil?.sede as any)?.nombre ?? null
-  const tecnicoNombre = (miPerfil as any)?.tecnico
-    ? `${(miPerfil as any).tecnico.primer_nombre} ${(miPerfil as any).tecnico.primer_apellido}`
-    : null
-
-  const edad = (fn?: string) => fn ? String(new Date().getFullYear() - new Date(fn).getFullYear()) + ' a.' : '—'
+  const modulos = [
+    { href:'/dashboard/enlace/estudiantes', icon:'🎓', title:'Estudiantes que he inscrito', desc:'Ver listado y datos de los estudiantes que registraste',     color:'border-blue-200 hover:border-blue-400',   permiso: null },
+    { href:'/dashboard/enlace/inscribir',   icon:'➕', title:'Inscribir Estudiante',       desc:'Registrar nuevo estudiante en tu sede',            color:'border-green-200 hover:border-green-400', permiso: null },
+    { href:'/dashboard/enlace/notas',       icon:'📝', title:'Ingresar Notas',             desc:'Calificaciones (requiere autorización del director)', color:'border-purple-200 hover:border-purple-400', permiso: 'ingresar_notas_enlace' },
+    { href:'/dashboard/enlace/recursos',    icon:'🎬', title:'Recursos de Apoyo',          desc:'Material didáctico y videos educativos',           color:'border-orange-200 hover:border-orange-400', permiso: null },
+    { href:'/dashboard/enlace/perfil',      icon:'👤', title:'Mi Perfil',                  desc:'Ver y actualizar mis datos',                       color:'border-gray-200 hover:border-gray-400',   permiso: null },
+  ]
 
   return (
     <div className="ap">
       <header className="topbar">
         <div>
-          <div className="page-title">🎓 Estudiantes de mi Institución</div>
+          <div className="page-title">
+            👋 {loading ? 'Cargando...' : `Bienvenido, ${enl?.primer_nombre ?? 'Enlace'}`}
+          </div>
           <div className="text-xs text-gray-400">
-            {sedeNombre ? `Sede: ${sedeNombre}` : '⚠️ Sin sede asignada'}
-            {tecnicoNombre && ` · Técnico: ${tecnicoNombre}`}
-            {' · '}{filtrados.length} estudiante(s) · ciclo {ciclo}
+            {enl?.cargo ? `${enl.cargo} · ` : ''}
+            {enl?.sede?.nombre ? `🏫 ${enl.sede.nombre}` : ''}
+            {enl?.tecnico ? ` · Técnico: ${enl.tecnico.primer_nombre} ${enl.tecnico.primer_apellido}` : ''}
           </div>
         </div>
-        <div className="flex gap-2">
-          <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
-            <option value="2026">2026</option><option value="2025">2025</option>
-          </select>
-          <button className="btn btn-g" onClick={descargarExcel} disabled={descargando}>
-            {descargando ? '...' : '⬇️ Excel'}
-          </button>
-          <Link href="/dashboard/enlace/inscribir" className="btn btn-p">＋ Inscribir</Link>
-        </div>
+        <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
+          <option value="2026">2026</option>
+          <option value="2025">2025</option>
+        </select>
       </header>
 
       <div className="pc">
-        {msg && <div className={`alert mb-3 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
 
-        {!sedeNombre && (
-          <div className="alert al-w mb-4">
-            ⚠️ Tu cuenta no tiene sede asignada. Pide al director o administrador que la configure
-            en <b>Director → Técnicos y Enlaces → pestaña "Enlaces"</b>.
+        {/* KPIs */}
+        <div className="g4 mb-5">
+          {[
+            { label:'Estudiantes activos', valor: loading ? '…' : e.totalEstudiantes, icon:'🎓', color:'blue'   },
+            { label:'Total inscritos',      valor: loading ? '…' : e.totalTodos,       icon:'📋', color:'green'  },
+            { label:'Notas ingresadas',     valor: loading ? '…' : e.totalNotas,       icon:'📝', color:'purple' },
+            { label:'Permisos activos',     valor: loading ? '…' : e.totalPermisos,    icon:'🔑', color:'yellow' },
+          ].map(s => (
+            <div key={s.label} className={`sc ${s.color} text-center`}>
+              <div className="text-3xl mb-1">{s.icon}</div>
+              <div className="text-2xl font-extrabold text-gray-800">{s.valor}</div>
+              <div className="text-xs text-gray-500 mt-0.5">{s.label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Alerta si no tiene sede o técnico */}
+        {!loading && enl && (!enl.sede?.id || !enl.tecnico?.id) && (
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4 text-sm text-orange-700">
+            ⚠️ <strong>Configuración incompleta:</strong>{' '}
+            {!enl.sede?.id && 'No tienes sede asignada. '}
+            {!enl.tecnico?.id && 'No tienes técnico asignado. '}
+            Contacta al administrador para completar tu perfil.
           </div>
         )}
 
-        <div className="alert al-i mb-4 text-sm">
-          📌 Solo lectura — para ingresar notas el técnico responsable debe autorizar al enlace
-          desde <b>Director → Autorizar Enlaces</b>.
+        {/* Módulos */}
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
+          {modulos.map(m => (
+            <Link key={m.href} href={m.href}
+              className={`card border-2 ${m.color} hover:shadow-md transition-all cursor-pointer block`}>
+              <div className="flex items-start gap-3">
+                <div className="text-3xl flex-shrink-0">{m.icon}</div>
+                <div>
+                  <div className="font-bold text-gray-800 text-sm">{m.title}</div>
+                  <div className="text-xs text-gray-500 mt-0.5">{m.desc}</div>
+                </div>
+              </div>
+            </Link>
+          ))}
         </div>
 
-        {/* Filtros */}
-        <div className="card mb-4">
-          <div className="flex gap-3 flex-wrap">
-            <div className="flex-1 min-w-48">
-              <label className="lbl">Buscar</label>
-              <input className="inp" placeholder="Nombre, código, CUI..."
-                value={filtro.buscar} onChange={e => setFiltro(f => ({ ...f, buscar: e.target.value }))} />
-            </div>
-            <div className="w-44">
-              <label className="lbl">Etapa</label>
-              <select className="inp" value={filtro.etapa_id} onChange={e => setFiltro(f => ({ ...f, etapa_id: e.target.value }))}>
-                <option value="">Todas</option>
-                {etapas.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
-              </select>
-            </div>
-            <div className="flex items-end">
-              <button className="btn btn-g" onClick={() => setFiltro({ buscar:'', etapa_id:'' })}>Limpiar</button>
+        {/* Distribución por etapa */}
+        {!loading && Object.keys(porEtapa).length > 0 && (
+          <div className="card">
+            <div className="card-title">📚 Estudiantes que inscribiste por etapa</div>
+            <div className="space-y-2 mt-2">
+              {Object.entries(porEtapa).sort((a,b) => (b[1] as number)-(a[1] as number)).map(([etapa, count]) => (
+                <div key={etapa} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-600 w-40 truncate">{etapa}</span>
+                  <div className="flex-1 bg-gray-100 rounded-full h-2">
+                    <div className="bg-blue-400 h-2 rounded-full"
+                      style={{ width: `${e.totalEstudiantes > 0 ? ((count as number)/e.totalEstudiantes*100) : 0}%` }} />
+                  </div>
+                  <span className="text-xs font-bold w-6 text-right">{count as number}</span>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        )}
 
-        <div className="card overflow-hidden">
-          {loading ? (
-            <div className="flex justify-center py-12">
-              <div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : filtrados.length === 0 ? (
-            <div className="text-center py-12 text-gray-400">
-              <div className="text-4xl mb-3">🎓</div>
-              <div className="font-semibold text-gray-600">
-                {filtro.buscar || filtro.etapa_id ? 'Sin resultados' : 'Sin estudiantes en tu institución'}
-              </div>
-              {!filtro.buscar && !filtro.etapa_id && (
-                <Link href="/dashboard/enlace/inscribir" className="btn btn-p mt-4 inline-block">
-                  ＋ Inscribir estudiante
-                </Link>
-              )}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse min-w-[1700px]">
-                <thead>
-                  <tr className="bg-gradient-to-r from-orange-600 to-orange-700 text-white text-left">
-                    {[
-                      'Código MINEDUC','Nombre completo','CUI','Género','Edad','Fecha nacimiento',
-                      'Teléfono','Estado civil','Etapa','Versión',
-                      'Municipio inscripción','Municipio residencia','Departamento residencia',
-                      'Técnico a cargo','Enlace a cargo','Estado',
-                    ].map(h => (
-                      <th key={h}
-                        className="px-3 py-2.5 text-xs font-bold uppercase whitespace-nowrap border-r border-orange-500 last:border-0">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtrados.map((insc: any, idx: number) => {
-                    const e = insc.estudiante as any
-                    return (
-                      <tr key={insc.id}
-                        className={`border-b hover:bg-orange-50/40 transition-colors ${idx%2===0?'bg-white':'bg-amber-50/20'}`}>
-                        <td className="px-3 py-2 font-mono text-xs font-bold text-orange-700 whitespace-nowrap">
-                          {e?.codigo_estudiante ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 font-semibold whitespace-nowrap">
-                          {e?.primer_apellido} {e?.segundo_apellido}, {e?.primer_nombre} {e?.segundo_nombre}
-                        </td>
-                        <td className="px-3 py-2 font-mono text-xs text-gray-500 whitespace-nowrap">
-                          {e?.cui ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap capitalize">
-                          {e?.genero ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">{edad(e?.fecha_nacimiento)}</td>
-                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
-                          {e?.fecha_nacimiento ? new Date(e.fecha_nacimiento).toLocaleDateString('es-GT') : '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-600 whitespace-nowrap">{e?.telefono ?? '—'}</td>
-                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
-                          {(e?.estado_civil as any)?.nombre ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs font-semibold whitespace-nowrap">
-                          {(insc.etapa as any)?.nombre}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`badge text-xs ${insc.version_libro==='nuevo'?'badge-blue':'badge-orange'}`}>
-                            {insc.version_libro==='nuevo'?'📗':'📙'}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
-                          {(insc.sede as any)?.municipio?.nombre ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
-                          {(e?.municipio as any)?.nombre ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-gray-500 whitespace-nowrap">
-                          {(e?.municipio as any)?.departamento?.nombre ?? '—'}
-                        </td>
-                        <td className="px-3 py-2 text-xs whitespace-nowrap">
-                          {(insc.tecnico as any)?.primer_nombre} {(insc.tecnico as any)?.primer_apellido}
-                        </td>
-                        <td className="px-3 py-2 text-xs whitespace-nowrap">
-                          {miPerfil?.primer_nombre} {miPerfil?.primer_apellido}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className={`badge text-xs ${insc.estado==='en_curso'?'badge-green':'badge-gray'}`}>
-                            {insc.estado}
-                          </span>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        {/* Sin estudiantes */}
+        {!loading && e.totalEstudiantes === 0 && (
+          <div className="card text-center py-10 text-gray-400">
+            <div className="text-4xl mb-3">🎓</div>
+            <div className="font-semibold text-gray-600">Aún no has inscrito estudiantes en {ciclo}</div>
+            <Link href="/dashboard/enlace/inscribir" className="btn btn-p mt-4 inline-block">
+              ➕ Inscribir primer estudiante
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   )
 }
-
