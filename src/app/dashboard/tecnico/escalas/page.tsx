@@ -75,10 +75,15 @@ function EscalasContent() {
     setNotasMap({}); setAreaSel('')
     if (!libro) return
     setLoadTareas(true)
-    const d = await fetch(`/api/tareas-catalogo?libro_id=${libro.id}&tipo=ambos`)
-      .then(r => r.json()).catch(() => ({ tareas:[], examenes:[] }))
-    setTareas(d.tareas   ?? [])
-    setExamenes(d.examenes ?? [])
+    const res  = await fetch(`/api/tareas-catalogo?libro_id=${libro.id}&tipo=ambos`).catch(() => null)
+    const body = await res?.json().catch(() => ({})) ?? {}
+    if (!res || !res.ok) {
+      flash('❌ ' + (body?.error ?? 'Error al cargar catálogo de tareas'))
+      setTareas([]); setExamenes([])
+    } else {
+      setTareas(body.tareas   ?? [])
+      setExamenes(body.examenes ?? [])
+    }
     setLoadTareas(false)
   }, [])
 
@@ -654,5 +659,6 @@ export default function TecnicoEscalasPage() {
     </Suspense>
   )
 }
+
 
 
