@@ -39,26 +39,26 @@ export async function GET(req: NextRequest) {
 
   // Estudiantes del grupo con datos completos
   const { data: miembros } = await supabaseAdmin
-    .from('estudiantes_grupo_sireex')
+    .from('inscripcion_grupo_sireex')
     .select(`
-      estudiante:estudiantes(
-        id, codigo_estudiante, codigo_sireex,
-        primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
-        apellido_casada, cui, fecha_nacimiento, genero, telefono, correo
-      ),
       inscripcion:inscripciones(
         id, version_libro, estado, ciclo_escolar,
         sede:sedes(nombre),
-        etapa:etapas(id, nombre)
+        etapa:etapas(id, nombre),
+        estudiante:estudiantes(
+          id, codigo_estudiante, codigo_sireex,
+          primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+          apellido_casada, cui, fecha_nacimiento, genero, telefono, correo
+        )
       )
     `)
     .eq('grupo_sireex_id', grupoId)
-    .order('agregado_en')
+    .order('asignado_en')
 
   // Para cada estudiante obtener resumen por área
   const filasConNotas = await Promise.all((miembros ?? []).map(async (m: any, idx: number) => {
-    const e    = m.estudiante   as any
-    const insc = m.inscripcion  as any
+    const insc = m.inscripcion as any
+    const e    = insc?.estudiante as any
 
     const fila: Record<string, any> = {
       'No.':               idx + 1,
@@ -86,81 +86,64 @@ export async function GET(req: NextRequest) {
         .eq('inscripcion_id', insc.id)
         .single()
 
-      // Notas por libro y área
-      const { data: resLibros } = await supabaseAdmin
-        .from('resumen_libro')
-        .select('nota_final, libro:libros(numero, area_id)')
-        .eq('inscripcion_id', insc.id)
+      // CORREGIDO: obtener los 2 libros reales del estudiante (su etapa+versión)
+      const { data: librosEst } = await supabaseAdmin
+        .from('libros')
+        .select('id, numero')
+        .eq('etapa_id', (insc.etapa as any)?.id)
+        .eq('version', insc.version_libro ?? 'nuevo')
+        .eq('activo', true)
 
-      // Para cada área, buscar nota del libro 1 y libro 2
+      const libroIds = (librosEst ?? []).map((l: any) => l.id)
+      const inscId   = insc.id
+
       for (const area of (areas ?? [])) {
-        // Calcular nota por área leyendo notas_tareas y notas_examenes
-        const [
-          { data: tareasL1 },
-          { data: tareasL2 },
-        ] = await Promise.all([
-          supabaseAdmin.from('tareas_catalogo')
-            .select('id, puntos_max')
-            .eq('area_id', area.id)
-            .eq('activo', true),
-          supabaseAdmin.from('tareas_catalogo')
-            .select('id, puntos_max')
-            .eq('area_id', area.id)
-            .eq('activo', true),
-        ])
+        let totalArea = 0
+        let tieneAlgunDato = false
 
-        // Obtener inscripcion_id para notas
-        const inscId = insc.id
+        for (const libroId of libroIds) {
+          const { data: tareas } = await supabaseAdmin
+            .from('tareas_catalogo').select('id, puntos_max')
+            .eq('area_id', area.id).eq('libro_id', libroId).eq('activo', true)
 
-        // Notas de tareas por área de ambos libros
-        const tareaIds = (tareasL1 ?? []).map((t: any) => t.id)
-        let ptsTareas = 0
-        let ptsMax    = 0
+          const tareaIds = (tareas ?? []).map((t: any) => t.id)
+          let ptsTareas = 0
+          const ptsMax  = (tareas ?? []).reduce((a: number, t: any) => a + (t.puntos_max ?? 5), 0)
 
-        if (tareaIds.length > 0) {
-          const { data: notasTareas } = await supabaseAdmin
-            .from('notas_tareas')
-            .select('nota, tarea_id')
-            .eq('inscripcion_id', inscId)
-            .in('tarea_id', tareaIds)
-
-          const notaMap = new Map((notasTareas ?? []).map((n: any) => [n.tarea_id, n.nota]))
-          ptsMax    = (tareasL1 ?? []).reduce((a: number, t: any) => a + (t.puntos_max ?? 5), 0)
-          ptsTareas = (tareasL1 ?? []).reduce((a: number, t: any) => a + (notaMap.get(t.id) ?? 0), 0)
-        }
-
-        const ptsTareasEscala = ptsMax > 0 ? Math.round((ptsTareas / ptsMax) * 30 * 10) / 10 : 0
-
-        // Examen del área
-        const { data: exArea } = await supabaseAdmin
-          .from('examenes_catalogo')
-          .select('id')
-          .eq('area_id', area.id)
-          .eq('activo', true)
-          .limit(1)
-          .single()
-
-        let ptsExamen = null
-        if (exArea) {
-          const { data: notaEx } = await supabaseAdmin
-            .from('notas_examenes')
-            .select('nota_original')
-            .eq('inscripcion_id', inscId)
-            .eq('examen_id', exArea.id)
-            .single()
-          if (notaEx?.nota_original !== null && notaEx?.nota_original !== undefined) {
-            ptsExamen = Math.round((notaEx.nota_original / 100) * 20 * 10) / 10
+          if (tareaIds.length > 0) {
+            const { data: notasTareas } = await supabaseAdmin
+              .from('notas_tareas').select('nota, tarea_id')
+              .eq('inscripcion_id', inscId).in('tarea_id', tareaIds)
+            const notaMap = new Map((notasTareas ?? []).map((n: any) => [n.tarea_id, n.nota]))
+            ptsTareas = tareaIds.reduce((a: number, id: string) => a + (Number(notaMap.get(id)) || 0), 0)
+            if ((notasTareas ?? []).length > 0) tieneAlgunDato = true
           }
+
+          const ptsTareasEscala = ptsMax > 0 ? Math.round((ptsTareas / ptsMax) * 30 * 10) / 10 : 0
+
+          const { data: exArea } = await supabaseAdmin
+            .from('examenes_catalogo').select('id')
+            .eq('area_id', area.id).eq('libro_id', libroId).eq('activo', true)
+            .maybeSingle()
+
+          let ptsExamen = 0
+          if (exArea) {
+            const { data: notaEx } = await supabaseAdmin
+              .from('notas_examenes').select('nota_original')
+              .eq('inscripcion_id', inscId).eq('examen_id', exArea.id).maybeSingle()
+            if (notaEx?.nota_original !== null && notaEx?.nota_original !== undefined) {
+              ptsExamen = Math.round((notaEx.nota_original / 100) * 20 * 10) / 10
+              tieneAlgunDato = true
+            }
+          }
+
+          totalArea += ptsTareasEscala + ptsExamen
         }
 
-        const totalArea = ptsExamen !== null
-          ? Math.round((ptsTareasEscala + ptsExamen) * 10) / 10
-          : null
+        totalArea = Math.round(totalArea * 10) / 10
 
         const areaCodigo = area.codigo ?? area.nombre.substring(0, 4).toUpperCase()
-        fila[`${areaCodigo} Tareas/30`]  = ptsTareasEscala > 0 ? ptsTareasEscala : ''
-        fila[`${areaCodigo} Examen/20`]  = ptsExamen !== null  ? ptsExamen : ''
-        fila[`${areaCodigo} Total/50`]   = totalArea !== null  ? totalArea : ''
+        fila[`${areaCodigo} Total/100`] = tieneAlgunDato ? totalArea : ''
       }
 
       fila['NOTA FINAL']  = resumenEtapa?.nota_final_etapa ?? ''
@@ -171,9 +154,7 @@ export async function GET(req: NextRequest) {
       // Sin inscripción — celdas vacías para las notas
       for (const area of (areas ?? [])) {
         const c = area.codigo ?? area.nombre.substring(0, 4).toUpperCase()
-        fila[`${c} Tareas/30`] = ''
-        fila[`${c} Examen/20`] = ''
-        fila[`${c} Total/50`]  = ''
+        fila[`${c} Total/100`] = ''
       }
       fila['NOTA FINAL'] = ''
       fila['PROMOVIDO']  = ''
