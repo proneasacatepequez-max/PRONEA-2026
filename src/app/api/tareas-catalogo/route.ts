@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
   if (tipo === 'tareas' || tipo === 'ambos') {
     let q = supabaseAdmin.from('tareas_catalogo')
       .select(`
-        id, numero_tarea, nombre, descripcion, paginas,
+        id, numero_tarea, nombre, paginas,
         proyecto, leccion, puntos_max, activo,
         area:areas(id, nombre, codigo)
       `)
@@ -94,7 +94,6 @@ export async function POST(req: NextRequest) {
         area_id:      parseInt(String(area_id)),
         numero_tarea: parseInt(String(b.numero_tarea ?? 1)),
         nombre:       b.nombre.trim(),
-        descripcion:  b.descripcion?.trim()  || null,
         paginas:      b.paginas?.trim()      || null,
         proyecto:     b.proyecto?.trim()     || null,
         leccion:      b.leccion?.trim()      || null,
@@ -142,7 +141,6 @@ export async function PATCH(req: NextRequest) {
   if (tipo === 'tarea') {
     const upd: any = {}
     if (b.nombre       !== undefined) upd.nombre       = b.nombre.trim()
-    if (b.descripcion  !== undefined) upd.descripcion  = b.descripcion?.trim() || null
     if (b.paginas      !== undefined) upd.paginas      = b.paginas?.trim()     || null
     if (b.proyecto     !== undefined) upd.proyecto     = b.proyecto?.trim()    || null
     if (b.leccion      !== undefined) upd.leccion      = b.leccion?.trim()     || null
