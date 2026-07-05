@@ -89,47 +89,69 @@ export async function GET(req: NextRequest) {
     const inscId = insc?.id
     const notasArea: Record<string, any> = {}
 
-    if (inscId) {
+    if (inscId && insc?.etapa?.id) {
+      // CORREGIDO: los libros del estudiante son SOLO los 2 (numero 1 y 2)
+      // de SU etapa y SU versión (nuevo/viejo) — antes se mezclaban tareas
+      // de todas las etapas y todos los libros del sistema.
+      const { data: librosEst } = await supabaseAdmin
+        .from('libros')
+        .select('id, numero')
+        .eq('etapa_id', insc.etapa.id)
+        .eq('version', insc.version_libro ?? 'nuevo')
+        .eq('activo', true)
+
+      const libroIds = (librosEst ?? []).map((l: any) => l.id)
+
       for (const area of (areas ?? [])) {
-        const { data: tareas } = await supabaseAdmin
-          .from('tareas_catalogo').select('id, puntos_max')
-          .eq('area_id', area.id).eq('activo', true)
+        let totalArea = 0
+        let algunLibroCompleto = false
+        let algunLibroConDatos = false
 
-        const tareaIds = (tareas ?? []).map((t: any) => t.id)
-        let ptsTareas = 0, ptsMax = 0
+        for (const libroId of libroIds) {
+          const { data: tareas } = await supabaseAdmin
+            .from('tareas_catalogo').select('id, puntos_max')
+            .eq('area_id', area.id).eq('libro_id', libroId).eq('activo', true)
 
-        if (tareaIds.length > 0) {
-          const { data: notas } = await supabaseAdmin
-            .from('notas_tareas').select('nota')
-            .eq('inscripcion_id', inscId).in('tarea_id', tareaIds)
+          const tareaIds = (tareas ?? []).map((t: any) => t.id)
+          let ptsTareas = 0
+          const ptsMax  = (tareas ?? []).reduce((a: number, t: any) => a + (t.puntos_max ?? 5), 0)
 
-          ptsMax    = (tareas ?? []).reduce((a: number, t: any) => a + (t.puntos_max ?? 5), 0)
-          ptsTareas = (notas ?? []).reduce((a: number, n: any) => a + (n.nota ?? 0), 0)
-        }
-
-        const ptsTareasEscala = ptsMax > 0 ? Math.round((ptsTareas / ptsMax) * 30 * 10) / 10 : 0
-
-        const { data: exArea } = await supabaseAdmin
-          .from('examenes_catalogo').select('id')
-          .eq('area_id', area.id).eq('activo', true).limit(1).single()
-
-        let ptsExamen: number | null = null
-        if (exArea) {
-          const { data: nEx } = await supabaseAdmin
-            .from('notas_examenes').select('nota_original')
-            .eq('inscripcion_id', inscId).eq('examen_id', exArea.id).single()
-          if (nEx?.nota_original !== null && nEx?.nota_original !== undefined) {
-            ptsExamen = Math.round((nEx.nota_original / 100) * 20 * 10) / 10
+          if (tareaIds.length > 0) {
+            const { data: notas } = await supabaseAdmin
+              .from('notas_tareas').select('nota')
+              .eq('inscripcion_id', inscId).in('tarea_id', tareaIds)
+            ptsTareas = (notas ?? []).reduce((a: number, n: any) => a + (n.nota ?? 0), 0)
+            if ((notas ?? []).length > 0) algunLibroConDatos = true
           }
+
+          const ptsTareasEscala = ptsMax > 0 ? Math.round((ptsTareas / ptsMax) * 30 * 10) / 10 : 0
+
+          const { data: exArea } = await supabaseAdmin
+            .from('examenes_catalogo').select('id')
+            .eq('area_id', area.id).eq('libro_id', libroId).eq('activo', true)
+            .maybeSingle()
+
+          let ptsExamen = 0
+          if (exArea) {
+            const { data: nEx } = await supabaseAdmin
+              .from('notas_examenes').select('nota_original')
+              .eq('inscripcion_id', inscId).eq('examen_id', exArea.id).maybeSingle()
+            if (nEx?.nota_original !== null && nEx?.nota_original !== undefined) {
+              ptsExamen = Math.round((nEx.nota_original / 100) * 20 * 10) / 10
+              algunLibroCompleto = true
+            }
+          }
+
+          totalArea += ptsTareasEscala + ptsExamen
         }
 
-        const totalArea = ptsExamen !== null
-          ? Math.round((ptsTareasEscala + ptsExamen) * 10) / 10
-          : null
+        totalArea = Math.round(totalArea * 10) / 10
 
         notasArea[area.codigo ?? area.nombre] = {
-          nombre: area.nombre, tareas: ptsTareasEscala, examen: ptsExamen,
-          total: totalArea, promovido: totalArea !== null ? totalArea >= 30 : null,
+          nombre: area.nombre,
+          total: algunLibroConDatos || algunLibroCompleto ? totalArea : null,
+          // Aprobado sobre el total de 100 (libro 1 + libro 2), umbral 60%
+          promovido: (algunLibroConDatos || algunLibroCompleto) ? totalArea >= 60 : null,
         }
       }
     }
