@@ -19,6 +19,12 @@ function EscalasContent() {
   const [loadTareas, setLoadTareas] = useState(false)
   const [loading,    setLoading]    = useState(true)
 
+  // Editar / crear / eliminar tarea (corrección manual del catálogo)
+  const [modalTarea,     setModalTarea]     = useState<'crear' | any>(null)
+  const [formTarea,      setFormTarea]      = useState<any>({})
+  const [guardandoTarea, setGuardandoTarea] = useState(false)
+  const [eliminandoId,   setEliminandoId]   = useState<string | null>(null)
+
   // Estudiantes
   const [inscripciones, setInscripciones] = useState<any[]>([])
   const [loadInsc,      setLoadInsc]      = useState(false)
@@ -94,6 +100,71 @@ function EscalasContent() {
     if (!libroSel || !inscSel) return
     cargarNotas(inscSel, libroSel)
   }, [libroSel])
+
+  // ── Editar / crear / eliminar tarea (corrección manual del catálogo) ────
+  const abrirEditarTarea = (t: any, areaIdDefault?: number) => {
+    if (t === 'crear') {
+      setFormTarea({
+        numero_tarea: '', nombre: '', paginas: '', proyecto: '', leccion: '',
+        puntos_max: 5, area_id: areaIdDefault ?? areas[0]?.id ?? '',
+      })
+      setModalTarea('crear')
+    } else {
+      setFormTarea({
+        numero_tarea: t.numero_tarea ?? '',
+        nombre:       t.nombre ?? '',
+        paginas:      t.paginas ?? '',
+        proyecto:     t.proyecto ?? '',
+        leccion:      t.leccion ?? '',
+        puntos_max:   t.puntos_max ?? 5,
+        area_id:      t.area?.id ?? '',
+      })
+      setModalTarea(t)
+    }
+  }
+
+  const guardarTarea = async () => {
+    if (!formTarea.nombre?.trim()) return flash('❌ El nombre/descripción de la tarea es requerido')
+    if (!formTarea.area_id)        return flash('❌ Selecciona un área')
+    setGuardandoTarea(true)
+    try {
+      const esNueva = modalTarea === 'crear'
+      const res = await fetch('/api/tareas-catalogo', {
+        method: esNueva ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(esNueva ? { libro_id: libroSel.id } : { id: modalTarea.id }),
+          tipo: 'tarea',
+          area_id:      formTarea.area_id,
+          numero_tarea: formTarea.numero_tarea,
+          nombre:       formTarea.nombre,
+          paginas:      formTarea.paginas,
+          proyecto:     formTarea.proyecto,
+          leccion:      formTarea.leccion,
+          puntos_max:   formTarea.puntos_max,
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al guardar')); return }
+      flash(esNueva ? '✅ Tarea creada' : '✅ Tarea corregida')
+      setModalTarea(null)
+      seleccionarLibro(libroSel)
+    } catch { flash('❌ Error de conexión') }
+    finally { setGuardandoTarea(false) }
+  }
+
+  const eliminarTarea = async (t: any) => {
+    if (!confirm(`¿Eliminar la tarea "${t.nombre}"? Si ya tiene notas registradas, solo se desactivará.`)) return
+    setEliminandoId(t.id)
+    try {
+      const res = await fetch(`/api/tareas-catalogo?id=${t.id}&tipo=tarea`, { method: 'DELETE' })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al eliminar')); return }
+      flash(d.accion === 'desactivada' ? '⚠️ Tarea desactivada (ya tenía notas)' : '✅ Tarea eliminada')
+      seleccionarLibro(libroSel)
+    } catch { flash('❌ Error de conexión') }
+    finally { setEliminandoId(null) }
+  }
 
   // Estudiante → cargar notas
   const seleccionarEstudiante = async (insc: any) => {
@@ -454,6 +525,14 @@ function EscalasContent() {
                         <th className={`px-3 py-2.5 w-28 text-center ${inscSel ? 'text-blue-600 font-extrabold' : ''}`}>
                           {inscSel ? '✏️ Nota' : 'Nota'}
                         </th>
+                        <th className="px-3 py-2.5 w-20 text-center">
+                          <button
+                            className="btn btn-g btn-sm text-xs"
+                            title="Agregar tarea a esta área/libro"
+                            onClick={() => abrirEditarTarea('crear', areaSel ? parseInt(areaSel) : undefined)}>
+                            ＋
+                          </button>
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -542,6 +621,25 @@ function EscalasContent() {
                                 <span className="text-gray-200 text-lg">—</span>
                               )}
                             </td>
+
+                            {/* Acciones — corrección manual */}
+                            <td className="px-3 py-2.5 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <button
+                                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-blue-50 text-blue-600"
+                                  title="Corregir esta tarea"
+                                  onClick={() => abrirEditarTarea(t)}>
+                                  ✏️
+                                </button>
+                                <button
+                                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-red-500 disabled:opacity-40"
+                                  title="Eliminar tarea"
+                                  disabled={eliminandoId === t.id}
+                                  onClick={() => eliminarTarea(t)}>
+                                  {eliminandoId === t.id ? '⏳' : '🗑️'}
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         )
                       })}
@@ -549,7 +647,7 @@ function EscalasContent() {
                       {/* Separador exámenes */}
                       {examenesVista.length > 0 && (
                         <tr className="bg-purple-100 border-y-2 border-purple-200">
-                          <td colSpan={7} className="px-4 py-2 text-xs font-extrabold text-purple-800 uppercase tracking-wide">
+                          <td colSpan={8} className="px-4 py-2 text-xs font-extrabold text-purple-800 uppercase tracking-wide">
                             📝 Exámenes de área — ingresar nota sobre 100
                             <span className="font-normal text-purple-500 ml-2">(se convierte automáticamente a puntos)</span>
                           </td>
@@ -629,6 +727,7 @@ function EscalasContent() {
                                 <span className="text-gray-200 text-lg">—</span>
                               )}
                             </td>
+                            <td className="px-3 py-2.5 text-center text-gray-200">—</td>
                           </tr>
                         )
                       })}
@@ -664,6 +763,69 @@ function EscalasContent() {
           </div>
         </div>
       </div>
+
+      {/* Modal editar/crear tarea — corrección manual del catálogo */}
+      {modalTarea && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold">
+                {modalTarea === 'crear' ? '＋ Nueva tarea' : '✏️ Corregir tarea'}
+              </h3>
+              <button onClick={() => setModalTarea(null)}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div className="bg-blue-50 rounded-xl p-3 text-sm text-gray-600">
+                {etapaSel?.nombre} — Libro {libroSel?.numero} ({libroSel?.version})
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="fg">
+                  <label className="lbl">Área *</label>
+                  <select className="inp" value={formTarea.area_id ?? ''}
+                    onChange={e => setFormTarea((f: any) => ({ ...f, area_id: e.target.value }))}>
+                    <option value="">— Seleccionar —</option>
+                    {areas.map((a: any) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                  </select>
+                </div>
+                <div className="fg">
+                  <label className="lbl">No. de tarea</label>
+                  <input type="number" className="inp" value={formTarea.numero_tarea ?? ''}
+                    onChange={e => setFormTarea((f: any) => ({ ...f, numero_tarea: e.target.value }))} />
+                </div>
+              </div>
+              <div className="fg">
+                <label className="lbl">Descripción de la tarea *</label>
+                <input className="inp" value={formTarea.nombre ?? ''}
+                  onChange={e => setFormTarea((f: any) => ({ ...f, nombre: e.target.value }))} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="fg">
+                  <label className="lbl">Página</label>
+                  <input className="inp" value={formTarea.paginas ?? ''}
+                    onChange={e => setFormTarea((f: any) => ({ ...f, paginas: e.target.value }))} />
+                </div>
+                <div className="fg">
+                  <label className="lbl">{labelProy}</label>
+                  <input className="inp" value={formTarea[campoProy] ?? formTarea.proyecto ?? formTarea.leccion ?? ''}
+                    onChange={e => setFormTarea((f: any) => ({ ...f, [campoProy]: e.target.value }))} />
+                </div>
+                <div className="fg">
+                  <label className="lbl">Puntos máx.</label>
+                  <input type="number" step="0.5" className="inp" value={formTarea.puntos_max ?? 5}
+                    onChange={e => setFormTarea((f: any) => ({ ...f, puntos_max: e.target.value }))} />
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+              <button className="btn btn-g" onClick={() => setModalTarea(null)}>Cancelar</button>
+              <button className="btn btn-p" onClick={guardarTarea} disabled={guardandoTarea}>
+                {guardandoTarea ? '⏳ Guardando...' : '💾 Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
