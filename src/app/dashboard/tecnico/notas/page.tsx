@@ -82,14 +82,21 @@ function NotasContent() {
     setExamenes([])
     setNotasMap({})
 
-    const [catalogoRes, notasTareasRes, notasExamRes] = await Promise.all([
-      fetch(`/api/tareas-catalogo?libro_id=${libro.id}&tipo=ambos`).then(r => r.json()).catch(() => ({ tareas:[], examenes:[] })),
+    const [catalogoRaw, notasTareasRes, notasExamRes] = await Promise.all([
+      fetch(`/api/tareas-catalogo?libro_id=${libro.id}&tipo=ambos`)
+        .then(async r => ({ ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) }))
+        .catch(() => ({ ok: false, status: 0, body: { error: 'Error de conexión' } })),
       fetch(`/api/notas?inscripcion_id=${inscSel.id}&libro_id=${libro.id}&tipo=tareas`).then(r => r.json()).catch(() => ({ tareas:[] })),
       fetch(`/api/notas?inscripcion_id=${inscSel.id}&libro_id=${libro.id}&tipo=examenes`).then(r => r.json()).catch(() => ({ examenes:[] })),
     ])
 
-    setTareas(catalogoRes.tareas   ?? [])
-    setExamenes(catalogoRes.examenes ?? [])
+    if (!catalogoRaw.ok) {
+      flash('❌ ' + (catalogoRaw.body?.error ?? `Error al cargar catálogo (${catalogoRaw.status})`))
+      setTareas([]); setExamenes([])
+    } else {
+      setTareas(catalogoRaw.body.tareas   ?? [])
+      setExamenes(catalogoRaw.body.examenes ?? [])
+    }
 
     const mapa: Record<string, number | null> = {}
     for (const n of (notasTareasRes.tareas   ?? [])) mapa[`t-${n.tarea_id}`]   = n.nota
