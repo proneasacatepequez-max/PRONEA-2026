@@ -27,7 +27,35 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await q
   if (error) return err(error.message, 500)
-  return ok(data ?? [])
+
+  // BLINDAJE: si existen libros duplicados para la misma combinación
+  // etapa+numero+version (bug de datos), nos quedamos con uno solo por
+  // grupo — el que tenga más tareas activas en el catálogo — para que
+  // el frontend nunca muestre un "Libro 1" vacío cuando existe otro con datos.
+  const libros = data ?? []
+  const grupos = new Map<string, any[]>()
+  for (const l of libros) {
+    const key = `${l.etapa_id}-${l.numero}-${l.version}`
+    if (!grupos.has(key)) grupos.set(key, [])
+    grupos.get(key)!.push(l)
+  }
+
+  const resultado: any[] = []
+  for (const grupo of grupos.values()) {
+    if (grupo.length === 1) { resultado.push(grupo[0]); continue }
+    // Hay duplicados: contar tareas activas de cada uno y quedarnos con el mejor
+    const conteos = await Promise.all(grupo.map(async (l: any) => {
+      const { count } = await supabaseAdmin.from('tareas_catalogo')
+        .select('*', { count: 'exact', head: true })
+        .eq('libro_id', l.id).eq('activo', true)
+      return { libro: l, total: count ?? 0 }
+    }))
+    conteos.sort((a, b) => b.total - a.total)
+    resultado.push(conteos[0].libro)
+  }
+  resultado.sort((a, b) => a.numero - b.numero)
+
+  return ok(resultado)
 }
 
 export async function POST(req: NextRequest) {
@@ -87,4 +115,5 @@ export async function DELETE(req: NextRequest) {
   if (error) return err(error.message, 500)
   return ok({ ok: true })
 }
+
 
