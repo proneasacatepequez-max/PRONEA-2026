@@ -193,7 +193,6 @@ export async function POST(req: NextRequest) {
     if (existente) {
       const { error } = await supabaseAdmin.from('notas_examenes').update({
         nota_original: notaFinal,
-        puntos_obtenidos: puntos,
         actualizado_en: new Date().toISOString(),
       }).eq('id', existente.id)
       if (error) return err(error.message, 500)
@@ -203,7 +202,6 @@ export async function POST(req: NextRequest) {
         inscripcion_id,
         examen_id,
         nota_original: notaFinal,
-        puntos_obtenidos: puntos,
         registrado_por: s.sub,
       }).select('id').single()
       if (error) return err(error.message, 500)
