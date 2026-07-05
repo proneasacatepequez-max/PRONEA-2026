@@ -13,6 +13,8 @@ function EscalasContent() {
   const [examenes,   setExamenes]   = useState<any[]>([])
   const [areas,      setAreas]      = useState<any[]>([])
   const [areaSel,    setAreaSel]    = useState('')
+  const [buscarPagina, setBuscarPagina] = useState('')
+  const [ordenPagina,  setOrdenPagina]  = useState(false)
   const [loadLib,    setLoadLib]    = useState(false)
   const [loadTareas, setLoadTareas] = useState(false)
   const [loading,    setLoading]    = useState(true)
@@ -151,13 +153,20 @@ function EscalasContent() {
     libros.filter((l: any) => l.version === v).sort((a: any, b: any) => a.numero - b.numero)
 
   const areasConTareas = areas.filter(a =>
-    tareas.some((t: any) => t.area?.id === a.id) ||
-    examenes.some((e: any) => e.area?.id === a.id)
+    tareas.some((t: any) => String(t.area?.id) === String(a.id)) ||
+    examenes.some((e: any) => String(e.area?.id) === String(a.id))
   )
 
   const tareasVista   = (areaSel
     ? tareas.filter((t: any)   => String(t.area?.id) === areaSel)
-    : tareas).sort((a: any, b: any) => {
+    : tareas)
+    .filter((t: any) => !buscarPagina.trim() || String(t.paginas ?? '').includes(buscarPagina.trim()))
+    .sort((a: any, b: any) => {
+      if (ordenPagina) {
+        const pA = parseInt(String(a.paginas ?? '').match(/\d+/)?.[0] ?? '999999')
+        const pB = parseInt(String(b.paginas ?? '').match(/\d+/)?.[0] ?? '999999')
+        if (pA !== pB) return pA - pB
+      }
       const aA = a.area?.nombre ?? ''; const aB = b.area?.nombre ?? ''
       return aA !== aB ? aA.localeCompare(aB) : a.numero_tarea - b.numero_tarea
     })
@@ -403,18 +412,32 @@ function EscalasContent() {
                       </div>
                     )}
                   </div>
-                  {/* Filtro de área inline */}
-                  {areasConTareas.length > 1 && (
-                    <select
-                      className="inp text-xs w-44 bg-white/10 border-white/20 text-white"
-                      value={areaSel}
-                      onChange={e => setAreaSel(e.target.value)}>
-                      <option value="">Todas las áreas</option>
-                      {areasConTareas.map((a: any) => (
-                        <option key={a.id} value={a.id}>{a.nombre}</option>
-                      ))}
-                    </select>
-                  )}
+                  {/* Filtros: área, página, orden */}
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {areasConTareas.length > 0 && (
+                      <select
+                        className="inp text-xs w-44 bg-white/10 border-white/20 text-white"
+                        value={areaSel}
+                        onChange={e => setAreaSel(e.target.value)}>
+                        <option value="" className="text-black">Todas las áreas</option>
+                        {areasConTareas.map((a: any) => (
+                          <option key={a.id} value={a.id} className="text-black">{a.nombre}</option>
+                        ))}
+                      </select>
+                    )}
+                    <input
+                      className="inp text-xs w-28 bg-white/10 border-white/20 text-white placeholder-white/50"
+                      placeholder="Buscar página..."
+                      value={buscarPagina}
+                      onChange={e => setBuscarPagina(e.target.value)}
+                    />
+                    <button
+                      className={`text-xs px-2 py-1.5 rounded-lg border ${ordenPagina ? 'bg-white/20 border-white/40' : 'bg-white/10 border-white/20'} text-white whitespace-nowrap`}
+                      title="Ordenar por página, de menor a mayor"
+                      onClick={() => setOrdenPagina(v => !v)}>
+                      📄 {ordenPagina ? '✓ ' : ''}Ordenar por página
+                    </button>
+                  </div>
                 </div>
 
                 {/* Tabla */}
@@ -659,6 +682,5 @@ export default function TecnicoEscalasPage() {
     </Suspense>
   )
 }
-
 
 
