@@ -39,13 +39,27 @@ export async function POST(req: NextRequest) {
   const resultados = []
 
   for (const num of nums) {
-    const { data: libro } = await supabaseAdmin.from('libros')
+    const { data: librosCandidatos } = await supabaseAdmin.from('libros')
       .select('id, nombre, numero, version')
       .eq('etapa_id', insc.etapa_id)
       .eq('numero', num)
       .eq('version', insc.version_libro)
-      .eq('activo', true).single()
-    if (!libro) continue
+      .eq('activo', true)
+
+    if (!librosCandidatos || librosCandidatos.length === 0) continue
+
+    // BLINDAJE: si hay duplicados (mismo etapa+numero+version), usar el
+    // que realmente tenga tareas en el catálogo
+    let libro = librosCandidatos[0]
+    if (librosCandidatos.length > 1) {
+      const conteos = await Promise.all(librosCandidatos.map(async (l: any) => {
+        const { count } = await supabaseAdmin.from('tareas_catalogo')
+          .select('*', { count: 'exact', head: true }).eq('libro_id', l.id).eq('activo', true)
+        return { libro: l, total: count ?? 0 }
+      }))
+      conteos.sort((a, b) => b.total - a.total)
+      libro = conteos[0].libro
+    }
 
     // Tareas con su área
     const { data: tareasCatalogo } = await supabaseAdmin.from('tareas_catalogo')
@@ -186,3 +200,4 @@ export async function POST(req: NextRequest) {
 
   return ok({ ok: true, resultados })
 }
+
