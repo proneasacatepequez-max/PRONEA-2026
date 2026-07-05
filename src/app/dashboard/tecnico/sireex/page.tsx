@@ -428,7 +428,7 @@ export default function TecnicoSireexPage() {
                               <th className="px-2 py-2 text-left border-r border-blue-700">Etapa</th>
                               {areas.map((a:any) => (
                                 <th key={a.id} className="px-2 py-2 text-center border-r border-blue-700">
-                                  {nombreArea(a.codigo)}<div className="font-normal text-blue-200">/50</div>
+                                  {nombreArea(a.codigo)}<div className="font-normal text-blue-200">/100</div>
                                 </th>
                               ))}
                               <th className="px-2 py-2 text-center border-r border-blue-700">Total</th>
@@ -455,7 +455,7 @@ export default function TecnicoSireexPage() {
                                     const val  = nota?.total
                                     return (
                                       <td key={a.id} className={`px-2 py-2 text-center font-bold ${
-                                        val==null?'text-gray-300':val>=30?'text-green-600':'text-red-500'
+                                        val==null?'text-gray-300':val>=60?'text-green-600':'text-red-500'
                                       }`}>{val!=null?val:'—'}</td>
                                     )
                                   })}
@@ -492,3 +492,4 @@ export default function TecnicoSireexPage() {
     </div>
   )
 }
+
