@@ -11,6 +11,8 @@ export default function AdminAutorizacionesPage() {
   const [saving,  setSaving]  = useState<string | null>(null)
   const [sede,    setSede]    = useState<any>(null)
   const [loadingSede, setLoadingSede] = useState(false)
+  const [modalReactivar, setModalReactivar] = useState<any>(null)
+  const [fechaReactivar, setFechaReactivar] = useState('')
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
 
@@ -65,18 +67,21 @@ export default function AdminAutorizacionesPage() {
     setSaving(null)
   }
 
-  const reactivar = async (a: any) => {
-    if (!confirm(`¿Reactivar y confirmar de una vez la autorización de ${(a.enlace as any)?.primer_nombre} ${(a.enlace as any)?.primer_apellido}?`)) return
-    const nuevaFecha = prompt('Nueva fecha de vencimiento (opcional, formato AAAA-MM-DD). Deja vacío para sin límite:', a.fecha_fin ?? '')
-    if (nuevaFecha === null) return
-    setSaving(a.id)
+  const reactivar = (a: any) => {
+    setFechaReactivar(a.fecha_fin ?? '')
+    setModalReactivar(a)
+  }
+
+  const confirmarReactivar = async () => {
+    if (!modalReactivar) return
+    setSaving(modalReactivar.id)
     const res = await fetch('/api/autorizaciones', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: a.id, accion: 'reactivar', fecha_fin: nuevaFecha || null }),
+      body: JSON.stringify({ id: modalReactivar.id, accion: 'reactivar', fecha_fin: fechaReactivar || null }),
     })
     const d = await res.json()
     flash(res.ok ? '✅ Reactivada y confirmada — el enlace ya puede actuar' : '❌ ' + (d.error ?? 'Error'))
-    if (res.ok) await cargar()
+    if (res.ok) { setModalReactivar(null); await cargar() }
     setSaving(null)
   }
 
@@ -233,6 +238,39 @@ export default function AdminAutorizacionesPage() {
           </div>
         )}
       </div>
+
+      {/* Modal reactivar — input type=date evita errores de formato */}
+      {modalReactivar && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 pt-16">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold">🔄 Reactivar y confirmar</h3>
+              <button onClick={() => setModalReactivar(null)}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                Enlace: <b>{modalReactivar.enlace?.primer_nombre} {modalReactivar.enlace?.primer_apellido}</b>
+              </p>
+              <p className="text-xs text-green-600 bg-green-50 rounded-lg p-2">
+                ✅ Al reactivar como administrador, queda confirmada de inmediato — el enlace podrá actuar sin pasos adicionales.
+              </p>
+              <div className="fg">
+                <label className="lbl">Nueva fecha de vencimiento (opcional)</label>
+                <input type="date" className="inp" value={fechaReactivar}
+                  onChange={e => setFechaReactivar(e.target.value)} />
+                <p className="text-xs text-gray-400 mt-1">Déjalo vacío para que no tenga fecha límite.</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+              <button className="btn btn-g" onClick={() => setModalReactivar(null)}>Cancelar</button>
+              <button className="btn btn-p" onClick={confirmarReactivar} disabled={saving === modalReactivar.id}>
+                {saving === modalReactivar.id ? '⏳ Reactivando...' : '🔄 Reactivar y confirmar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
