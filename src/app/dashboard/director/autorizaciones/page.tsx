@@ -60,6 +60,19 @@ export default function AutorizacionesDirectorPage() {
     if (res.ok) await cargar()
   }
 
+  const reactivar = async (a: any) => {
+    if (!confirm(`¿Reactivar la autorización de ${(a.enlace as any)?.primer_nombre} ${(a.enlace as any)?.primer_apellido}? El administrador deberá confirmarla de nuevo antes de que pueda ingresar notas.`)) return
+    const nuevaFecha = prompt('Nueva fecha de vencimiento (opcional, formato AAAA-MM-DD). Deja vacío para sin límite:', a.fecha_fin ?? '')
+    if (nuevaFecha === null) return // canceló
+    const res = await fetch('/api/autorizaciones', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: a.id, accion: 'reactivar', fecha_fin: nuevaFecha || null }),
+    })
+    const d = await res.json()
+    flash(res.ok ? '✅ Reactivada — pendiente de confirmación del administrador' : '❌ ' + (d.error ?? 'Error'))
+    if (res.ok) await cargar()
+  }
+
   const pendientes = auths.filter(a => !a.autorizado_por_admin && a.activo)
   const activas    = auths.filter(a =>  a.autorizado_por_admin && a.activo)
   const revocadas  = auths.filter(a => !a.activo)
@@ -165,6 +178,11 @@ export default function AutorizacionesDirectorPage() {
                     {a.activo && (
                       <button className="btn btn-d btn-sm flex-shrink-0" onClick={() => revocar(a.id)}>
                         Revocar
+                      </button>
+                    )}
+                    {!a.activo && (
+                      <button className="btn btn-p btn-sm flex-shrink-0" onClick={() => reactivar(a)}>
+                        🔄 Reactivar
                       </button>
                     )}
                   </div>
