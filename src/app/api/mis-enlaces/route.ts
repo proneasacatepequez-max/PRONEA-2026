@@ -51,20 +51,39 @@ export async function GET(req: NextRequest) {
 
     if (tecnicoIds.length === 0) return ok([])
 
-    const { data: teVin } = await supabaseAdmin
-      .from('tecnico_enlaces')
-      .select('enlace_id')
-      .in('tecnico_id', tecnicoIds)
-      .eq('ciclo_escolar', ciclo)
-      .eq('activo', true)
+    // CORREGIDO: combinar AMBAS fuentes de vinculación técnico↔enlace
+    // (tecnico_enlaces Y enlaces_institucionales.tecnico_id directo) —
+    // antes solo se usaba la primera y algunos enlaces nunca aparecían.
+    const [{ data: teVin }, { data: enlDirecto }] = await Promise.all([
+      supabaseAdmin.from('tecnico_enlaces')
+        .select('enlace_id').in('tecnico_id', tecnicoIds)
+        .eq('ciclo_escolar', ciclo).eq('activo', true),
+      supabaseAdmin.from('enlaces_institucionales')
+        .select('id').in('tecnico_id', tecnicoIds).eq('activo', true),
+    ])
 
-    const enlaceIds = (teVin ?? []).map((e: any) => e.enlace_id)
+    const enlaceIds = [...new Set([
+      ...(teVin ?? []).map((e: any) => e.enlace_id),
+      ...(enlDirecto ?? []).map((e: any) => e.id),
+    ])]
+
+    // También incluir enlaces cuya SEDE coincide con la del director,
+    // aunque no tengan vínculo directo con ninguno de sus técnicos
+    let enlacesPorSede: string[] = []
+    if (dir?.sede_id) {
+      const { data: porSede } = await supabaseAdmin
+        .from('enlaces_institucionales')
+        .select('id').eq('sede_id', dir.sede_id).eq('activo', true)
+      enlacesPorSede = (porSede ?? []).map((e: any) => e.id)
+    }
+
+    const todosLosIds = [...new Set([...enlaceIds, ...enlacesPorSede])]
 
     let q = supabaseAdmin
       .from('enlaces_institucionales')
       .select(SELECT_ENLACE)
 
-    if (enlaceIds.length > 0) q = q.in('id', enlaceIds)
+    if (todosLosIds.length > 0) q = q.in('id', todosLosIds)
 
     const { data, error } = await q.eq('activo', true).order('primer_apellido')
     if (error) return err(error.message, 500)
@@ -76,14 +95,18 @@ export async function GET(req: NextRequest) {
       .from('tecnicos').select('id').eq('usuario_id', s.sub).single()
     if (!tec) return ok([])
 
-    const { data: vinc } = await supabaseAdmin
-      .from('tecnico_enlaces')
-      .select('enlace_id')
-      .eq('tecnico_id', tec.id)
-      .eq('ciclo_escolar', ciclo)
-      .eq('activo', true)
+    const [{ data: vinc }, { data: directo }] = await Promise.all([
+      supabaseAdmin.from('tecnico_enlaces')
+        .select('enlace_id').eq('tecnico_id', tec.id)
+        .eq('ciclo_escolar', ciclo).eq('activo', true),
+      supabaseAdmin.from('enlaces_institucionales')
+        .select('id').eq('tecnico_id', tec.id).eq('activo', true),
+    ])
 
-    const ids = (vinc ?? []).map((v: any) => v.enlace_id)
+    const ids = [...new Set([
+      ...(vinc ?? []).map((v: any) => v.enlace_id),
+      ...(directo ?? []).map((d: any) => d.id),
+    ])]
     if (ids.length === 0) return ok([])
 
     const { data, error } = await supabaseAdmin
