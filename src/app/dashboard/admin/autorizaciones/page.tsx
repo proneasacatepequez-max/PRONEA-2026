@@ -65,6 +65,21 @@ export default function AdminAutorizacionesPage() {
     setSaving(null)
   }
 
+  const reactivar = async (a: any) => {
+    if (!confirm(`¿Reactivar y confirmar de una vez la autorización de ${(a.enlace as any)?.primer_nombre} ${(a.enlace as any)?.primer_apellido}?`)) return
+    const nuevaFecha = prompt('Nueva fecha de vencimiento (opcional, formato AAAA-MM-DD). Deja vacío para sin límite:', a.fecha_fin ?? '')
+    if (nuevaFecha === null) return
+    setSaving(a.id)
+    const res = await fetch('/api/autorizaciones', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: a.id, accion: 'reactivar', fecha_fin: nuevaFecha || null }),
+    })
+    const d = await res.json()
+    flash(res.ok ? '✅ Reactivada y confirmada — el enlace ya puede actuar' : '❌ ' + (d.error ?? 'Error'))
+    if (res.ok) await cargar()
+    setSaving(null)
+  }
+
   const pendientes = auths.filter(a =>  a.activo && !a.autorizado_por_admin)
   const activas    = auths.filter(a =>  a.activo &&  a.autorizado_por_admin)
   const revocadas  = auths.filter(a => !a.activo)
@@ -194,6 +209,17 @@ export default function AdminAutorizacionesPage() {
                                 disabled={saving === a.id}
                               >
                                 Revocar
+                              </button>
+                            )}
+                            {!a.activo && (
+                              <button
+                                className="btn btn-p btn-sm whitespace-nowrap"
+                                onClick={() => reactivar(a)}
+                                disabled={saving === a.id}
+                              >
+                                {saving === a.id
+                                  ? <span className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin inline-block" />
+                                  : '🔄 Reactivar'}
                               </button>
                             )}
                           </div>
