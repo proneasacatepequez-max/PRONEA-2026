@@ -15,6 +15,9 @@ export default function AutorizacionesDirectorPage() {
   const [modal,   setModal]   = useState(false)
   const [saving,  setSaving]  = useState(false)
   const [msg,     setMsg]     = useState('')
+  const [modalReactivar, setModalReactivar] = useState<any>(null)
+  const [fechaReactivar, setFechaReactivar] = useState('')
+  const [reactivando,    setReactivando]    = useState(false)
   const [form, setForm] = useState({
     enlace_id: '', permiso: 'ingresar_notas_enlace',
     fecha_fin: '', observaciones: '',
@@ -60,17 +63,23 @@ export default function AutorizacionesDirectorPage() {
     if (res.ok) await cargar()
   }
 
-  const reactivar = async (a: any) => {
-    if (!confirm(`¿Reactivar la autorización de ${(a.enlace as any)?.primer_nombre} ${(a.enlace as any)?.primer_apellido}? El administrador deberá confirmarla de nuevo antes de que pueda ingresar notas.`)) return
-    const nuevaFecha = prompt('Nueva fecha de vencimiento (opcional, formato AAAA-MM-DD). Deja vacío para sin límite:', a.fecha_fin ?? '')
-    if (nuevaFecha === null) return // canceló
+  const reactivar = (a: any) => {
+    // Convertir fecha_fin (viene como YYYY-MM-DD del API) al input type=date, que usa ese mismo formato
+    setFechaReactivar(a.fecha_fin ?? '')
+    setModalReactivar(a)
+  }
+
+  const confirmarReactivar = async () => {
+    if (!modalReactivar) return
+    setReactivando(true)
     const res = await fetch('/api/autorizaciones', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: a.id, accion: 'reactivar', fecha_fin: nuevaFecha || null }),
+      body: JSON.stringify({ id: modalReactivar.id, accion: 'reactivar', fecha_fin: fechaReactivar || null }),
     })
     const d = await res.json()
     flash(res.ok ? '✅ Reactivada — pendiente de confirmación del administrador' : '❌ ' + (d.error ?? 'Error'))
-    if (res.ok) await cargar()
+    if (res.ok) { setModalReactivar(null); await cargar() }
+    setReactivando(false)
   }
 
   const pendientes = auths.filter(a => !a.autorizado_por_admin && a.activo)
@@ -260,6 +269,41 @@ export default function AutorizacionesDirectorPage() {
                     : '✅ Crear autorización'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal reactivar — input type=date evita errores de formato */}
+      {modalReactivar && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 pt-16">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold">🔄 Reactivar autorización</h3>
+              <button onClick={() => setModalReactivar(null)}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <p className="text-sm text-gray-600">
+                Enlace: <b>{modalReactivar.enlace?.primer_nombre} {modalReactivar.enlace?.primer_apellido}</b> — {
+                  PERMISOS_DISPONIBLES.find(p => p.value === modalReactivar.permiso)?.label ?? modalReactivar.permiso
+                }
+              </p>
+              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg p-2">
+                ⚠️ El administrador deberá confirmarla de nuevo antes de que el enlace pueda actuar.
+              </p>
+              <div className="fg">
+                <label className="lbl">Nueva fecha de vencimiento (opcional)</label>
+                <input type="date" className="inp" value={fechaReactivar}
+                  onChange={e => setFechaReactivar(e.target.value)} />
+                <p className="text-xs text-gray-400 mt-1">Déjalo vacío para que no tenga fecha límite.</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-end gap-2">
+              <button className="btn btn-g" onClick={() => setModalReactivar(null)}>Cancelar</button>
+              <button className="btn btn-p" onClick={confirmarReactivar} disabled={reactivando}>
+                {reactivando ? '⏳ Reactivando...' : '🔄 Reactivar'}
+              </button>
             </div>
           </div>
         </div>
