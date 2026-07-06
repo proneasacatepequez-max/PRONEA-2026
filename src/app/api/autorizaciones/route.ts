@@ -151,7 +151,39 @@ export async function PUT(req: NextRequest) {
     return ok({ ok: true, mensaje: '✅ Fecha extendida' })
   }
 
-  return err('accion inválida — usa: revocar | confirmar | extender')
+  if (accion === 'reactivar') {
+    if (s.rol === 'administrador') {
+      // El admin reactiva y confirma en el mismo paso — tiene autoridad total
+      const { error } = await supabaseAdmin
+        .from('autorizaciones_director')
+        .update({
+          activo: true,
+          autorizado_por_admin: s.sub,
+          admin_confirmado_en:  new Date().toISOString(),
+          ...(b.fecha_fin !== undefined ? { fecha_fin: b.fecha_fin || null } : {}),
+          actualizado_en: new Date().toISOString(),
+        })
+        .eq('id', b.id)
+      if (error) return err(error.message, 500)
+      return ok({ ok: true, mensaje: '✅ Autorización reactivada y confirmada' })
+    }
+
+    // El director reactiva pero requiere que el admin la vuelva a confirmar
+    const { error } = await supabaseAdmin
+      .from('autorizaciones_director')
+      .update({
+        activo: true,
+        autorizado_por_admin: null,
+        admin_confirmado_en:  null,
+        ...(b.fecha_fin !== undefined ? { fecha_fin: b.fecha_fin || null } : {}),
+        actualizado_en: new Date().toISOString(),
+      })
+      .eq('id', b.id)
+    if (error) return err(error.message, 500)
+    return ok({ ok: true, mensaje: '✅ Autorización reactivada. Pendiente de confirmación del administrador.' })
+  }
+
+  return err('accion inválida — usa: revocar | confirmar | extender | reactivar')
 }
 
 export async function DELETE(req: NextRequest) {
@@ -165,3 +197,4 @@ export async function DELETE(req: NextRequest) {
   if (error) return err(error.message, 500)
   return ok({ ok: true, mensaje: '✅ Autorización eliminada' })
 }
+
