@@ -101,18 +101,21 @@ export async function POST(req: NextRequest) {
       return err('No se encontró perfil de enlace', 400)
     }
 
-    // FIX #2: Verificar autorización del director
+    // FIX #2: Verificar autorización del director — CORREGIDO: el código
+    // real del permiso es 'ingresar_notas_enlace' (con sufijo), no
+    // 'ingresar_notas' — por eso nunca encontraba la autorización aunque
+    // ya estuviera activa y confirmada por el administrador.
     const { data: auth, error: authErr } = await supabaseAdmin
       .from('autorizaciones_director')
-      .select('id')
+      .select('id, autorizado_por_admin')
       .eq('enlace_id', enl.id)
-      .eq('permiso', 'ingresar_notas')
+      .eq('permiso', 'ingresar_notas_enlace')
       .eq('activo', true)
       .maybeSingle()
 
-    if (!auth) {
+    if (!auth || !auth.autorizado_por_admin) {
       return err(
-        '❌ No tienes autorización para ingresar notas. Solicita al director que te autorice en Admin → Autorizaciones.',
+        '❌ No tienes autorización para ingresar notas. Solicita al director que te autorice, y luego al administrador que la confirme en Admin → Autorizaciones.',
         403
       )
     }
