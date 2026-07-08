@@ -151,8 +151,12 @@ export default function TecnicoSireexPage() {
 
   const exportarExcel = async (grupoId: string, codigo: string) => {
     try {
-      const res = await fetch(`/api/sireex/export-excel?grupo_id=${grupoId}`)
-      if (!res.ok) { flash('❌ Error al exportar'); return }
+      const res = await fetch(`/api/sireex/exportar?grupo_id=${grupoId}`)
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        flash('❌ ' + (d.error ?? 'Error al exportar'))
+        return
+      }
       const blob = await res.blob()
       const a = document.createElement('a')
       a.href = URL.createObjectURL(blob)
@@ -492,4 +496,3 @@ export default function TecnicoSireexPage() {
     </div>
   )
 }
-
