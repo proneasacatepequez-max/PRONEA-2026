@@ -20,6 +20,10 @@ function EnlaceNotasContent() {
   const [libroSel,  setLibroSel]  = useState<any>(null)
   const [tareas,    setTareas]    = useState<any[]>([])
   const [examenes,  setExamenes]  = useState<any[]>([])
+  const [areas,     setAreas]     = useState<any[]>([])
+  const [areaSel,       setAreaSel]       = useState('')
+  const [buscarPagina,  setBuscarPagina]  = useState('')
+  const [ordenPagina,   setOrdenPagina]   = useState(false)
   const [loading,   setLoading]   = useState(false)
   const [loadLib,   setLoadLib]   = useState(true)
   const [saving,    setSaving]    = useState<string | null>(null)
@@ -35,6 +39,7 @@ function EnlaceNotasContent() {
       setTienePermiso(tiene)
       setPermChecked(true)
     }).catch(() => { setTienePermiso(false); setPermChecked(true) })
+    fetch('/api/areas').then(r => r.json()).then(ar => setAreas(Array.isArray(ar) ? ar : [])).catch(() => {})
   }, [])
 
   // 3) Al elegir libro: catálogo completo + notas existentes fusionadas
@@ -42,6 +47,7 @@ function EnlaceNotasContent() {
     setLibroSel(libro)
     setLoading(true)
     setTareas([]); setExamenes([])
+    setAreaSel(''); setBuscarPagina(''); setOrdenPagina(false)
 
     const [catalogoRes, notasTRes, notasERes] = await Promise.all([
       fetch(`/api/tareas-catalogo?libro_id=${libro.id}&tipo=ambos`)
@@ -170,6 +176,28 @@ function EnlaceNotasContent() {
     </div>
   )
 
+  const areasConTareas = areas.filter(a =>
+    tareas.some((t: any) => String(t.area?.id) === String(a.id)) ||
+    examenes.some((e: any) => String(e.area?.id) === String(a.id))
+  )
+
+  const tareasVista = (areaSel
+    ? tareas.filter((t: any) => String(t.area?.id) === areaSel)
+    : tareas)
+    .filter((t: any) => !buscarPagina.trim() || String(t.paginas ?? '').includes(buscarPagina.trim()))
+    .sort((a: any, b: any) => {
+      if (ordenPagina) {
+        const pA = parseInt(String(a.paginas ?? '').match(/\d+/)?.[0] ?? '999999')
+        const pB = parseInt(String(b.paginas ?? '').match(/\d+/)?.[0] ?? '999999')
+        if (pA !== pB) return pA - pB
+      }
+      return a.numero_tarea - b.numero_tarea
+    })
+
+  const examenesVista = areaSel
+    ? examenes.filter((e: any) => String(e.area?.id) === areaSel)
+    : examenes
+
   const ingresadas  = tareas.filter(t => t.nota !== null).length
   const total       = tareas.length
   const todasListas = total > 0 && ingresadas === total
@@ -208,6 +236,26 @@ function EnlaceNotasContent() {
               ))}
             </select>
           )}
+          {areasConTareas.length > 0 && (
+            <select className="inp w-44" value={areaSel} onChange={e => setAreaSel(e.target.value)}>
+              <option value="">Todas las áreas</option>
+              {areasConTareas.map((a: any) => (
+                <option key={a.id} value={a.id}>{a.nombre}</option>
+              ))}
+            </select>
+          )}
+          <input
+            className="inp w-28"
+            placeholder="Buscar página..."
+            value={buscarPagina}
+            onChange={e => setBuscarPagina(e.target.value)}
+          />
+          <button
+            className={`text-xs px-3 py-2 rounded-lg border whitespace-nowrap ${ordenPagina ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500'}`}
+            title="Ordenar por página, de menor a mayor"
+            onClick={() => setOrdenPagina(v => !v)}>
+            📄 {ordenPagina ? '✓ ' : ''}Ordenar por página
+          </button>
           <Link href="/dashboard/enlace/estudiantes" className="btn btn-g">← Volver</Link>
         </div>
       </header>
@@ -255,9 +303,11 @@ function EnlaceNotasContent() {
                 {/* TAREAS */}
                 <div className="card mb-5">
                   <div className="card-title">📋 Tareas — ordenadas por página</div>
-                  {tareas.length === 0 ? (
+                  {tareasVista.length === 0 ? (
                     <div className="text-center py-8 text-gray-400 text-sm">
-                      Sin tareas configuradas para este libro
+                      {tareas.length === 0
+                        ? 'Sin tareas configuradas para este libro'
+                        : 'Ningún resultado con ese filtro — prueba con otra área o página'}
                     </div>
                   ) : (
                     <div className="tw">
@@ -274,7 +324,7 @@ function EnlaceNotasContent() {
                           </tr>
                         </thead>
                         <tbody>
-                          {tareas.map((t: any) => (
+                          {tareasVista.map((t: any) => (
                             <tr key={t.id} className={t.nota === null ? 'bg-yellow-50/60' : ''}>
                               <td className="text-gray-400 text-xs font-mono">{t.numero_tarea}</td>
                               <td className="text-xs text-gray-500 font-mono">{t.paginas ?? '—'}</td>
@@ -325,7 +375,7 @@ function EnlaceNotasContent() {
                       </span>
                     )}
                   </div>
-                  {examenes.length === 0 ? (
+                  {examenesVista.length === 0 ? (
                     <div className="text-center py-6 text-gray-400 text-sm">
                       Sin exámenes configurados para este libro
                     </div>
@@ -342,7 +392,7 @@ function EnlaceNotasContent() {
                           </tr>
                         </thead>
                         <tbody>
-                          {examenes.map((ex: any) => (
+                          {examenesVista.map((ex: any) => (
                             <tr key={ex.id}>
                               <td>
                                 <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-md">
