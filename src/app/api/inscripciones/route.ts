@@ -125,7 +125,24 @@ export async function GET(req: NextRequest) {
       .from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
     if (eDir) return err('Error al resolver perfil de director: ' + eDir.message, 500)
     if (!dir) return err('❌ No se encontró tu perfil de director. Contacta al administrador.', 404)
-    q = q.eq('sede_id', dir.sede_id)
+
+    // CORREGIDO: además de la sede propia, incluir inscripciones de los
+    // TÉCNICOS asignados a esa sede — igual que se hizo para técnico/enlace,
+    // ya que un estudiante puede quedar registrado con otra sede_id aunque
+    // su técnico sí pertenezca a la sede del director.
+    const { data: tecnicosDeSede } = await supabaseAdmin
+      .from('tecnico_sedes')
+      .select('tecnico_id')
+      .eq('sede_id', dir.sede_id)
+      .eq('activo', true)
+
+    const tecnicoIds = (tecnicosDeSede ?? []).map((t: any) => t.tecnico_id)
+
+    if (tecnicoIds.length > 0) {
+      q = q.or(`sede_id.eq.${dir.sede_id},tecnico_id.in.(${tecnicoIds.join(',')})`)
+    } else {
+      q = q.eq('sede_id', dir.sede_id)
+    }
   }
 
   // ── Filtros opcionales ────────────────────────────────────────────────
