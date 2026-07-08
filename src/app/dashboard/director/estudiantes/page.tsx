@@ -21,11 +21,18 @@ export default function DirectorEstudiantesPage() {
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const [ins, et] = await Promise.all([
-      fetch(`/api/inscripciones?ciclo=${ciclo}&estado=en_curso`).then(r => r.json()).catch(() => ({ data:[] })),
+    const [insRes, et] = await Promise.all([
+      fetch(`/api/inscripciones?ciclo=${ciclo}&estado=en_curso`)
+        .then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }))
+        .catch(() => ({ ok: false, body: { error: 'Error de conexión' } })),
       fetch('/api/etapas').then(r => r.json()).catch(() => []),
     ])
-    setInscripciones(ins.data ?? [])
+    if (!insRes.ok) {
+      flash('❌ ' + (insRes.body?.error ?? 'Error al cargar estudiantes'))
+      setInscripciones([])
+    } else {
+      setInscripciones(insRes.body?.data ?? [])
+    }
     setEtapas(Array.isArray(et) ? et : [])
     setLoading(false)
   }, [ciclo])
