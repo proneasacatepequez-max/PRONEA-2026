@@ -258,7 +258,11 @@ export async function PATCH(req: NextRequest) {
   if (s.rol === 'enlace_institucional') { delete upd.departamento_id; delete upd.especialidad }
   if (s.rol === 'coordinador_digeex')   { delete upd.especialidad }
 
-  upd.actualizado_en = new Date().toISOString()
+  // CORREGIDO: solo la tabla 'tecnicos' tiene columna actualizado_en —
+  // directores, enlaces_institucionales y coordinadores_departamento NO
+  // la tienen, y agregarla causaba "column ... does not exist" al guardar.
+  if (s.rol === 'tecnico') upd.actualizado_en = new Date().toISOString()
+
   const { error } = await supabaseAdmin.from(tabla).update(upd).eq('usuario_id', s.sub)
   if (error) return err(error.message, 500)
   return ok({ ok: true, mensaje: 'Perfil actualizado correctamente' })
