@@ -22,23 +22,32 @@ export async function GET(req: NextRequest) {
 
   if (s.rol === 'director') {
     const { data: dir } = await supabaseAdmin
-      .from('directores').select('sede_id').eq('usuario_id', s.sub).single()
+      .from('directores').select('sede_id, departamento_id').eq('usuario_id', s.sub).maybeSingle()
 
-    if (dir?.sede_id) {
+    let sedeIds: string[] = []
+    if (dir?.departamento_id) {
+      const { data: sedesDepto } = await supabaseAdmin
+        .from('sedes').select('id').eq('departamento_id', dir.departamento_id)
+      sedeIds = (sedesDepto ?? []).map((sd: any) => sd.id)
+    } else if (dir?.sede_id) {
+      sedeIds = [dir.sede_id]
+    }
+
+    if (sedeIds.length === 0) {
+      qTec = qTec.eq('activo', true)
+    } else {
       const { data: ts } = await supabaseAdmin
         .from('tecnico_sedes')
         .select('tecnico_id')
-        .eq('sede_id', dir.sede_id)
+        .in('sede_id', sedeIds)
         .eq('activo', true)
 
-      const ids = (ts ?? []).map((t: any) => t.tecnico_id)
+      const ids = [...new Set((ts ?? []).map((t: any) => t.tecnico_id))]
       if (ids.length === 0) {
         qTec = qTec.eq('activo', true)
       } else {
         qTec = qTec.in('id', ids)
       }
-    } else {
-      qTec = qTec.eq('activo', true)
     }
   }
 
