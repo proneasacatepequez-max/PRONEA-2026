@@ -60,23 +60,31 @@ export async function POST(req: NextRequest) {
 
   if (s.rol === 'director') {
     const { data: dir } = await supabaseAdmin
-      .from('directores').select('id, sede_id').eq('usuario_id', s.sub).single()
+      .from('directores').select('id, sede_id, departamento_id').eq('usuario_id', s.sub).maybeSingle()
     if (!dir) return err('No se encontró tu perfil de director', 404)
     dirId      = dir.id
     dirSedeId  = dir.sede_id
 
-    // Verificar que el enlace existe y pertenece a la sede del director
+    // Verificar que el enlace existe
     const { data: enl } = await supabaseAdmin
       .from('enlaces_institucionales')
-      .select('id, sede_id, primer_nombre, primer_apellido')
+      .select('id, sede_id, primer_nombre, primer_apellido, sede:sedes(departamento_id)')
       .eq('id', b.enlace_id)
       .single()
 
     if (!enl) return err('❌ No se encontró el enlace institucional', 404)
 
-    // Solo bloquear si el director tiene sede_id definida Y el enlace es de otra sede
-    if (dirSedeId && enl.sede_id && enl.sede_id !== dirSedeId)
-      return err(`❌ El enlace "${enl.primer_nombre} ${enl.primer_apellido}" no pertenece a tu sede. Tu sede: ${dirSedeId} / Sede del enlace: ${enl.sede_id}`, 403)
+    // CORREGIDO: el director autoriza a cualquier enlace de SU DEPARTAMENTO,
+    // no solo de una sede específica.
+    const enlaceDeptoId = (enl.sede as any)?.departamento_id
+    if (dir.departamento_id && enlaceDeptoId && enlaceDeptoId !== dir.departamento_id) {
+      return err(`❌ El enlace "${enl.primer_nombre} ${enl.primer_apellido}" no pertenece a tu departamento.`, 403)
+    }
+    // Compatibilidad con datos legados: si el director aún no tiene
+    // departamento, se mantiene la validación por sede como respaldo.
+    if (!dir.departamento_id && dirSedeId && enl.sede_id && enl.sede_id !== dirSedeId) {
+      return err(`❌ El enlace "${enl.primer_nombre} ${enl.primer_apellido}" no pertenece a tu sede.`, 403)
+    }
   }
 
   // Verificar duplicado activo
@@ -197,4 +205,3 @@ export async function DELETE(req: NextRequest) {
   if (error) return err(error.message, 500)
   return ok({ ok: true, mensaje: '✅ Autorización eliminada' })
 }
-
