@@ -29,18 +29,29 @@ export async function GET(req: NextRequest) {
   if (s.rol === 'director') {
     const { data: dir } = await supabaseAdmin
       .from('directores')
-      .select('sede_id')
+      .select('sede_id, departamento_id')
       .eq('usuario_id', s.sub)
-      .single()
+      .maybeSingle()
+
+    // CORREGIDO: el director ve enlaces de TODO su departamento, no solo
+    // de una sede — se resuelven primero todas las sedes del departamento.
+    let sedeIds: string[] = []
+    if (dir?.departamento_id) {
+      const { data: sedesDepto } = await supabaseAdmin
+        .from('sedes').select('id').eq('departamento_id', dir.departamento_id)
+      sedeIds = (sedesDepto ?? []).map((sd: any) => sd.id)
+    } else if (dir?.sede_id) {
+      sedeIds = [dir.sede_id]
+    }
 
     let tecnicoIds: string[] = []
-    if (dir?.sede_id) {
+    if (sedeIds.length > 0) {
       const { data: tecSedes } = await supabaseAdmin
         .from('tecnico_sedes')
         .select('tecnico_id')
-        .eq('sede_id', dir.sede_id)
+        .in('sede_id', sedeIds)
         .eq('activo', true)
-      tecnicoIds = (tecSedes ?? []).map((t: any) => t.tecnico_id)
+      tecnicoIds = [...new Set((tecSedes ?? []).map((t: any) => t.tecnico_id))]
     }
 
     if (tecnicoIds.length === 0) {
@@ -67,13 +78,13 @@ export async function GET(req: NextRequest) {
       ...(enlDirecto ?? []).map((e: any) => e.id),
     ])]
 
-    // También incluir enlaces cuya SEDE coincide con la del director,
-    // aunque no tengan vínculo directo con ninguno de sus técnicos
+    // También incluir enlaces cuya SEDE está dentro del departamento del
+    // director, aunque no tengan vínculo directo con ninguno de sus técnicos
     let enlacesPorSede: string[] = []
-    if (dir?.sede_id) {
+    if (sedeIds.length > 0) {
       const { data: porSede } = await supabaseAdmin
         .from('enlaces_institucionales')
-        .select('id').eq('sede_id', dir.sede_id).eq('activo', true)
+        .select('id').in('sede_id', sedeIds).eq('activo', true)
       enlacesPorSede = (porSede ?? []).map((e: any) => e.id)
     }
 
