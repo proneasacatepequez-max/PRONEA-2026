@@ -31,8 +31,15 @@ export async function GET(req: NextRequest) {
   // Director filtra por sedes de su sede
   if (s.rol === 'director') {
     const { data: dir } = await supabaseAdmin.from('directores')
-      .select('sede_id').eq('usuario_id', s.sub).single()
-    if (dir?.sede_id) q = q.eq('sede_id', dir.sede_id)
+      .select('sede_id, departamento_id').eq('usuario_id', s.sub).maybeSingle()
+    if (dir?.departamento_id) {
+      const { data: sedesDepto } = await supabaseAdmin
+        .from('sedes').select('id').eq('departamento_id', dir.departamento_id)
+      const sedeIds = (sedesDepto ?? []).map((sd: any) => sd.id)
+      if (sedeIds.length > 0) q = q.in('sede_id', sedeIds)
+    } else if (dir?.sede_id) {
+      q = q.eq('sede_id', dir.sede_id)
+    }
   }
 
   const { data, error } = await q
