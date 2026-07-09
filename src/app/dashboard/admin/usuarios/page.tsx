@@ -46,6 +46,7 @@ export default function AdminUsuariosPage() {
   const [usuarios,     setUsuarios]     = useState<Usuario[]>([])
   const [sedes,        setSedes]        = useState<Sede[]>([])
   const [tecnicos,     setTecnicos]     = useState<Tecnico[]>([])
+  const [departamentos,setDepartamentos]= useState<any[]>([])
   const [loading,      setLoading]      = useState(true)
   const [busqueda,     setBusqueda]     = useState('')
   const [filtroRol,    setFiltroRol]    = useState('')
@@ -67,13 +68,14 @@ export default function AdminUsuariosPage() {
   const cargar = useCallback(async () => {
     setLoading(true)
     try {
-      const [rU, rS, rT] = await Promise.all([
-        fetch('/api/usuarios'), fetch('/api/sedes'), fetch('/api/tecnicos'),
+      const [rU, rS, rT, rD] = await Promise.all([
+        fetch('/api/usuarios'), fetch('/api/sedes'), fetch('/api/tecnicos'), fetch('/api/departamentos'),
       ])
-      const [u, s, t] = await Promise.all([rU.json(), rS.json(), rT.json()])
+      const [u, s, t, d] = await Promise.all([rU.json(), rS.json(), rT.json(), rD.json()])
       setUsuarios(Array.isArray(u) ? u : [])
       setSedes(Array.isArray(s) ? s : [])
       setTecnicos(Array.isArray(t) ? t : [])
+      setDepartamentos(Array.isArray(d) ? d : [])
     } catch { setUsuarios([]) }
     finally { setLoading(false) }
   }, [])
@@ -133,6 +135,7 @@ export default function AdminUsuariosPage() {
       especialidad:     p?.especialidad     ?? '',
       sede_id:          p?.sede_id ?? p?.sede?.id ?? '',
       tecnico_id:       p?.tecnico_id ?? p?.tecnico?.id ?? '',
+      departamento_id:  p?.departamento_id ?? '',
     })
     setErrorEdit('')
     setModalEditar(u)
@@ -584,7 +587,18 @@ export default function AdminUsuariosPage() {
               {modalEditar.rol === 'director' && (
                 <div className="bg-green-50 rounded-xl p-4 space-y-3">
                   <p className="text-xs font-bold text-green-700 uppercase">Datos del director</p>
-                  <div className="fg"><label className="lbl">Sede que dirige</label>
+                  <div className="fg">
+                    <label className="lbl">Departamento que administra</label>
+                    <select className="inp" value={formEdit.departamento_id ?? ''}
+                      onChange={e => setFormEdit((f: any) => ({ ...f, departamento_id: e.target.value }))}>
+                      <option value="">— Seleccionar departamento —</option>
+                      {departamentos.map((d: any) => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Verá todos los estudiantes, técnicos y enlaces de este departamento — no solo de una sede.
+                    </p>
+                  </div>
+                  <div className="fg"><label className="lbl">Sede base (opcional, referencia)</label>
                     <select className="inp" value={formEdit.sede_id ?? ''}
                       onChange={e => setFormEdit((f: any) => ({ ...f, sede_id: e.target.value }))}>
                       <option value="">— Seleccionar sede —</option>
