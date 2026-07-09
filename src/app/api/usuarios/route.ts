@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
       ),
       directores(
         id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
-        telefono, municipio_id, sede_id,
+        telefono, municipio_id, sede_id, departamento_id,
         sede:sedes(id, nombre)
       ),
       enlaces_institucionales(
@@ -167,6 +167,7 @@ export async function POST(req: NextRequest) {
         segundo_apellido: segundo_apellido?.trim() || null,
         telefono:         telefono                 || null,
         municipio_id:     municipio_id,           // ← AGREGADO
+        departamento_id:  deptId,                 // ← AGREGADO (se calculaba pero nunca se guardaba)
         activo:           true,
         sede_id:          sede_id                 || null,
       })
@@ -340,6 +341,9 @@ export async function PATCH(req: NextRequest) {
 
     if (b.rol === 'director') {
       if (p.sede_id !== undefined) nombreUpd.sede_id = sede_id
+      if (p.departamento_id !== undefined) {
+        nombreUpd.departamento_id = p.departamento_id ? parseInt(String(p.departamento_id)) : null
+      }
       const { error: eDir } = await supabaseAdmin.from('directores')
         .update(nombreUpd).eq('usuario_id', id)
       if (eDir) return err('Error al actualizar director: ' + eDir.message, 500)
