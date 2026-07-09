@@ -52,8 +52,10 @@ export async function GET(req: NextRequest) {
         id, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
         cui, telefono, correo_personal, activo,
         nivel_escolaridad, titulo_profesional, direccion, genero, municipio_id,
+        departamento_id,
         municipio:municipios(id, nombre, departamento:departamentos(id, nombre)),
-        sede:sedes(id, nombre, municipio:municipios(nombre))
+        sede:sedes(id, nombre, municipio:municipios(nombre)),
+        departamento_gestion:departamentos!directores_departamento_id_fkey(id, nombre)
       `)
       .eq('usuario_id', s.sub)
       .single()
