@@ -122,26 +122,42 @@ export async function GET(req: NextRequest) {
 
   if (s.rol === 'director') {
     const { data: dir, error: eDir } = await supabaseAdmin
-      .from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
+      .from('directores').select('sede_id, departamento_id').eq('usuario_id', s.sub).maybeSingle()
     if (eDir) return err('Error al resolver perfil de director: ' + eDir.message, 500)
     if (!dir) return err('❌ No se encontró tu perfil de director. Contacta al administrador.', 404)
+    if (!dir.departamento_id && !dir.sede_id) {
+      return err('❌ Tu perfil de director no tiene departamento ni sede asignados. Pide al administrador que te asigne un departamento desde Usuarios → editar tu perfil.', 400)
+    }
 
-    // CORREGIDO: además de la sede propia, incluir inscripciones de los
-    // TÉCNICOS asignados a esa sede — igual que se hizo para técnico/enlace,
-    // ya que un estudiante puede quedar registrado con otra sede_id aunque
-    // su técnico sí pertenezca a la sede del director.
-    const { data: tecnicosDeSede } = await supabaseAdmin
-      .from('tecnico_sedes')
-      .select('tecnico_id')
-      .eq('sede_id', dir.sede_id)
-      .eq('activo', true)
+    // CORREGIDO: el director ve TODO su departamento — todas las sedes,
+    // todos los técnicos y todos los enlaces de esas sedes — no solo una
+    // sede específica. Si aún no tiene departamento asignado (dato legado),
+    // se usa su sede como respaldo temporal.
+    let sedeIds: string[] = []
+    if (dir.departamento_id) {
+      const { data: sedesDepto } = await supabaseAdmin
+        .from('sedes').select('id').eq('departamento_id', dir.departamento_id)
+      sedeIds = (sedesDepto ?? []).map((sd: any) => sd.id)
+    } else if (dir.sede_id) {
+      sedeIds = [dir.sede_id]
+    }
 
-    const tecnicoIds = (tecnicosDeSede ?? []).map((t: any) => t.tecnico_id)
+    let tecnicoIds: string[] = []
+    if (sedeIds.length > 0) {
+      const { data: tecnicosDeSedes } = await supabaseAdmin
+        .from('tecnico_sedes')
+        .select('tecnico_id')
+        .in('sede_id', sedeIds)
+        .eq('activo', true)
+      tecnicoIds = [...new Set((tecnicosDeSedes ?? []).map((t: any) => t.tecnico_id))]
+    }
 
-    if (tecnicoIds.length > 0) {
-      q = q.or(`sede_id.eq.${dir.sede_id},tecnico_id.in.(${tecnicoIds.join(',')})`)
+    if (sedeIds.length > 0 && tecnicoIds.length > 0) {
+      q = q.or(`sede_id.in.(${sedeIds.join(',')}),tecnico_id.in.(${tecnicoIds.join(',')})`)
+    } else if (sedeIds.length > 0) {
+      q = q.in('sede_id', sedeIds)
     } else {
-      q = q.eq('sede_id', dir.sede_id)
+      return ok({ data: [] })
     }
   }
 
