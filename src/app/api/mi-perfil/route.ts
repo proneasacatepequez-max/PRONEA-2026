@@ -269,3 +269,4 @@ export async function PATCH(req: NextRequest) {
   if (error) return err(error.message, 500)
   return ok({ ok: true, mensaje: 'Perfil actualizado correctamente' })
 }
+
