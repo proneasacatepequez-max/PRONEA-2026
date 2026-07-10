@@ -151,7 +151,7 @@ export async function GET(req: NextRequest) {
         nombre_completo:   `${t.primer_nombre} ${t.primer_apellido}`,
         total_estudiantes: totalEst,
         sedes:             (sedesData ?? []).map((s: any) => s.sede).filter(Boolean),
-        total_sedes:       (sedesData ?? []).length,
+        total_sedes:       todasSedeIds.length,
         enlaces:           (enlacesData ?? []).map((e: any) => e.enlace).filter(Boolean),
         total_enlaces:     (enlacesData ?? []).length,
       }
