@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   const { data: insc } = await supabaseAdmin.from('inscripciones').select(`
     id, version_libro, ciclo_escolar,
     estudiante:estudiantes(
-      primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
+      codigo_estudiante, primer_nombre, segundo_nombre, primer_apellido, segundo_apellido,
       cui, fecha_nacimiento,
       municipio:municipios(nombre)
     ),
@@ -108,7 +108,7 @@ export async function GET(req: NextRequest) {
               Ministerio de Educación<br>
               Dirección General de Educación Extraescolar DIGEEX<br>
               ${programaNombre}<br>
-              <strong>${eta?.nombre ?? ''} en Ciencias y Letras con especialidad en Productividad y Emprendimiento</strong>
+              <strong>${eta?.nombre ?? ''}${(eta?.nombre ?? '').includes('Bachillerato') ? ' en Ciencias y Letras con especialidad en Productividad y Emprendimiento' : ''}</strong>
             </td>
           </tr>
           <!-- Fila: Nombre | Fecha -->
@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
             <td colspan="2" style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Municipio de Inscripción</td>
             <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${(insc.sede as any)?.nombre ?? ''}</td>
             <td style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">Código de estudiante</td>
-            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">—</td>
+            <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${est?.codigo_estudiante ?? '—'}</td>
             <td style="border:2px solid #1a3a5c;background:#1a3a5c;color:#fff;font-size:8pt;font-weight:bold;padding:3px;">DPI CUI</td>
             <td colspan="2" style="border:1px solid #ccc;font-size:8pt;padding:3px;">${est?.cui ?? ''}</td>
           </tr>
