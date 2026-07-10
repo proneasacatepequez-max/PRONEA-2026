@@ -146,7 +146,7 @@ export async function GET(req: NextRequest) {
       supabaseAdmin.from('inscripciones').select(`
         id, ciclo_escolar, version_libro, estado,
         etapa:etapas(id, nombre), sede:sedes(id, nombre),
-        tecnico:tecnicos(id, primer_nombre, primer_apellido)
+        tecnico:tecnicos!inscripciones_tecnico_id_fkey(id, primer_nombre, primer_apellido)
       `).eq('estudiante_id', est.id).eq('estado', 'en_curso').single(),
     ])
 
