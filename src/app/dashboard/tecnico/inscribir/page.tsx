@@ -416,8 +416,7 @@ export default function InscribirEstudiantePage() {
                 </div>
                 <div className="fg"><label className="lbl">Ciclo escolar</label>
                   <select className="inp" value={insc.ciclo_escolar} onChange={I('ciclo_escolar')}>
-                    <option value="2026">2026</option>
-                    <option value="2025">2025</option>
+                    {Array.from({ length: new Date().getFullYear() + 1 - 2024 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => <option key={y} value={String(y)}>{y}</option>)}
                   </select>
                 </div>
               </div>
@@ -539,8 +538,7 @@ export default function InscribirEstudiantePage() {
                   </div>
                   <div className="fg"><label className="lbl">Ciclo escolar</label>
                     <select className="inp" value={insc.ciclo_escolar} onChange={I('ciclo_escolar')}>
-                      <option value="2026">2026</option>
-                      <option value="2025">2025</option>
+                      {Array.from({ length: new Date().getFullYear() + 1 - 2024 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => <option key={y} value={String(y)}>{y}</option>)}
                     </select>
                   </div>
                 </div>
