@@ -102,7 +102,7 @@ export default function DirectorEstudiantesPage() {
         <div className="flex gap-2">
           {msg && <span className={`text-sm font-bold ${msg.startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>{msg}</span>}
           <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
-            <option value="2026">2026</option><option value="2025">2025</option>
+            {Array.from({ length: new Date().getFullYear() + 1 - 2024 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => <option key={y} value={String(y)}>{y}</option>)}
           </select>
           <button className="btn btn-g" onClick={descargarExcel} disabled={descargando}>
             {descargando ? '...' : '⬇️ Excel'}
