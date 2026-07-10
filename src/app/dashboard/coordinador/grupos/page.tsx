@@ -49,8 +49,7 @@ export default function CoordinadorGruposPage() {
           <div className="text-xs text-gray-400">Solo lectura · {grupos.length} grupo(s) · ciclo {ciclo}</div>
         </div>
         <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
-          <option value="2026">2026</option>
-          <option value="2025">2025</option>
+          {Array.from({ length: new Date().getFullYear() + 1 - 2024 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => <option key={y} value={String(y)}>{y}</option>)}
         </select>
       </header>
 
