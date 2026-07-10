@@ -160,11 +160,13 @@ export default function AdminUsuariosPage() {
           perfil: formEdit,
         }),
       })
-      const d = await res.json()
-      if (!res.ok) { setErrorEdit(d.error ?? 'Error al actualizar'); return }
+      const texto = await res.text()
+      let d: any = {}
+      try { d = JSON.parse(texto) } catch { d = { error: `Respuesta inesperada del servidor (${res.status}): ${texto.slice(0, 200)}` } }
+      if (!res.ok) { setErrorEdit(d.error ?? `Error al actualizar (${res.status})`); return }
       setExito(`✅ Usuario ${formEdit.primer_nombre} actualizado correctamente`)
       setModalEditar(null); cargar()
-    } catch { setErrorEdit('Error de conexión') }
+    } catch (e: any) { setErrorEdit('Error de conexión: ' + (e?.message ?? 'desconocido')) }
     finally { setGuardandoEdit(false) }
   }
 
