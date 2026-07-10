@@ -77,7 +77,7 @@ export default function DUAPage() {
         </div>
         <div className="flex gap-2">
           <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
-            <option value="2026">2026</option><option value="2025">2025</option>
+            {Array.from({ length: new Date().getFullYear() + 1 - 2024 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => <option key={y} value={String(y)}>{y}</option>)}
           </select>
           <button className="btn btn-p" onClick={() => setModalGrupo(true)}>＋ Nuevo grupo</button>
         </div>
