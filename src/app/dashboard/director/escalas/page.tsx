@@ -25,6 +25,7 @@ export default function DirectorEscalasPage() {
 
   // Modal asignar técnico
   const [modalAsignar,  setModalAsignar]  = useState(false)
+  const [togglingBloqueo, setTogglingBloqueo] = useState(false)
   const [formAsig,      setFormAsig]      = useState({ tecnico_id:'', observaciones:'' })
   const [asignando,     setAsignando]     = useState(false)
   const [msg,           setMsg]           = useState('')
@@ -89,6 +90,25 @@ export default function DirectorEscalasPage() {
     tareas.some((t: any) => t.area?.id === a.id) ||
     examenes.some((e: any) => e.area?.id === a.id)
   )
+
+  const toggleBloqueo = async () => {
+    if (!libroSel) return
+    const nuevoEstado = !libroSel.catalogo_bloqueado
+    setTogglingBloqueo(true)
+    try {
+      const res = await fetch('/api/libros', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: libroSel.id, catalogo_bloqueado: nuevoEstado }),
+      })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al actualizar')); return }
+      flash(nuevoEstado ? '🔒 Edición congelada — los técnicos ya no pueden modificar este libro' : '🔓 Edición reabierta para los técnicos')
+      setLibroSel((prev: any) => ({ ...prev, catalogo_bloqueado: nuevoEstado }))
+      setLibros((prev: any[]) => prev.map(l => l.id === libroSel.id ? { ...l, catalogo_bloqueado: nuevoEstado } : l))
+    } catch { flash('❌ Error de conexión') }
+    finally { setTogglingBloqueo(false) }
+  }
   const versiones = [...new Set(libros.map((l: any) => l.version))]
   const librosPorVersion = (v: string) =>
     libros.filter((l: any) => l.version === v).sort((a: any, b: any) => a.numero - b.numero)
@@ -209,13 +229,24 @@ export default function DirectorEscalasPage() {
         <div className="flex gap-2 items-center">
           {msg && <span className={`text-xs font-bold ${msg.startsWith('✅')?'text-green-600':msg.startsWith('⚠️')?'text-yellow-600':'text-red-500'}`}>{msg}</span>}
           <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
-            <option value="2026">2026</option>
-            <option value="2025">2025</option>
+            {Array.from({ length: new Date().getFullYear() + 1 - 2024 }, (_, i) => new Date().getFullYear() + 1 - i).map(y => <option key={y} value={String(y)}>{y}</option>)}
           </select>
           {libroSel && etapaSel && (
             <button className="btn btn-p text-sm"
               onClick={() => { setFormAsig({ tecnico_id:'', observaciones:'' }); setModalAsignar(true) }}>
               👨‍🏫 Asignar técnico
+            </button>
+          )}
+          {libroSel && (
+            <button
+              className={`btn text-sm ${libroSel.catalogo_bloqueado ? 'btn-green' : 'btn-red'}`}
+              disabled={togglingBloqueo}
+              onClick={toggleBloqueo}
+              title={libroSel.catalogo_bloqueado
+                ? 'Los técnicos no pueden editar este libro. Clic para reabrir.'
+                : 'Los técnicos pueden editar este libro. Clic para congelar cuando esté completo.'}>
+              {togglingBloqueo ? '⏳'
+                : libroSel.catalogo_bloqueado ? '🔓 Reabrir edición' : '🔒 Congelar edición'}
             </button>
           )}
         </div>
@@ -260,12 +291,13 @@ export default function DirectorEscalasPage() {
                     </div>
                     {librosPorVersion(ver).map((l: any) => (
                       <button key={l.id} onClick={() => seleccionarLibro(l)}
-                        className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all mb-1 ${
+                        className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all mb-1 flex items-center justify-between gap-2 ${
                           libroSel?.id === l.id
                             ? 'border-blue-500 bg-blue-50 font-bold'
                             : 'border-gray-100 hover:border-blue-200'
                         }`}>
-                        Libro {l.numero} — {l.nombre}
+                        <span>Libro {l.numero} — {l.nombre}</span>
+                        {l.catalogo_bloqueado && <span title="Edición congelada">🔒</span>}
                       </button>
                     ))}
                   </div>
