@@ -164,3 +164,4 @@ export async function GET(req: NextRequest) {
     return err('Error inesperado al generar el Excel: ' + (e?.message ?? 'desconocido'), 500)
   }
 }
+
