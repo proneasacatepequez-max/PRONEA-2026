@@ -366,12 +366,12 @@ function EnlaceNotasContent() {
                 </div>
 
                 {/* EXÁMENES */}
-                <div className={`card ${!todasListas && tareas.length > 0 ? 'opacity-60' : ''}`}>
+                <div className="card">
                   <div className="card-title flex items-center gap-2">
                     📊 Exámenes por Área
                     {!todasListas && tareas.length > 0 && (
-                      <span className="text-xs font-normal text-yellow-600 bg-yellow-50 px-2 py-0.5 rounded-full">
-                        ⚠️ Completa las tareas primero
+                      <span className="text-xs font-normal text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full">
+                        ℹ️ Puedes ingresar el examen aunque falten tareas — algunos estudiantes lo presentan antes
                       </span>
                     )}
                   </div>
@@ -404,7 +404,7 @@ function EnlaceNotasContent() {
                                 <input
                                   type="number" min={0} max={100} step={1}
                                   defaultValue={ex.nota_original ?? ''}
-                                  disabled={(!todasListas && tareas.length > 0) || saving === ex.id}
+                                  disabled={saving === ex.id}
                                   onBlur={e => {
                                     const v = e.target.value.trim()
                                     if (v !== '' && v !== String(ex.nota_original)) guardarExamen(ex.id, v)
