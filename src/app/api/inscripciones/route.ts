@@ -20,11 +20,14 @@ export async function GET(req: NextRequest) {
       .from('inscripciones')
       .select(`
         id, ciclo_escolar, estado, version_libro, version_libro_id,
-        repite_etapa, tiene_ajuste_discapacidad, observaciones, creado_en,
+        repite_etapa, tiene_ajuste_discapacidad, observaciones, creado_en, fecha_inscripcion,
         estudiante:estudiantes(
           id, codigo_estudiante, primer_nombre, segundo_nombre,
           primer_apellido, segundo_apellido, fecha_nacimiento, cui,
-          cui_pendiente, telefono, genero, municipio_id
+          cui_pendiente, telefono, genero, municipio_id, correo,
+          direccion, discapacidad_id, estado_civil_id, pueblo_id,
+          idioma_id, tipo_vivienda_id, ocupacion,
+          contacto_emergencia_nombre, contacto_emergencia_tel, contacto_emergencia_parent
         ),
         etapa:etapas(id, codigo, nombre, nivel, orden),
         sede:sedes(id, nombre, municipio:municipios(nombre)),
@@ -43,11 +46,14 @@ export async function GET(req: NextRequest) {
   let q = supabaseAdmin
     .from('inscripciones')
     .select(`
-      id, ciclo_escolar, estado, repite_etapa, version_libro, creado_en,
+      id, ciclo_escolar, estado, repite_etapa, version_libro, creado_en, fecha_inscripcion,
       estudiante:estudiantes(
         id, codigo_estudiante, primer_nombre, segundo_nombre,
         primer_apellido, segundo_apellido, fecha_nacimiento, cui,
-        cui_pendiente, telefono, genero,
+        cui_pendiente, telefono, genero, correo, direccion,
+        discapacidad_id, estado_civil_id, pueblo_id, idioma_id,
+        tipo_vivienda_id, ocupacion, contacto_emergencia_nombre,
+        contacto_emergencia_tel, contacto_emergencia_parent,
         estado_civil:catalogo_estado_civil(nombre),
         municipio:municipios(nombre, departamento:departamentos(nombre))
       ),
@@ -276,13 +282,31 @@ export async function PATCH(req: NextRequest) {
   let b: any = {}
   try { b = await req.json() } catch { return err('JSON inválido') }
 
-  const { id, estado } = b
+  const { id, estado, fecha_inscripcion } = b
   if (!id) return err('id requerido')
-  if (!estado || !['en_curso', 'aprobado', 'reprobado', 'retirado', 'completada'].includes(estado))
-    return err('estado inválido', 400)
+  if (estado === undefined && fecha_inscripcion === undefined) {
+    return err('Nada que actualizar: envía estado y/o fecha_inscripcion', 400)
+  }
+
+  const upd: any = {}
+  if (estado !== undefined) {
+    if (!['en_curso', 'aprobado', 'reprobado', 'retirado', 'completada'].includes(estado))
+      return err('estado inválido', 400)
+    upd.estado = estado
+  }
+  if (fecha_inscripcion !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha_inscripcion)) {
+      return err('fecha_inscripcion debe tener formato AAAA-MM-DD', 400)
+    }
+    // No permitir fechas futuras
+    if (fecha_inscripcion > new Date().toISOString().slice(0, 10)) {
+      return err('La fecha de inscripción no puede ser futura', 400)
+    }
+    upd.fecha_inscripcion = fecha_inscripcion
+  }
 
   const { error } = await supabaseAdmin
-    .from('inscripciones').update({ estado }).eq('id', id)
+    .from('inscripciones').update(upd).eq('id', id)
   if (error) return err(error.message, 500)
-  return ok({ ok: true, mensaje: '✅ Estado actualizado' })
+  return ok({ ok: true, mensaje: '✅ Actualizado correctamente' })
 }
