@@ -16,6 +16,7 @@ export default function DirectorEstudiantesPage() {
   const [formEst,       setFormEst]       = useState<any>({})
   const [savingEst,     setSavingEst]     = useState(false)
   const [modoModal,     setModoModal]     = useState<'detalle'|'editar'>('detalle')
+  const [catalogos,     setCatalogos]     = useState<any>({})
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
 
@@ -38,6 +39,9 @@ export default function DirectorEstudiantesPage() {
   }, [ciclo])
 
   useEffect(() => { cargar() }, [cargar])
+  useEffect(() => {
+    fetch('/api/catalogos').then(r => r.json()).then(setCatalogos).catch(() => {})
+  }, [])
 
   const filtrados = inscripciones.filter(i => {
     const e   = i.estudiante as any
@@ -60,19 +64,41 @@ export default function DirectorEstudiantesPage() {
       correo:           e.correo            ?? '',
       fecha_nacimiento: e.fecha_nacimiento  ?? '',
       genero:           e.genero            ?? '',
+      direccion:              e.direccion              ?? '',
+      estado_civil_id:        e.estado_civil_id         ?? '',
+      pueblo_id:              e.pueblo_id               ?? '',
+      idioma_id:              e.idioma_id               ?? '',
+      tipo_vivienda_id:       e.tipo_vivienda_id        ?? '',
+      ocupacion:              e.ocupacion               ?? '',
+      contacto_emergencia_nombre: e.contacto_emergencia_nombre ?? '',
+      contacto_emergencia_tel:    e.contacto_emergencia_tel    ?? '',
+      contacto_emergencia_parent: e.contacto_emergencia_parent ?? '',
+      fecha_inscripcion: insc.fecha_inscripcion ?? '',
     })
     setModalEst(insc); setModoModal('editar')
   }
 
   const guardarEdicion = async () => {
     setSavingEst(true)
-    const res = await fetch(`/api/estudiantes/${formEst.id}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formEst),
-    })
-    const d = await res.json()
-    flash(res.ok ? '✅ ' + (d.mensaje ?? 'Actualizado') : '❌ ' + (d.error ?? 'Error'))
-    if (res.ok) { setModalEst(null); cargar() }
+    const { fecha_inscripcion, ...datosEstudiante } = formEst
+    const [resEst, resInsc] = await Promise.all([
+      fetch(`/api/estudiantes/${formEst.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(datosEstudiante),
+      }),
+      fecha_inscripcion
+        ? fetch('/api/inscripciones', {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: modalEst.id, fecha_inscripcion }),
+          })
+        : Promise.resolve(null),
+    ])
+    const d = await resEst.json()
+    const errInsc = resInsc && !resInsc.ok ? (await resInsc.json())?.error : null
+    flash(resEst.ok && !errInsc
+      ? '✅ ' + (d.mensaje ?? 'Actualizado')
+      : '❌ ' + (d.error ?? errInsc ?? 'Error'))
+    if (resEst.ok) { setModalEst(null); cargar() }
     setSavingEst(false)
   }
 
@@ -258,6 +284,86 @@ export default function DirectorEstudiantesPage() {
                       <option value="masculino">Masculino</option>
                       <option value="femenino">Femenino</option>
                     </select>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t bg-amber-50 -mx-1 px-1 rounded">
+                  <p className="text-xs font-bold text-amber-700 uppercase mb-2 pt-1">📅 Fecha real de inscripción</p>
+                </div>
+                <div className="fg">
+                  <label className="lbl">
+                    Fecha en que el estudiante realmente se inscribió (no la fecha en que se registró en el sistema)
+                  </label>
+                  <input type="date" className="inp" value={formEst.fecha_inscripcion ?? ''}
+                    max={new Date().toISOString().slice(0, 10)}
+                    onChange={FE('fecha_inscripcion')} />
+                </div>
+
+                <div className="pt-2 border-t">
+                  <p className="text-xs font-bold text-gray-500 uppercase mb-2">Datos socioeconómicos</p>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="fg">
+                    <label className="lbl">Estado civil</label>
+                    <select className="inp" value={formEst.estado_civil_id ?? ''} onChange={FE('estado_civil_id')}>
+                      <option value="">— Seleccionar —</option>
+                      {(catalogos.estado_civil ?? []).map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="fg">
+                    <label className="lbl">Pueblo / Pertenencia étnica</label>
+                    <select className="inp" value={formEst.pueblo_id ?? ''} onChange={FE('pueblo_id')}>
+                      <option value="">— Seleccionar —</option>
+                      {(catalogos.pueblos ?? []).map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="fg">
+                    <label className="lbl">Idioma materno</label>
+                    <select className="inp" value={formEst.idioma_id ?? ''} onChange={FE('idioma_id')}>
+                      <option value="">— Seleccionar —</option>
+                      {(catalogos.idiomas ?? []).map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="fg">
+                    <label className="lbl">Tipo de vivienda</label>
+                    <select className="inp" value={formEst.tipo_vivienda_id ?? ''} onChange={FE('tipo_vivienda_id')}>
+                      <option value="">— Seleccionar —</option>
+                      {(catalogos.tipo_vivienda ?? []).map((c: any) => (
+                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="fg col-span-2">
+                    <label className="lbl">Dirección</label>
+                    <input className="inp" value={formEst.direccion ?? ''} onChange={FE('direccion')} />
+                  </div>
+                  <div className="fg">
+                    <label className="lbl">Ocupación</label>
+                    <input className="inp" value={formEst.ocupacion ?? ''} onChange={FE('ocupacion')} />
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t">
+                  <p className="text-xs font-bold text-gray-500 uppercase mb-2">Contacto de emergencia</p>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="fg">
+                    <label className="lbl">Nombre</label>
+                    <input className="inp" value={formEst.contacto_emergencia_nombre ?? ''} onChange={FE('contacto_emergencia_nombre')} />
+                  </div>
+                  <div className="fg">
+                    <label className="lbl">Teléfono</label>
+                    <input className="inp" value={formEst.contacto_emergencia_tel ?? ''} onChange={FE('contacto_emergencia_tel')} />
+                  </div>
+                  <div className="fg">
+                    <label className="lbl">Parentesco</label>
+                    <input className="inp" value={formEst.contacto_emergencia_parent ?? ''} onChange={FE('contacto_emergencia_parent')} />
                   </div>
                 </div>
                 <div className="mf">
