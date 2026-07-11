@@ -82,6 +82,10 @@ export async function PATCH(
   // municipio_id debe ser número
   if (upd.municipio_id) upd.municipio_id = parseInt(String(upd.municipio_id))
   if (upd.discapacidad_id) upd.discapacidad_id = parseInt(String(upd.discapacidad_id))
+  if (upd.estado_civil_id)   upd.estado_civil_id   = parseInt(String(upd.estado_civil_id))
+  if (upd.pueblo_id)         upd.pueblo_id         = parseInt(String(upd.pueblo_id))
+  if (upd.idioma_id)         upd.idioma_id         = parseInt(String(upd.idioma_id))
+  if (upd.tipo_vivienda_id)  upd.tipo_vivienda_id  = parseInt(String(upd.tipo_vivienda_id))
 
   if (Object.keys(upd).length === 0) return err('Nada que actualizar')
 
