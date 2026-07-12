@@ -334,13 +334,16 @@ function EscalasContent() {
                     </p>
                     {librosPorVer(ver).map((l: any) => (
                       <button key={l.id} onClick={() => seleccionarLibro(l)}
-                        className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all mb-1 ${
+                        className={`w-full text-left px-3 py-2 rounded-xl border-2 text-xs transition-all mb-1 flex items-center justify-between gap-2 ${
                           libroSel?.id === l.id
                             ? 'border-blue-500 bg-blue-50 text-blue-700 font-bold'
                             : 'border-gray-100 hover:border-blue-200 text-gray-600'
                         }`}>
-                        <span className="font-semibold">Libro {l.numero}</span>
-                        <span className="text-gray-400 ml-1">— {l.nombre}</span>
+                        <span>
+                          <span className="font-semibold">Libro {l.numero}</span>
+                          <span className="text-gray-400 ml-1">— {l.nombre}</span>
+                        </span>
+                        {l.catalogo_bloqueado && <span title="El director congeló la edición de este libro">🔒</span>}
                       </button>
                     ))}
                   </div>
@@ -511,6 +514,12 @@ function EscalasContent() {
                   </div>
                 </div>
 
+                {libroSel?.catalogo_bloqueado && (
+                  <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-700 font-semibold flex items-center gap-2">
+                    🔒 El director congeló la edición del catálogo de este libro — puedes seguir ingresando notas, pero no corregir ni agregar tareas.
+                  </div>
+                )}
+
                 {/* Tabla */}
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs border-collapse" style={{ minWidth: 640 }}>
@@ -526,12 +535,16 @@ function EscalasContent() {
                           {inscSel ? '✏️ Nota' : 'Nota'}
                         </th>
                         <th className="px-3 py-2.5 w-20 text-center">
-                          <button
-                            className="btn btn-g btn-sm text-xs"
-                            title="Agregar tarea a esta área/libro"
-                            onClick={() => abrirEditarTarea('crear', areaSel ? parseInt(areaSel) : undefined)}>
-                            ＋
-                          </button>
+                          {libroSel?.catalogo_bloqueado ? (
+                            <span title="El director congeló la edición de este libro">🔒</span>
+                          ) : (
+                            <button
+                              className="btn btn-g btn-sm text-xs"
+                              title="Agregar tarea a esta área/libro"
+                              onClick={() => abrirEditarTarea('crear', areaSel ? parseInt(areaSel) : undefined)}>
+                              ＋
+                            </button>
+                          )}
                         </th>
                       </tr>
                     </thead>
@@ -624,21 +637,25 @@ function EscalasContent() {
 
                             {/* Acciones — corrección manual */}
                             <td className="px-3 py-2.5 text-center">
-                              <div className="flex items-center justify-center gap-1">
-                                <button
-                                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-blue-50 text-blue-600"
-                                  title="Corregir esta tarea"
-                                  onClick={() => abrirEditarTarea(t)}>
-                                  ✏️
-                                </button>
-                                <button
-                                  className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-red-500 disabled:opacity-40"
-                                  title="Eliminar tarea"
-                                  disabled={eliminandoId === t.id}
-                                  onClick={() => eliminarTarea(t)}>
-                                  {eliminandoId === t.id ? '⏳' : '🗑️'}
-                                </button>
-                              </div>
+                              {libroSel?.catalogo_bloqueado ? (
+                                <span className="text-gray-300" title="Edición congelada por el director">🔒</span>
+                              ) : (
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    className="w-7 h-7 flex items-center justify-center rounded hover:bg-blue-50 text-blue-600"
+                                    title="Corregir esta tarea"
+                                    onClick={() => abrirEditarTarea(t)}>
+                                    ✏️
+                                  </button>
+                                  <button
+                                    className="w-7 h-7 flex items-center justify-center rounded hover:bg-red-50 text-red-500 disabled:opacity-40"
+                                    title="Eliminar tarea"
+                                    disabled={eliminandoId === t.id}
+                                    onClick={() => eliminarTarea(t)}>
+                                    {eliminandoId === t.id ? '⏳' : '🗑️'}
+                                  </button>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         )
