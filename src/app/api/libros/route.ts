@@ -17,6 +17,7 @@ export async function GET(req: NextRequest) {
   let q = supabaseAdmin.from('libros')
     .select(`
       id, etapa_id, nombre, numero, descripcion, version, activo,
+      catalogo_bloqueado, catalogo_bloqueado_en,
       etapa:etapas(id, nombre, codigo)
     `)
     .eq('activo', true)
@@ -87,10 +88,27 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const s = await getSession(req)
-  if (!s || s.rol !== 'administrador') return err('Solo administrador', 403)
+  if (!s) return err('No autorizado', 401)
 
   const b = await req.json().catch(() => ({}))
   if (!b.id) return err('id requerido')
+
+  // El director SOLO puede congelar/reabrir la edición del catálogo —
+  // el resto de campos (nombre, número, versión, activo) son de administrador.
+  if (s.rol === 'director') {
+    if (b.catalogo_bloqueado === undefined) {
+      return err('El director solo puede congelar/reabrir la edición del catálogo', 403)
+    }
+    const { error } = await supabaseAdmin.from('libros').update({
+      catalogo_bloqueado:    Boolean(b.catalogo_bloqueado),
+      catalogo_bloqueado_por: s.sub,
+      catalogo_bloqueado_en:  new Date().toISOString(),
+    }).eq('id', b.id)
+    if (error) return err(error.message, 500)
+    return ok({ ok: true })
+  }
+
+  if (s.rol !== 'administrador') return err('Sin permiso', 403)
 
   const upd: any = {}
   if (b.nombre      !== undefined) upd.nombre      = b.nombre
@@ -98,6 +116,11 @@ export async function PATCH(req: NextRequest) {
   if (b.version     !== undefined) upd.version     = b.version
   if (b.descripcion !== undefined) upd.descripcion = b.descripcion
   if (b.activo      !== undefined) upd.activo      = Boolean(b.activo)
+  if (b.catalogo_bloqueado !== undefined) {
+    upd.catalogo_bloqueado     = Boolean(b.catalogo_bloqueado)
+    upd.catalogo_bloqueado_por = s.sub
+    upd.catalogo_bloqueado_en  = new Date().toISOString()
+  }
 
   const { error } = await supabaseAdmin.from('libros').update(upd).eq('id', b.id)
   if (error) return err(error.message, 500)
@@ -115,5 +138,4 @@ export async function DELETE(req: NextRequest) {
   if (error) return err(error.message, 500)
   return ok({ ok: true })
 }
-
 
