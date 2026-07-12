@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
 
-async function puedeEditar(s: any): Promise<boolean> {
+async function puedeEditar(s: any, libroId?: string | null): Promise<boolean> {
   if (s.rol === 'administrador') return true
   if (s.rol === 'director')      return true
 
@@ -18,9 +18,16 @@ async function puedeEditar(s: any): Promise<boolean> {
       .eq('permiso', 'modificar_escalas_tecnico')
       .maybeSingle()
 
-    // Si no existe el registro del permiso, asumir permitido (no bloquear)
-    if (!pg) return true
-    return pg.activo === true
+    if (pg && pg.activo !== true) return false
+
+    // El director puede congelar la edición de un libro específico —
+    // si está bloqueado, el técnico no puede editar aunque tenga el permiso global.
+    if (libroId) {
+      const { data: libro } = await supabaseAdmin
+        .from('libros').select('catalogo_bloqueado').eq('id', libroId).maybeSingle()
+      if (libro?.catalogo_bloqueado) return false
+    }
+    return true
   }
   return false
 }
@@ -75,11 +82,11 @@ export async function POST(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
 
-  const puede = await puedeEditar(s)
-  if (!puede) return err('No tienes permiso para modificar el catálogo de tareas. Contacta al administrador.', 403)
-
   const b = await req.json().catch(() => ({}))
   const { tipo = 'tarea', libro_id, area_id } = b
+
+  const puede = await puedeEditar(s, libro_id)
+  if (!puede) return err('No tienes permiso para modificar el catálogo de tareas. Es posible que el director haya congelado la edición de este libro.', 403)
 
   if (!libro_id) return err('libro_id requerido')
   if (!area_id)  return err('area_id requerido')
@@ -131,12 +138,15 @@ export async function PATCH(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
 
-  const puede = await puedeEditar(s)
-  if (!puede) return err('Sin permiso para editar el catálogo', 403)
-
   const b = await req.json().catch(() => ({}))
   const { id, tipo = 'tarea' } = b
   if (!id) return err('id requerido')
+
+  const tabla = tipo === 'examen' ? 'examenes_catalogo' : 'tareas_catalogo'
+  const { data: actual } = await supabaseAdmin.from(tabla).select('libro_id').eq('id', id).maybeSingle()
+
+  const puede = await puedeEditar(s, actual?.libro_id)
+  if (!puede) return err('Sin permiso para editar el catálogo. Es posible que el director haya congelado la edición de este libro.', 403)
 
   if (tipo === 'tarea') {
     const upd: any = {}
@@ -171,12 +181,15 @@ export async function DELETE(req: NextRequest) {
   const s = await getSession(req)
   if (!s) return err('No autorizado', 401)
 
-  const puede = await puedeEditar(s)
-  if (!puede) return err('Sin permiso para eliminar del catálogo', 403)
-
   const id   = req.nextUrl.searchParams.get('id')
   const tipo = req.nextUrl.searchParams.get('tipo') ?? 'tarea'
   if (!id) return err('id requerido')
+
+  const tabla = tipo === 'examen' ? 'examenes_catalogo' : 'tareas_catalogo'
+  const { data: actual } = await supabaseAdmin.from(tabla).select('libro_id').eq('id', id).maybeSingle()
+
+  const puede = await puedeEditar(s, actual?.libro_id)
+  if (!puede) return err('Sin permiso para eliminar del catálogo. Es posible que el director haya congelado la edición de este libro.', 403)
 
   if (tipo === 'tarea') {
     const { count } = await supabaseAdmin
