@@ -96,6 +96,14 @@ export async function POST(req: NextRequest) {
   const ts     = Date.now()
   const codigo = b.codigo ?? `SR-${ciclo}-${String(ts).slice(-5)}`
 
+  let fechaApertura = new Date().toISOString().split('T')[0]
+  if (b.fecha_apertura) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(b.fecha_apertura)) {
+      return err('fecha_apertura debe tener formato AAAA-MM-DD', 400)
+    }
+    fechaApertura = b.fecha_apertura
+  }
+
   const { data, error } = await supabaseAdmin.from('grupos_sireex').insert({
     codigo,
     nombre:         b.nombre         ?? null,
@@ -108,7 +116,7 @@ export async function POST(req: NextRequest) {
     observaciones:  b.observaciones   ?? null,
     creado_por:     s.sub,
     ingresado_por:  s.sub,
-    fecha_apertura: new Date().toISOString().split('T')[0],
+    fecha_apertura: fechaApertura,
   }).select('id, codigo').single()
 
   if (error) return err(error.message, 500)
@@ -133,6 +141,8 @@ export async function PATCH(req: NextRequest) {
     const { data: g } = await supabaseAdmin
       .from('grupos_sireex').select('tecnico_id').eq('id', b.id).single()
     if (tecnicoId !== g?.tecnico_id) return err('Sin permiso para editar este grupo', 403)
+  } else if (!['administrador', 'director'].includes(s.rol)) {
+    return err('Sin permiso', 403)
   }
 
   const upd: any = {}
@@ -142,9 +152,58 @@ export async function PATCH(req: NextRequest) {
   if (b.observaciones  !== undefined) upd.observaciones  = b.observaciones  || null
   if (b.fecha_cierre   !== undefined) upd.fecha_cierre   = b.fecha_cierre   || null
 
+  // CORREGIDO: fecha_apertura editable (el técnico la ingresa según el
+  // sistema del MINEDUC, no siempre coincide con "hoy")
+  if (b.fecha_apertura !== undefined) {
+    if (b.fecha_apertura && !/^\d{4}-\d{2}-\d{2}$/.test(b.fecha_apertura)) {
+      return err('fecha_apertura debe tener formato AAAA-MM-DD', 400)
+    }
+    upd.fecha_apertura = b.fecha_apertura || null
+  }
+
+  // Solo admin/director pueden reasignar sede o técnico del grupo
+  if (s.rol === 'administrador' || s.rol === 'director') {
+    if (b.sede_id    !== undefined) upd.sede_id    = b.sede_id    || null
+    if (b.tecnico_id !== undefined) upd.tecnico_id = b.tecnico_id || null
+  }
+
   if (Object.keys(upd).length === 0) return err('Nada que actualizar')
 
   const { error } = await supabaseAdmin.from('grupos_sireex').update(upd).eq('id', b.id)
   if (error) return err(error.message, 500)
+
+  if (b.tecnico_id !== undefined || b.sede_id !== undefined) {
+    await supabaseAdmin.from('grupos_sireex_historial').insert({
+      grupo_sireex_id: b.id, accion: 'REASIGNADO', usuario_id: s.sub,
+      detalle: `Reasignado por ${s.rol}${b.tecnico_id ? ' — nuevo técnico' : ''}${b.sede_id ? ' — nueva sede' : ''}`,
+    }).catch(() => {})
+  }
+
   return ok({ ok: true })
+}
+
+export async function DELETE(req: NextRequest) {
+  const s = await getSession(req)
+  if (!s || !['administrador', 'director'].includes(s.rol)) return err('Sin permiso — solo administrador', 403)
+
+  const id = req.nextUrl.searchParams.get('id')
+  if (!id) return err('id requerido')
+
+  const { count } = await supabaseAdmin
+    .from('inscripcion_grupo_sireex')
+    .select('*', { count: 'exact', head: true })
+    .eq('grupo_sireex_id', id)
+
+  if ((count ?? 0) > 0) {
+    return err(`❌ No se puede eliminar: el grupo tiene ${count} estudiante(s) asignado(s). Quítalos primero o muévelos a otro grupo.`, 400)
+  }
+
+  const { error } = await supabaseAdmin.from('grupos_sireex').delete().eq('id', id)
+  if (error) return err(error.message, 500)
+
+  await supabaseAdmin.from('grupos_sireex_historial').insert({
+    grupo_sireex_id: id, accion: 'ELIMINADO', usuario_id: s.sub, detalle: 'Grupo eliminado',
+  }).catch(() => {})
+
+  return ok({ ok: true, mensaje: '✅ Grupo eliminado' })
 }
