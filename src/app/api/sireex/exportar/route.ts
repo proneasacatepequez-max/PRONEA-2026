@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
   const { data: grupo } = await supabaseAdmin
     .from('grupos_sireex')
     .select(`
-      codigo, codigo_mineduc, ciclo_escolar,
+      codigo, codigo_mineduc, ciclo_escolar, fecha_apertura,
       etapa:etapas(id, nombre),
       sede:sedes(nombre),
       tecnico:tecnicos(primer_nombre, primer_apellido, codigo_tecnico)
@@ -185,6 +185,7 @@ export async function GET(req: NextRequest) {
     ['PRONEA — Grupo SIREEX'],
     ['Código Grupo',     grupo.codigo],
     ['Código MINEDUC',   grupo.codigo_mineduc ?? 'No asignado'],
+    ['Fecha de creación (MINEDUC)', grupo.fecha_apertura ?? ''],
     ['Ciclo Escolar',    grupo.ciclo_escolar],
     ['Etapa',            (grupo.etapa as any)?.nombre ?? ''],
     ['Sede',             (grupo.sede  as any)?.nombre ?? ''],
