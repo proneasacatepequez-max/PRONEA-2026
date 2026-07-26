@@ -170,8 +170,10 @@ export async function GET(req: NextRequest) {
   // ── Filtros opcionales ────────────────────────────────────────────────
   if (etapa_id) q = q.eq('etapa_id', parseInt(etapa_id))
 
-  // Admin puede filtrar por sede; otros roles ya tienen su sede fija
-  if (sede_id && s.rol === 'administrador') q = q.eq('sede_id', sede_id)
+  // CORREGIDO: el filtro de sede ahora aplica para todos los roles —
+  // para técnico/director/enlace actúa como un filtro adicional DENTRO
+  // de lo que ya pueden ver (no amplía su alcance, solo lo acota).
+  if (sede_id) q = q.eq('sede_id', sede_id)
 
   // CORREGIDO: 'todos' omite el filtro de estado; cualquier otro valor filtra
   if (estado && estado !== 'todos') q = q.eq('estado', estado)
