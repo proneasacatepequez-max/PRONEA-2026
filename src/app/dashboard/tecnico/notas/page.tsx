@@ -13,6 +13,9 @@ function NotasContent() {
   const [libros,        setLibros]        = useState<any[]>([])
   const [libroSel,      setLibroSel]      = useState<any>(null)
   const [areas,         setAreas]         = useState<any[]>([])
+  const [areaSel,       setAreaSel]       = useState('')
+  const [buscarPagina,  setBuscarPagina]  = useState('')
+  const [ordenPagina,   setOrdenPagina]   = useState(false)
   const [tareas,        setTareas]        = useState<any[]>([])
   const [examenes,      setExamenes]      = useState<any[]>([])
   const [notasMap,      setNotasMap]      = useState<Record<string, number | null>>({})
@@ -303,6 +306,28 @@ function NotasContent() {
                   </div>
                 </div>
 
+                {tareas.length > 0 && (
+                  <div className="card py-3 flex items-center gap-2 flex-wrap justify-end">
+                    <select className="inp w-44 text-sm" value={areaSel} onChange={e => setAreaSel(e.target.value)}>
+                      <option value="">Todas las áreas</option>
+                      {areas.filter((a: any) => tareas.some((t: any) => t.area?.id === a.id))
+                        .map((a: any) => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                    </select>
+                    <input
+                      className="inp w-32 text-sm"
+                      placeholder="Buscar página..."
+                      value={buscarPagina}
+                      onChange={e => setBuscarPagina(e.target.value)}
+                    />
+                    <button
+                      className={`text-xs px-3 py-2 rounded-lg border whitespace-nowrap ${ordenPagina ? 'bg-blue-50 border-blue-300 text-blue-700' : 'border-gray-200 text-gray-500'}`}
+                      title="Ordenar por página, de menor a mayor"
+                      onClick={() => setOrdenPagina(v => !v)}>
+                      📄 {ordenPagina ? '✓ ' : ''}Ordenar por página
+                    </button>
+                  </div>
+                )}
+
                 {tareas.length === 0 ? (
                   <div className="card text-center py-10 text-gray-400">
                     <div className="text-3xl mb-2">📋</div>
@@ -314,10 +339,18 @@ function NotasContent() {
                     </div>
                   </div>
                 ) : (
-                  areas.map((area: any) => {
+                  areas.filter((area: any) => !areaSel || String(area.id) === areaSel).map((area: any) => {
                     const tareasArea = tareas
                       .filter((t: any) => t.area?.id === area.id)
-                      .sort((a: any, b: any) => a.numero_tarea - b.numero_tarea)
+                      .filter((t: any) => !buscarPagina.trim() || String(t.paginas ?? '').includes(buscarPagina.trim()))
+                      .sort((a: any, b: any) => {
+                        if (ordenPagina) {
+                          const pA = parseInt(String(a.paginas ?? '').match(/\d+/)?.[0] ?? '999999')
+                          const pB = parseInt(String(b.paginas ?? '').match(/\d+/)?.[0] ?? '999999')
+                          if (pA !== pB) return pA - pB
+                        }
+                        return a.numero_tarea - b.numero_tarea
+                      })
                     const examenArea = examenes.find((e: any) => e.area?.id === area.id)
                     if (tareasArea.length === 0 && !examenArea) return null
 
