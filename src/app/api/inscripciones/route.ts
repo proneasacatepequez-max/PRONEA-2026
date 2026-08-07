@@ -284,10 +284,19 @@ export async function PATCH(req: NextRequest) {
   let b: any = {}
   try { b = await req.json() } catch { return err('JSON inválido') }
 
-  const { id, estado, fecha_inscripcion } = b
+  const { id, estado, fecha_inscripcion, etapa_id, version_libro } = b
   if (!id) return err('id requerido')
-  if (estado === undefined && fecha_inscripcion === undefined) {
-    return err('Nada que actualizar: envía estado y/o fecha_inscripcion', 400)
+  if (estado === undefined && fecha_inscripcion === undefined && etapa_id === undefined && version_libro === undefined) {
+    return err('Nada que actualizar', 400)
+  }
+
+  // El técnico solo puede editar SUS PROPIAS inscripciones (las que él registró)
+  if (s.rol === 'tecnico' && (etapa_id !== undefined || version_libro !== undefined)) {
+    const { data: tec } = await supabaseAdmin.from('tecnicos').select('id').eq('usuario_id', s.sub).maybeSingle()
+    const { data: insc } = await supabaseAdmin.from('inscripciones').select('tecnico_id').eq('id', id).maybeSingle()
+    if (!tec || !insc || insc.tecnico_id !== tec.id) {
+      return err('❌ Solo puedes editar la etapa/libro de estudiantes que tú mismo inscribiste.', 403)
+    }
   }
 
   const upd: any = {}
@@ -305,6 +314,14 @@ export async function PATCH(req: NextRequest) {
       return err('La fecha de inscripción no puede ser futura', 400)
     }
     upd.fecha_inscripcion = fecha_inscripcion
+  }
+  if (etapa_id !== undefined) {
+    if (!etapa_id) return err('etapa_id inválida', 400)
+    upd.etapa_id = parseInt(String(etapa_id))
+  }
+  if (version_libro !== undefined) {
+    if (!['nuevo', 'viejo'].includes(version_libro)) return err('version_libro inválida', 400)
+    upd.version_libro = version_libro
   }
 
   const { error } = await supabaseAdmin
