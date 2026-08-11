@@ -16,12 +16,60 @@ export default function AdminEstudiantesPage() {
   const [sedes,         setSedes]         = useState<any[]>([])
   const [descargando,   setDescargando]   = useState(false)
   const [msg,           setMsg]           = useState('')
+  const [modalEditarInsc, setModalEditarInsc] = useState<any>(null)
+  const [formEditInsc,    setFormEditInsc]    = useState({ etapa_id: '', version_libro: 'nuevo' })
+  const [guardandoInsc,   setGuardandoInsc]   = useState(false)
+  const [eliminandoInsc,  setEliminandoInsc]  = useState(false)
   const [modalEst,      setModalEst]      = useState<any>(null)
   const [modalTipo,     setModalTipo]     = useState<'detalle'|'editar'>('detalle')
   const [formEst,       setFormEst]       = useState<any>({})
   const [savingEst,     setSavingEst]     = useState(false)
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
+
+  const abrirEditarInsc = (insc: any) => {
+    setFormEditInsc({
+      etapa_id: String((insc.etapa as any)?.id ?? ''),
+      version_libro: insc.version_libro ?? 'nuevo',
+    })
+    setModalEditarInsc(insc)
+  }
+
+  const guardarEditarInsc = async () => {
+    if (!modalEditarInsc) return
+    setGuardandoInsc(true)
+    try {
+      const res = await fetch('/api/inscripciones', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: modalEditarInsc.id,
+          etapa_id: parseInt(formEditInsc.etapa_id),
+          version_libro: formEditInsc.version_libro,
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al actualizar')); return }
+      flash('✅ Etapa/versión actualizada correctamente')
+      setModalEditarInsc(null)
+      cargar()
+    } catch { flash('❌ Error de conexión') }
+    finally { setGuardandoInsc(false) }
+  }
+
+  const eliminarInsc = async (insc: any) => {
+    const e = insc.estudiante as any
+    if (!confirm(`¿Eliminar por completo la inscripción de ${e?.primer_nombre} ${e?.primer_apellido} en esta etapa? Esta acción no se puede deshacer.`)) return
+    setEliminandoInsc(true)
+    try {
+      const res = await fetch(`/api/inscripciones?id=${insc.id}`, { method: 'DELETE' })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al eliminar')); return }
+      flash('✅ Inscripción eliminada')
+      setModalEditarInsc(null)
+      cargar()
+    } catch { flash('❌ Error de conexión') }
+    finally { setEliminandoInsc(false) }
+  }
 
   const cargar = useCallback(async () => {
     setLoading(true)
@@ -229,7 +277,11 @@ export default function AdminEstudiantesPage() {
                             <button onClick={() => { setModalEst(insc); setModalTipo('detalle') }}
                               className="btn btn-g btn-sm" title="Ver detalle">👁️</button>
                             <button onClick={() => abrirEditar(insc)}
-                              className="btn btn-p btn-sm" title="Editar">✏️</button>
+                              className="btn btn-p btn-sm" title="Editar datos del estudiante">✏️</button>
+                            <button onClick={() => abrirEditarInsc(insc)}
+                              className="btn btn-s btn-sm" title="Editar etapa / versión de libro">🎓</button>
+                            <button onClick={() => eliminarInsc(insc)}
+                              className="btn btn-d btn-sm" title="Eliminar inscripción de esta etapa">🗑️</button>
                           </div>
                         </td>
                       </tr>
@@ -326,6 +378,50 @@ export default function AdminEstudiantesPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal editar etapa/versión de libro (admin) */}
+      {modalEditarInsc && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="px-6 py-4 border-b flex justify-between items-center">
+              <h3 className="font-bold">🎓 Editar etapa / versión de libro</h3>
+              <button onClick={() => setModalEditarInsc(null)}
+                className="w-8 h-8 flex items-center justify-center rounded hover:bg-gray-100 text-xl">×</button>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div className="bg-blue-50 rounded-xl p-3 text-sm text-gray-600">
+                {(modalEditarInsc.estudiante as any)?.primer_nombre} {(modalEditarInsc.estudiante as any)?.primer_apellido}
+              </div>
+              <div className="fg">
+                <label className="lbl">Etapa correcta</label>
+                <select className="inp" value={formEditInsc.etapa_id}
+                  onChange={e => setFormEditInsc(f => ({ ...f, etapa_id: e.target.value }))}>
+                  {etapas.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
+                </select>
+              </div>
+              <div className="fg">
+                <label className="lbl">Versión de libro</label>
+                <select className="inp" value={formEditInsc.version_libro}
+                  onChange={e => setFormEditInsc(f => ({ ...f, version_libro: e.target.value }))}>
+                  <option value="nuevo">📗 Nuevo</option>
+                  <option value="viejo">📙 Viejo</option>
+                </select>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t bg-gray-50 rounded-b-2xl flex justify-between gap-2">
+              <button className="btn btn-d" onClick={() => eliminarInsc(modalEditarInsc)} disabled={eliminandoInsc}>
+                {eliminandoInsc ? '⏳...' : '🗑️ Eliminar inscripción'}
+              </button>
+              <div className="flex gap-2">
+                <button className="btn btn-g" onClick={() => setModalEditarInsc(null)}>Cancelar</button>
+                <button className="btn btn-p" onClick={guardarEditarInsc} disabled={guardandoInsc}>
+                  {guardandoInsc ? '⏳ Guardando...' : '💾 Guardar'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
