@@ -329,3 +329,24 @@ export async function PATCH(req: NextRequest) {
   if (error) return err(error.message, 500)
   return ok({ ok: true, mensaje: '✅ Actualizado correctamente' })
 }
+
+export async function DELETE(req: NextRequest) {
+  const s = await getSession(req)
+  if (!s || !['administrador', 'director'].includes(s.rol)) return err('Sin permiso — solo administrador o director', 403)
+
+  const id = req.nextUrl.searchParams.get('id')
+  if (!id) return err('id requerido')
+
+  const [{ count: cTareas }, { count: cExamenes }] = await Promise.all([
+    supabaseAdmin.from('notas_tareas').select('*', { count: 'exact', head: true }).eq('inscripcion_id', id),
+    supabaseAdmin.from('notas_examenes').select('*', { count: 'exact', head: true }).eq('inscripcion_id', id),
+  ])
+
+  if ((cTareas ?? 0) > 0 || (cExamenes ?? 0) > 0) {
+    return err('❌ No se puede eliminar: esta inscripción ya tiene notas registradas. Considera cambiar el estado a "retirado" en vez de eliminarla.', 400)
+  }
+
+  const { error } = await supabaseAdmin.from('inscripciones').delete().eq('id', id)
+  if (error) return err(error.message, 500)
+  return ok({ ok: true, mensaje: '✅ Inscripción eliminada' })
+}
