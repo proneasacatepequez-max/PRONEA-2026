@@ -1,7 +1,7 @@
 // src/app/dashboard/admin/page.tsx
 import { redirect } from 'next/navigation'
 import { getSession } from '@/lib/auth'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin, fetchAllRows } from '@/lib/supabase'
 import Link from 'next/link'
 
 export default async function AdminDashboard() {
@@ -22,20 +22,24 @@ export default async function AdminDashboard() {
   ])
 
   // 📊 OBTENER INSCRIPCIONES CON ETAPA Y ESTUDIANTE - SIMPLIFICADO
-  const { data: inscripcionesRaw } = await supabaseAdmin
-    .from('inscripciones')
-    .select(`
-      id,
-      version_libro,
-      estado,
-      ciclo_escolar,
-      etapa_id,
-      estudiante_id,
-      sede_id,
-      tecnico_id
-    `)
-    .eq('ciclo_escolar', 2026)
-    .eq('estado', 'en_curso')
+  // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta
+  const inscripcionesRaw = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin
+      .from('inscripciones')
+      .select(`
+        id,
+        version_libro,
+        estado,
+        ciclo_escolar,
+        etapa_id,
+        estudiante_id,
+        sede_id,
+        tecnico_id
+      `)
+      .eq('ciclo_escolar', 2026)
+      .eq('estado', 'en_curso')
+      .range(from, to) as any
+  )
 
   // 📊 OBTENER ETAPAS POR SEPARADO
   const { data: etapasData } = await supabaseAdmin
@@ -43,58 +47,74 @@ export default async function AdminDashboard() {
     .select('id, nombre')
 
   // 📊 OBTENER ESTUDIANTES POR SEPARADO (solo genero)
-  const { data: estudiantesData } = await supabaseAdmin
-    .from('estudiantes')
-    .select('id, genero')
+  // Paginado: la tabla estudiantes crecerá con el tiempo y puede superar 1000
+  const estudiantesData = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin.from('estudiantes').select('id, genero').range(from, to) as any
+  )
 
   // 📊 Obtener datos para estadísticas por sede
-  const { data: sedesData } = await supabaseAdmin
-    .from('inscripciones')
-    .select(`
-      sede_id,
-      sedes!inner (id, nombre)
-    `)
-    .eq('ciclo_escolar', 2026)
-    .eq('estado', 'en_curso')
+  const sedesData = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin
+      .from('inscripciones')
+      .select(`
+        sede_id,
+        sedes!inner (id, nombre)
+      `)
+      .eq('ciclo_escolar', 2026)
+      .eq('estado', 'en_curso')
+      .range(from, to) as any
+  )
 
   // 📊 Obtener todos los técnicos con sus estadísticas
-  const { data: tecnicosData } = await supabaseAdmin
-    .from('tecnicos')
-    .select(`
-      id,
-      primer_nombre,
-      primer_apellido,
-      codigo_tecnico,
-      especialidad,
-      activo,
-      usuario_id
-    `)
-    .eq('activo', true)
+  const tecnicosData = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin
+      .from('tecnicos')
+      .select(`
+        id,
+        primer_nombre,
+        primer_apellido,
+        codigo_tecnico,
+        especialidad,
+        activo,
+        usuario_id
+      `)
+      .eq('activo', true)
+      .range(from, to) as any
+  )
 
   // 📊 Obtener conteo de estudiantes por técnico
-  const { data: estudiantesPorTecnico } = await supabaseAdmin
-    .from('inscripciones')
-    .select('tecnico_id')
-    .eq('ciclo_escolar', 2026)
-    .eq('estado', 'en_curso')
+  const estudiantesPorTecnico = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin
+      .from('inscripciones')
+      .select('tecnico_id')
+      .eq('ciclo_escolar', 2026)
+      .eq('estado', 'en_curso')
+      .range(from, to) as any
+  )
 
   // 📊 Obtener sedes por técnico
-  const { data: sedesPorTecnico } = await supabaseAdmin
-    .from('tecnico_sedes')
-    .select('tecnico_id')
+  const sedesPorTecnico = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin.from('tecnico_sedes').select('tecnico_id').range(from, to) as any
+  )
 
   // 📊 Obtener enlaces por técnico
-  const { data: enlacesPorTecnico } = await supabaseAdmin
-    .from('enlaces_institucionales')
-    .select('tecnico_id')
-    .eq('activo', true)
+  const enlacesPorTecnico = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin
+      .from('enlaces_institucionales')
+      .select('tecnico_id')
+      .eq('activo', true)
+      .range(from, to) as any
+  )
 
   // 📊 Obtener versión de libros
-  const { data: porVersion } = await supabaseAdmin
-    .from('inscripciones')
-    .select('version_libro')
-    .eq('ciclo_escolar', 2026)
-    .eq('estado', 'en_curso')
+  const porVersion = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin
+      .from('inscripciones')
+      .select('version_libro')
+      .eq('ciclo_escolar', 2026)
+      .eq('estado', 'en_curso')
+      .range(from, to) as any
+  )
   
   const vc = { nuevo: 0, viejo: 0 }
   porVersion?.forEach((i: any) => { vc[i.version_libro as 'nuevo' | 'viejo']++ })
@@ -113,29 +133,35 @@ export default async function AdminDashboard() {
     .limit(6)
 
   // 📊 Obtener enlaces institucionales con sus sedes
-  const { data: enlacesData } = await supabaseAdmin
-    .from('enlaces_institucionales')
-    .select(`
-      id,
-      primer_nombre,
-      primer_apellido,
-      cargo,
-      telefono,
-      correo_personal,
-      sede_id,
-      tecnico_id,
-      activo,
-      sedes!inner (id, nombre, municipio_id),
-      municipios!inner (id, nombre)
-    `)
-    .eq('activo', true)
+  const enlacesData = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin
+      .from('enlaces_institucionales')
+      .select(`
+        id,
+        primer_nombre,
+        primer_apellido,
+        cargo,
+        telefono,
+        correo_personal,
+        sede_id,
+        tecnico_id,
+        activo,
+        sedes!inner (id, nombre, municipio_id),
+        municipios!inner (id, nombre)
+      `)
+      .eq('activo', true)
+      .range(from, to) as any
+  )
 
   // 📊 Contar estudiantes por enlace (sede)
-  const { data: estudiantesPorEnlace } = await supabaseAdmin
-    .from('inscripciones')
-    .select('sede_id')
-    .eq('ciclo_escolar', 2026)
-    .eq('estado', 'en_curso')
+  const estudiantesPorEnlace = await fetchAllRows<any>((from, to) =>
+    supabaseAdmin
+      .from('inscripciones')
+      .select('sede_id')
+      .eq('ciclo_escolar', 2026)
+      .eq('estado', 'en_curso')
+      .range(from, to) as any
+  )
 
   const hoy = new Date().toLocaleDateString('es-GT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
