@@ -12,3 +12,41 @@ export const supabase = createClient(url, anon)
 export const supabaseAdmin = createClient(url, svc, {
   auth: { autoRefreshToken: false, persistSession: false },
 })
+
+// ────────────────────────────────────────────────────────────
+// fetchAllRows
+// PostgREST (Supabase) limita cada .select() a 1000 filas por
+// defecto, incluso sin .limit(). Esta función pagina en bloques
+// (range) hasta traer TODAS las filas, para usar en cualquier
+// consulta que pueda superar las 1000 filas (inscripciones,
+// enlaces, técnicos, etc. a nivel global o de un ciclo completo).
+//
+// Uso:
+//   const data = await fetchAllRows<MiTipo>((from, to) =>
+//     supabaseAdmin
+//       .from('inscripciones')
+//       .select('id, etapa_id')
+//       .eq('ciclo_escolar', 2026)
+//       .range(from, to)
+//   )
+// ────────────────────────────────────────────────────────────
+export async function fetchAllRows<T = any>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: any }>,
+  pageSize = 1000
+): Promise<T[]> {
+  const allRows: T[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await buildQuery(from, from + pageSize - 1)
+    if (error) throw error
+    if (!data || data.length === 0) break
+
+    allRows.push(...data)
+
+    if (data.length < pageSize) break // última página
+    from += pageSize
+  }
+
+  return allRows
+}
