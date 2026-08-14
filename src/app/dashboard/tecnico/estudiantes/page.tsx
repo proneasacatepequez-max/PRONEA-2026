@@ -86,6 +86,25 @@ export default function TecnicoEstudiantesPage() {
     return txt.includes(filtro.buscar.toLowerCase())
   })
 
+  // Estadística: hombres/mujeres por etapa, sobre lo que está filtrado actualmente
+  const statsPorEtapa = (() => {
+    const mapa = new Map<string, { nombre: string; masculino: number; femenino: number; otro: number }>()
+    for (const i of filtrados) {
+      const e = i.estudiante as any
+      const nombreEtapa = (i.etapa as any)?.nombre ?? 'Sin etapa'
+      if (!mapa.has(nombreEtapa)) mapa.set(nombreEtapa, { nombre: nombreEtapa, masculino: 0, femenino: 0, otro: 0 })
+      const fila = mapa.get(nombreEtapa)!
+      const g = (e?.genero ?? '').toLowerCase()
+      if (g === 'masculino') fila.masculino++
+      else if (g === 'femenino') fila.femenino++
+      else fila.otro++
+    }
+    return [...mapa.values()].sort((a, b) => a.nombre.localeCompare(b.nombre))
+  })()
+  const totalMasc = statsPorEtapa.reduce((a, s) => a + s.masculino, 0)
+  const totalFem  = statsPorEtapa.reduce((a, s) => a + s.femenino, 0)
+  const totalOtro = statsPorEtapa.reduce((a, s) => a + s.otro, 0)
+
   const descargarExcel = async () => {
     setDescargando(true)
     try {
@@ -178,6 +197,43 @@ export default function TecnicoEstudiantesPage() {
             <button className="btn btn-g btn-sm" onClick={limpiar}>Limpiar filtros</button>
           </div>
         </div>
+
+        {/* Estadística: hombres/mujeres por etapa */}
+        {!loading && filtrados.length > 0 && (
+          <div className="card mb-4">
+            <div className="flex items-center justify-between mb-3">
+              <div className="font-bold text-sm text-gray-700">📊 Estudiantes por etapa y género</div>
+              <div className="flex gap-3 text-xs font-bold">
+                <span className="text-blue-600">♂ {totalMasc} hombres</span>
+                <span className="text-pink-600">♀ {totalFem} mujeres</span>
+                {totalOtro > 0 && <span className="text-gray-400">— {totalOtro} sin especificar</span>}
+                <span className="text-gray-500">Total: {filtrados.length}</span>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 text-left">
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Etapa</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center text-blue-600">♂ Hombres</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center text-pink-600">♀ Mujeres</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {statsPorEtapa.map(fila => (
+                    <tr key={fila.nombre} className="border-b">
+                      <td className="px-3 py-1.5 font-semibold">{fila.nombre}</td>
+                      <td className="px-3 py-1.5 text-center text-blue-600 font-bold">{fila.masculino}</td>
+                      <td className="px-3 py-1.5 text-center text-pink-600 font-bold">{fila.femenino}</td>
+                      <td className="px-3 py-1.5 text-center font-bold">{fila.masculino + fila.femenino + fila.otro}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Tabla horizontal */}
         <div className="card overflow-hidden">
