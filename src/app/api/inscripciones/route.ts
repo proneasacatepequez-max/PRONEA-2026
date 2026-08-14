@@ -1,6 +1,6 @@
 // src/app/api/inscripciones/route.ts
 import { NextRequest } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin, fetchAllRows } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
@@ -43,9 +43,13 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Query base ────────────────────────────────────────────────────────
-  let q = supabaseAdmin
-    .from('inscripciones')
-    .select(`
+  // NOTA: en vez de mutar un único query builder, ahora guardamos el
+  // filtro por rol como una función (filtroRol) que se vuelve a aplicar
+  // cada vez que se reconstruye la consulta — esto es necesario para
+  // poder paginar con fetchAllRows (PostgREST limita cada consulta a
+  // 1000 filas, y con ~1800 inscripciones/año en todo el sistema el
+  // administrador SÍ estaba superando ese límite en este endpoint).
+  const selectInscripciones = `
       id, ciclo_escolar, estado, repite_etapa, version_libro, creado_en, fecha_inscripcion,
       estudiante:estudiantes(
         id, codigo_estudiante, primer_nombre, segundo_nombre,
@@ -60,8 +64,10 @@ export async function GET(req: NextRequest) {
       etapa:etapas(id, codigo, nombre, nivel, orden),
       sede:sedes(id, nombre, municipio:municipios(nombre)),
       tecnico:tecnicos!inscripciones_tecnico_id_fkey(id, primer_nombre, primer_apellido, codigo_tecnico)
-    `)
-    .eq('ciclo_escolar', parseInt(ciclo))
+    `
+
+  // Sin filtro adicional por defecto (administrador ve todo el ciclo)
+  let filtroRol: (query: any) => any = (query) => query
 
   // ── Filtro por rol ────────────────────────────────────────────────────
   if (s.rol === 'tecnico') {
@@ -106,13 +112,11 @@ export async function GET(req: NextRequest) {
       ...sedeIdsDeEnlaces,
     ])].filter(Boolean)
 
-    if (sedeIds.length > 0) {
+    filtroRol = sedeIds.length > 0
       // Ver inscripciones de sus sedes (propias o de sus enlaces) O que él inscribió directamente
-      q = q.or(`tecnico_id.eq.${tec.id},sede_id.in.(${sedeIds.join(',')})`)
-    } else {
+      ? (query) => query.or(`tecnico_id.eq.${tec.id},sede_id.in.(${sedeIds.join(',')})`)
       // Sin sedes ni enlaces asignados: ver solo las que él inscribió directamente
-      q = q.eq('tecnico_id', tec.id)
-    }
+      : (query) => query.eq('tecnico_id', tec.id)
   }
 
   if (s.rol === 'enlace_institucional') {
@@ -123,7 +127,7 @@ export async function GET(req: NextRequest) {
 
     // El enlace solo ve los estudiantes que ÉL MISMO inscribió — no todos los
     // del técnico compartido ni todos los de la sede (eso es alcance del técnico).
-    q = q.eq('creado_por', s.sub)
+    filtroRol = (query) => query.eq('creado_por', s.sub)
   }
 
   if (s.rol === 'director') {
@@ -159,28 +163,47 @@ export async function GET(req: NextRequest) {
     }
 
     if (sedeIds.length > 0 && tecnicoIds.length > 0) {
-      q = q.or(`sede_id.in.(${sedeIds.join(',')}),tecnico_id.in.(${tecnicoIds.join(',')})`)
+      filtroRol = (query) => query.or(`sede_id.in.(${sedeIds.join(',')}),tecnico_id.in.(${tecnicoIds.join(',')})`)
     } else if (sedeIds.length > 0) {
-      q = q.in('sede_id', sedeIds)
+      filtroRol = (query) => query.in('sede_id', sedeIds)
     } else {
       return ok({ data: [] })
     }
   }
 
-  // ── Filtros opcionales ────────────────────────────────────────────────
-  if (etapa_id) q = q.eq('etapa_id', parseInt(etapa_id))
+  // ── Construcción de la consulta (una función factory, para poder
+  // reconstruirla en cada página de fetchAllRows) ─────────────────────
+  const buildQuery = (from: number, to: number) => {
+    let qq = supabaseAdmin
+      .from('inscripciones')
+      .select(selectInscripciones)
+      .eq('ciclo_escolar', parseInt(ciclo))
 
-  // CORREGIDO: el filtro de sede ahora aplica para todos los roles —
-  // para técnico/director/enlace actúa como un filtro adicional DENTRO
-  // de lo que ya pueden ver (no amplía su alcance, solo lo acota).
-  if (sede_id) q = q.eq('sede_id', sede_id)
+    qq = filtroRol(qq)
 
-  // CORREGIDO: 'todos' omite el filtro de estado; cualquier otro valor filtra
-  if (estado && estado !== 'todos') q = q.eq('estado', estado)
+    // ── Filtros opcionales ────────────────────────────────────────────
+    if (etapa_id) qq = qq.eq('etapa_id', parseInt(etapa_id))
 
-  const { data, error } = await q.order('creado_en', { ascending: false })
-  if (error) return err(error.message, 500)
-  return ok({ data: data ?? [] })
+    // CORREGIDO: el filtro de sede ahora aplica para todos los roles —
+    // para técnico/director/enlace actúa como un filtro adicional DENTRO
+    // de lo que ya pueden ver (no amplía su alcance, solo lo acota).
+    if (sede_id) qq = qq.eq('sede_id', sede_id)
+
+    // CORREGIDO: 'todos' omite el filtro de estado; cualquier otro valor filtra
+    if (estado && estado !== 'todos') qq = qq.eq('estado', estado)
+
+    return qq.order('creado_en', { ascending: false }).range(from, to)
+  }
+
+  // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta.
+  // Con ~1800 inscripciones/año en todo el sistema, el administrador
+  // (que ve todo el ciclo sin filtro de rol) SÍ podía quedar truncado.
+  try {
+    const data = await fetchAllRows<any>(buildQuery)
+    return ok({ data })
+  } catch (e: any) {
+    return err(e.message ?? 'Error al obtener inscripciones', 500)
+  }
 }
 
 export async function POST(req: NextRequest) {
