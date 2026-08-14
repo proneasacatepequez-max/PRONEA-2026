@@ -1,6 +1,6 @@
 // src/app/api/dashboard/director/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin, fetchAllRows } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
@@ -71,12 +71,16 @@ export async function GET(req: NextRequest) {
       .eq('activo', true)
 
     // Distribución por etapa
-    const { data: porEtapaData } = await supabaseAdmin
-      .from('inscripciones')
-      .select('etapa:etapas(nombre)')
-      .eq('sede_id', director.sede_id)
-      .eq('ciclo_escolar', ciclo)
-      .eq('estado', 'en_curso')
+    // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta
+    const porEtapaData = await fetchAllRows<{ etapa: { nombre: string } | null }>((from, to) =>
+      supabaseAdmin
+        .from('inscripciones')
+        .select('etapa:etapas(nombre)')
+        .eq('sede_id', director.sede_id)
+        .eq('ciclo_escolar', ciclo)
+        .eq('estado', 'en_curso')
+        .range(from, to) as any
+    )
 
     const porEtapa: Record<string, number> = {}
     ;(porEtapaData ?? []).forEach((i: any) => {
