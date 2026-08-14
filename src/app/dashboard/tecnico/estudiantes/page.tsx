@@ -1,6 +1,6 @@
 'use client'
 // src/app/dashboard/tecnico/estudiantes/page.tsx
-// FIX: Mostrar SOLO los estudiantes del técnico actual (como en el Dashboard)
+// FIX: Mostrar SOLO los estudiantes del técnico actual usando /api/mi-perfil
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 
@@ -15,16 +15,45 @@ export default function TecnicoEstudiantesPage() {
   const [modalEditarInsc, setModalEditarInsc] = useState<any>(null)
   const [formEditInsc,    setFormEditInsc]    = useState({ etapa_id: '', version_libro: 'nuevo' })
   const [guardandoInsc,   setGuardandoInsc]   = useState(false)
+  const [tecnicoActual, setTecnicoActual] = useState<any>(null)
+  const [errorTecnico, setErrorTecnico] = useState(false)
 
   const [filtro, setFiltro] = useState({
-    buscar: '', 
-    etapa_id: '', 
-    sede_id: '', 
+    buscar: '',
+    etapa_id: '',
+    sede_id: '',
     estado: 'en_curso',
-    tipo_vista: 'mis_estudiantes' // 👈 Por defecto: "Solo mis estudiantes"
+    tipo_vista: 'mis_estudiantes'
   })
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
+
+  // ✅ Obtener el técnico actual usando el endpoint correcto
+  useEffect(() => {
+    const obtenerTecnico = async () => {
+      try {
+        // 🔥 USAR /api/mi-perfil (EXISTE)
+        const res = await fetch('/api/mi-perfil')
+        const data = await res.json()
+        
+        console.log('📝 Datos de /api/mi-perfil:', data)
+        
+        // Verificar la estructura de la respuesta
+        if (data?.rol === 'tecnico' && data?.perfil?.id) {
+          setTecnicoActual(data.perfil)
+          setErrorTecnico(false)
+          console.log('✅ Técnico identificado:', data.perfil)
+        } else {
+          console.error('❌ No se pudo identificar al técnico:', data)
+          setErrorTecnico(true)
+        }
+      } catch (error) {
+        console.error('❌ Error al obtener técnico:', error)
+        setErrorTecnico(true)
+      }
+    }
+    obtenerTecnico()
+  }, [])
 
   const abrirEditarInsc = (insc: any) => {
     setFormEditInsc({
@@ -39,7 +68,8 @@ export default function TecnicoEstudiantesPage() {
     setGuardandoInsc(true)
     try {
       const res = await fetch('/api/inscripciones', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: modalEditarInsc.id,
           etapa_id: parseInt(formEditInsc.etapa_id),
@@ -57,17 +87,17 @@ export default function TecnicoEstudiantesPage() {
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    
-    // 🔥 PARÁMETROS: Incluir el técnico actual (como en el Dashboard)
-    const params = new URLSearchParams({ 
-      ciclo, 
+
+    const params = new URLSearchParams({
+      ciclo,
       estado: filtro.estado || 'en_curso'
     })
-    
-    if (filtro.etapa_id) params.set('etapa_id', filtro.etapa_id)
-    if (filtro.sede_id)  params.set('sede_id',  filtro.sede_id)
 
-    // 👈 ELIMINAR el filtro tecnico_id de la URL (NO funciona en /api/inscripciones)
+    if (filtro.etapa_id) params.set('etapa_id', filtro.etapa_id)
+    if (filtro.sede_id) params.set('sede_id', filtro.sede_id)
+
+    console.log('🔍 Cargando datos...')
+    console.log('📌 Técnico actual ID:', tecnicoActual?.id)
 
     const [insRes, et, se] = await Promise.all([
       fetch(`/api/inscripciones?${params}`)
@@ -81,49 +111,41 @@ export default function TecnicoEstudiantesPage() {
       flash('❌ ' + (insRes.body?.error ?? `Error al cargar estudiantes (${insRes.status})`))
       setInscripciones([])
     } else {
-      // Guardar TODOS los datos (sin filtrar en el backend)
+      console.log('📊 Datos recibidos del backend:', insRes.body?.data?.length)
       setInscripciones(insRes.body?.data ?? [])
     }
     setEtapas(Array.isArray(et) ? et : [])
     setSedes(Array.isArray(se) ? se : [])
     setLoading(false)
-  }, [ciclo, filtro.etapa_id, filtro.sede_id, filtro.estado])
+  }, [ciclo, filtro.etapa_id, filtro.sede_id, filtro.estado, tecnicoActual])
 
-  useEffect(() => { cargar() }, [cargar])
-
-  // 🔥 FILTRADO LOCAL: Usar useMemo para filtrar los estudiantes
-  // Esto simula lo que hace el Dashboard pero en el frontend
-  const [tecnicoActual, setTecnicoActual] = useState<any>(null)
-
-  // Obtener datos del técnico actual (como en el Dashboard)
+  // Cargar datos cuando el técnico esté disponible
   useEffect(() => {
-    const obtenerTecnico = async () => {
-      try {
-        const res = await fetch('/api/auth/me')
-        const data = await res.json()
-        if (data?.tecnico) {
-          setTecnicoActual(data.tecnico)
-        }
-      } catch (error) {
-        console.error('Error al obtener técnico:', error)
-      }
+    if (tecnicoActual) {
+      cargar()
     }
-    obtenerTecnico()
-  }, [])
+  }, [cargar, tecnicoActual])
 
-  // 🔥 FILTRO PRINCIPAL: Aplicar los filtros localmente
+  // 🔥 FILTRADO LOCAL
   const filtrados = useMemo(() => {
+    console.log('🔍 Aplicando filtros...')
+    console.log('📌 Inscripciones totales:', inscripciones.length)
+    console.log('📌 Técnico actual:', tecnicoActual?.id)
+    console.log('📌 Tipo de vista:', filtro.tipo_vista)
+
     let resultado = inscripciones
 
-    // 1. FILTRO DE TÉCNICO: Si es "Solo mis estudiantes", filtrar por técnico actual
+    // 👈 FILTRO CLAVE: Si es "Solo mis estudiantes", filtrar por técnico actual
     if (filtro.tipo_vista === 'mis_estudiantes' && tecnicoActual?.id) {
+      const antes = resultado.length
       resultado = resultado.filter(i => {
         const tecnicoId = (i.tecnico as any)?.id
         return tecnicoId === tecnicoActual.id
       })
+      console.log(`📊 Filtrado por técnico: ${antes} → ${resultado.length}`)
     }
 
-    // 2. FILTRO DE BÚSQUEDA
+    // FILTRO DE BÚSQUEDA
     if (filtro.buscar.trim()) {
       resultado = resultado.filter(i => {
         const e = i.estudiante as any
@@ -309,6 +331,29 @@ export default function TecnicoEstudiantesPage() {
       </header>
 
       <div className="pc">
+        {/* 🔥 AVISO: Si no se pudo identificar al técnico */}
+        {filtro.tipo_vista === 'mis_estudiantes' && errorTecnico && !loading && (
+          <div className="bg-red-50 border-l-4 border-red-500 p-3 mb-4 rounded">
+            <div className="flex items-center">
+              <span className="text-red-500 text-xl mr-2">⚠️</span>
+              <div>
+                <div className="text-sm font-semibold text-red-700">
+                  No se pudo identificar tu perfil de técnico
+                </div>
+                <div className="text-xs text-red-600">
+                  Mostrando todos los resultados de tus sedes. 
+                  <button 
+                    className="ml-2 underline hover:text-red-800"
+                    onClick={() => window.location.reload()}
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Filtros */}
         <div className="card mb-4">
           <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
@@ -356,7 +401,7 @@ export default function TecnicoEstudiantesPage() {
           </div>
         </div>
 
-        {/* 📊 ESTADÍSTICAS - Solo si hay estudiantes */}
+        {/* 📊 ESTADÍSTICAS */}
         {!loading && filtrados.length > 0 && (
           <div className="card mb-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 pb-4 border-b">
