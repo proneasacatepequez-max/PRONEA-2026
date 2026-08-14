@@ -1,18 +1,26 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 
 export default function TecnicoDashboard() {
-  const [stats,   setStats]   = useState<any>(null)
+  const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
-  const [ciclo,   setCiclo]   = useState('2026')
+  const [ciclo, setCiclo] = useState('2026')
+  const [estudiantesRecientes, setEstudiantesRecientes] = useState<any[]>([])
+  const [mostrarTodos, setMostrarTodos] = useState(false)
 
   const cargar = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch(`/api/dashboard/tecnico?ciclo=${ciclo}`)
-      const d   = await res.json()
-      if (res.ok) setStats(d)
+      const d = await res.json()
+      if (res.ok) {
+        setStats(d)
+        // Guardar estudiantes recientes para la tabla
+        if (d?.estudiantesRecientes) {
+          setEstudiantesRecientes(d.estudiantesRecientes)
+        }
+      }
     } catch {}
     setLoading(false)
   }, [ciclo])
@@ -20,22 +28,33 @@ export default function TecnicoDashboard() {
   useEffect(() => { cargar() }, [cargar])
 
   const porEtapa = stats?.porEtapa ?? {}
-  const porSede  = stats?.porSede  ?? {}
-  const e        = stats?.estadisticas ?? {}
-  const tec      = stats?.tecnico
+  const porSede = stats?.porSede ?? {}
+  const e = stats?.estadisticas ?? {}
+  const tec = stats?.tecnico
+
+  // Mostrar 5 estudiantes por defecto o todos
+  const estudiantesMostrados = useMemo(() => {
+    if (mostrarTodos) return estudiantesRecientes
+    return estudiantesRecientes.slice(0, 5)
+  }, [estudiantesRecientes, mostrarTodos])
 
   const modulos = [
-    { href:'/dashboard/tecnico/estudiantes', icon:'🎓', title:'Mis Estudiantes',         desc:'Ver listado con sedes y enlaces', color:'border-blue-200 hover:border-blue-400'   },
-    { href:'/dashboard/tecnico/inscribir',   icon:'📋', title:'Inscribir Estudiante',     desc:'Registrar nuevo estudiante',      color:'border-green-200 hover:border-green-400' },
-    { href:'/dashboard/tecnico/notas',       icon:'📝', title:'Ingresar Notas',           desc:'Calificaciones de tareas y exámenes', color:'border-purple-200 hover:border-purple-400' },
-    { href:'/dashboard/tecnico/escalas',     icon:'📊', title:'Escalas Numéricas',        desc:'Ver y asignar escalas de calificación', color:'border-orange-200 hover:border-orange-400' },
-    { href:'/dashboard/tecnico/sedes-enlaces',icon:'🏫',title:'Mis Sedes y Enlaces',      desc:'Ver sedes y enlaces a tu cargo',  color:'border-teal-200 hover:border-teal-400'   },
-    { href:'/dashboard/tecnico/ajustes',     icon:'♿', title:'Adecuaciones Curriculares',desc:'Ajustes para discapacidad',       color:'border-yellow-200 hover:border-yellow-400'},
-    { href:'/dashboard/tecnico/dua',         icon:'📐', title:'Planificación DUA',        desc:'Diseño Universal para el Aprendizaje', color:'border-indigo-200 hover:border-indigo-400'},
-    { href:'/dashboard/tecnico/sireex',      icon:'📤', title:'Grupos SIREEX',            desc:'Exportación de grupos',           color:'border-red-200 hover:border-red-400'     },
-    { href:'/dashboard/tecnico/sesiones',    icon:'🗓️', title:'Sesiones de Tutoría',      desc:'Planificar y registrar sesiones', color:'border-pink-200 hover:border-pink-400'   },
-    { href:'/dashboard/tecnico/recursos',    icon:'🎬', title:'Recursos de Apoyo',        desc:'Material didáctico',              color:'border-gray-200 hover:border-gray-400'   },
+    { href: '/dashboard/tecnico/estudiantes', icon: '🎓', title: 'Mis Estudiantes', desc: 'Ver listado con sedes y enlaces', color: 'border-blue-200 hover:border-blue-400' },
+    { href: '/dashboard/tecnico/inscribir', icon: '📋', title: 'Inscribir Estudiante', desc: 'Registrar nuevo estudiante', color: 'border-green-200 hover:border-green-400' },
+    { href: '/dashboard/tecnico/notas', icon: '📝', title: 'Ingresar Notas', desc: 'Calificaciones de tareas y exámenes', color: 'border-purple-200 hover:border-purple-400' },
+    { href: '/dashboard/tecnico/escalas', icon: '📊', title: 'Escalas Numéricas', desc: 'Ver y asignar escalas de calificación', color: 'border-orange-200 hover:border-orange-400' },
+    { href: '/dashboard/tecnico/sedes-enlaces', icon: '🏫', title: 'Mis Sedes y Enlaces', desc: 'Ver sedes y enlaces a tu cargo', color: 'border-teal-200 hover:border-teal-400' },
+    { href: '/dashboard/tecnico/ajustes', icon: '♿', title: 'Adecuaciones Curriculares', desc: 'Ajustes para discapacidad', color: 'border-yellow-200 hover:border-yellow-400' },
+    { href: '/dashboard/tecnico/dua', icon: '📐', title: 'Planificación DUA', desc: 'Diseño Universal para el Aprendizaje', color: 'border-indigo-200 hover:border-indigo-400' },
+    { href: '/dashboard/tecnico/sireex', icon: '📤', title: 'Grupos SIREEX', desc: 'Exportación de grupos', color: 'border-red-200 hover:border-red-400' },
+    { href: '/dashboard/tecnico/sesiones', icon: '🗓️', title: 'Sesiones de Tutoría', desc: 'Planificar y registrar sesiones', color: 'border-pink-200 hover:border-pink-400' },
+    { href: '/dashboard/tecnico/recursos', icon: '🎬', title: 'Recursos de Apoyo', desc: 'Material didáctico', color: 'border-gray-200 hover:border-gray-400' },
   ]
+
+  const edad = (fn?: string) => {
+    if (!fn) return '—'
+    return String(new Date().getFullYear() - new Date(fn).getFullYear()) + 'a'
+  }
 
   return (
     <div className="ap">
@@ -45,7 +64,7 @@ export default function TecnicoDashboard() {
             👋 {loading ? 'Cargando...' : `Bienvenido, ${tec?.primer_nombre ?? 'Técnico'}`}
           </div>
           <div className="text-xs text-gray-400">
-            Código: {tec?.codigo_tecnico ?? '—'} · Ciclo {ciclo}
+            Código: {tec?.codigo_tecnico ?? '—'} · Ciclo {ciclo} · {e.totalEstudiantes ?? 0} estudiantes activos
           </div>
         </div>
         <select className="inp w-24" value={ciclo} onChange={e => setCiclo(e.target.value)}>
@@ -56,12 +75,12 @@ export default function TecnicoDashboard() {
       <div className="pc">
 
         {/* KPIs */}
-        <div className="g4 mb-5">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
           {[
-            { label:'Estudiantes activos', valor: loading ? '…' : e.totalEstudiantes, icon:'🎓', color:'blue'   },
-            { label:'Sedes a cargo',        valor: loading ? '…' : e.totalSedes,       icon:'🏫', color:'green'  },
-            { label:'Enlaces a cargo',      valor: loading ? '…' : e.totalEnlaces,     icon:'🔗', color:'yellow' },
-            { label:'Notas registradas',    valor: loading ? '…' : e.totalNotas,       icon:'📝', color:'purple' },
+            { label: 'Estudiantes activos', valor: loading ? '…' : e.totalEstudiantes, icon: '🎓', color: 'blue' },
+            { label: 'Sedes a cargo', valor: loading ? '…' : e.totalSedes, icon: '🏫', color: 'green' },
+            { label: 'Enlaces a cargo', valor: loading ? '…' : e.totalEnlaces, icon: '🔗', color: 'yellow' },
+            { label: 'Notas registradas', valor: loading ? '…' : e.totalNotas, icon: '📝', color: 'purple' },
           ].map(s => (
             <div key={s.label} className={`sc ${s.color} text-center`}>
               <div className="text-3xl mb-1">{s.icon}</div>
@@ -70,6 +89,107 @@ export default function TecnicoDashboard() {
             </div>
           ))}
         </div>
+
+        {/* 📋 TABLA DE ESTUDIANTES RECIENTES */}
+        {!loading && estudiantesRecientes.length > 0 && (
+          <div className="card mb-5 overflow-hidden">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="card-title text-sm">📋 Últimos estudiantes inscritos</div>
+                <div className="text-xs text-gray-400">
+                  Mostrando {estudiantesMostrados.length} de {estudiantesRecientes.length} estudiantes
+                </div>
+              </div>
+              <div className="flex gap-3">
+                {estudiantesRecientes.length > 5 && (
+                  <button
+                    onClick={() => setMostrarTodos(!mostrarTodos)}
+                    className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    {mostrarTodos ? 'Ver menos' : 'Ver todos'}
+                  </button>
+                )}
+                <Link
+                  href="/dashboard/tecnico/estudiantes"
+                  className="text-xs text-gray-500 hover:text-gray-700 font-medium"
+                >
+                  Ver todos →
+                </Link>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-50 text-left">
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-gray-600">Estudiante</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-gray-600">Código</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-gray-600">Etapa</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-gray-600">Sede</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-gray-600">Estado</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-gray-600 text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {estudiantesMostrados.map((insc: any, idx: number) => {
+                    const est = insc.estudiante as any
+                    return (
+                      <tr key={insc.id} className={`border-b hover:bg-blue-50/40 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-sky-50/20'}`}>
+                        <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">
+                          {est?.primer_nombre} {est?.primer_apellido}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-500">
+                          {est?.codigo_estudiante ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-600">
+                          {(insc.etapa as any)?.nombre}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-gray-500">
+                          {(insc.sede as any)?.nombre ?? '—'}
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`badge text-xs ${insc.estado === 'en_curso' ? 'badge-green' : insc.estado === 'completado' ? 'badge-blue' : 'badge-gray'}`}>
+                            {insc.estado === 'en_curso' ? '✅ En curso' : insc.estado === 'completado' ? '✔️ Completado' : insc.estado}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <div className="flex gap-1 justify-center">
+                            <Link
+                              href={`/dashboard/tecnico/notas?id=${insc.id}`}
+                              className="btn btn-p btn-sm"
+                              title="Registrar notas"
+                            >
+                              📝
+                            </Link>
+                            <Link
+                              href={`/dashboard/tecnico/ajustes?id=${insc.id}`}
+                              className="btn btn-g btn-sm"
+                              title="Adecuaciones curriculares"
+                            >
+                              ♿
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Indicador si hay más estudiantes */}
+            {!mostrarTodos && estudiantesRecientes.length > 5 && (
+              <div className="text-center mt-3">
+                <button
+                  onClick={() => setMostrarTodos(true)}
+                  className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  + {estudiantesRecientes.length - 5} estudiantes más
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Módulos */}
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
@@ -89,16 +209,16 @@ export default function TecnicoDashboard() {
 
         {/* Distribuciones */}
         {!loading && (Object.keys(porEtapa).length > 0 || Object.keys(porSede).length > 0) && (
-          <div className="g2">
+          <div className="grid gap-4 md:grid-cols-2">
             {Object.keys(porEtapa).length > 0 && (
               <div className="card">
                 <div className="card-title">📚 Estudiantes por etapa</div>
-                {Object.entries(porEtapa).sort((a,b) => (b[1] as number)-(a[1] as number)).map(([etapa, count]) => (
+                {Object.entries(porEtapa).sort((a, b) => (b[1] as number) - (a[1] as number)).map(([etapa, count]) => (
                   <div key={etapa} className="flex items-center gap-2 mb-2">
                     <span className="text-xs text-gray-600 w-36 truncate">{etapa}</span>
                     <div className="flex-1 bg-gray-100 rounded-full h-2">
                       <div className="bg-blue-500 h-2 rounded-full"
-                        style={{ width: `${e.totalEstudiantes > 0 ? ((count as number)/e.totalEstudiantes*100) : 0}%` }} />
+                        style={{ width: `${e.totalEstudiantes > 0 ? ((count as number) / e.totalEstudiantes * 100) : 0}%` }} />
                     </div>
                     <span className="text-xs font-bold w-5 text-right">{count as number}</span>
                   </div>
@@ -108,12 +228,12 @@ export default function TecnicoDashboard() {
             {Object.keys(porSede).length > 0 && (
               <div className="card">
                 <div className="card-title">🏫 Estudiantes por sede</div>
-                {Object.entries(porSede).sort((a,b) => (b[1] as number)-(a[1] as number)).map(([sede, count]) => (
+                {Object.entries(porSede).sort((a, b) => (b[1] as number) - (a[1] as number)).map(([sede, count]) => (
                   <div key={sede} className="flex items-center gap-2 mb-2">
                     <span className="text-xs text-gray-600 w-36 truncate">{sede}</span>
                     <div className="flex-1 bg-gray-100 rounded-full h-2">
                       <div className="bg-green-400 h-2 rounded-full"
-                        style={{ width: `${e.totalEstudiantes > 0 ? ((count as number)/e.totalEstudiantes*100) : 0}%` }} />
+                        style={{ width: `${e.totalEstudiantes > 0 ? ((count as number) / e.totalEstudiantes * 100) : 0}%` }} />
                     </div>
                     <span className="text-xs font-bold w-5 text-right">{count as number}</span>
                   </div>
