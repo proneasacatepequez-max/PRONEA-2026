@@ -2,7 +2,7 @@
 // FIX: enlace ahora usa sede_id directo (tras unificación sede/institución)
 // FIX: manejo de errores que evita "Error al exportar" genérico sin detalle
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin, fetchAllRows } from '@/lib/supabase'
 import { getSession, err } from '@/lib/auth'
 import * as XLSX from 'xlsx'
 
@@ -15,8 +15,7 @@ export async function GET(req: NextRequest) {
   const ciclo = parseInt(req.nextUrl.searchParams.get('ciclo') ?? '2026')
 
   try {
-    let q = supabaseAdmin.from('inscripciones')
-      .select(`
+    const selectExport = `
         id, ciclo_escolar, version_libro, estado, fecha_inscripcion, tiene_ajuste_discapacidad,
         estudiante:estudiantes(
           codigo_estudiante, codigo_sireex,
@@ -29,10 +28,10 @@ export async function GET(req: NextRequest) {
         etapa:etapas(nombre, nivel),
         sede:sedes(nombre),
         tecnico:tecnicos!inscripciones_tecnico_id_fkey(primer_nombre, primer_apellido, codigo_tecnico)
-      `)
-      .eq('ciclo_escolar', ciclo)
-      .eq('estado', 'en_curso')
-      .order('fecha_inscripcion', { ascending: false })
+      `
+
+    // Sin filtro adicional por defecto (administrador ve todo el ciclo)
+    let filtroRol: (query: any) => any = (query) => query
 
     // ── Filtros por rol ────────────────────────────────────────────────────
     if (s.rol === 'tecnico') {
@@ -49,11 +48,9 @@ export async function GET(req: NextRequest) {
 
       const sedeIds = (tecSedes ?? []).map((ts: any) => ts.sede_id)
 
-      if (sedeIds.length > 0) {
-        q = q.or(`tecnico_id.eq.${tec.id},sede_id.in.(${sedeIds.join(',')})`)
-      } else {
-        q = q.eq('tecnico_id', tec.id)
-      }
+      filtroRol = sedeIds.length > 0
+        ? (query) => query.or(`tecnico_id.eq.${tec.id},sede_id.in.(${sedeIds.join(',')})`)
+        : (query) => query.eq('tecnico_id', tec.id)
     }
 
     if (s.rol === 'director') {
@@ -63,9 +60,9 @@ export async function GET(req: NextRequest) {
         const { data: sedesDepto } = await supabaseAdmin
           .from('sedes').select('id').eq('departamento_id', dir.departamento_id)
         const sedeIds = (sedesDepto ?? []).map((sd: any) => sd.id)
-        if (sedeIds.length > 0) q = q.in('sede_id', sedeIds)
+        if (sedeIds.length > 0) filtroRol = (query) => query.in('sede_id', sedeIds)
       } else if (dir?.sede_id) {
-        q = q.eq('sede_id', dir.sede_id)
+        filtroRol = (query) => query.eq('sede_id', dir!.sede_id)
       }
     }
 
@@ -91,11 +88,23 @@ export async function GET(req: NextRequest) {
           },
         })
       }
-      q = q.eq('sede_id', enl.sede_id)
+      const sedeIdEnl = enl.sede_id
+      filtroRol = (query) => query.eq('sede_id', sedeIdEnl)
     }
 
-    const { data, error } = await q
-    if (error) return err('Error al consultar inscripciones: ' + error.message, 500)
+    // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta.
+    // Para técnico/enlace individual difícilmente se llega a 1000, pero
+    // administrador ve todo el ciclo (~1800/año) sin filtro adicional.
+    const data = await fetchAllRows<any>((from, to) => {
+      let qq = supabaseAdmin.from('inscripciones')
+        .select(selectExport)
+        .eq('ciclo_escolar', ciclo)
+        .eq('estado', 'en_curso')
+        .order('fecha_inscripcion', { ascending: false })
+
+      qq = filtroRol(qq)
+      return qq.range(from, to) as any
+    })
 
     const filas = (data ?? []).map((i: any, idx: number) => {
       const e  = i.estudiante as any
@@ -164,4 +173,5 @@ export async function GET(req: NextRequest) {
     return err('Error inesperado al generar el Excel: ' + (e?.message ?? 'desconocido'), 500)
   }
 }
+
 
