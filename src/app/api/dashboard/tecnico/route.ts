@@ -1,6 +1,6 @@
 // src/app/api/dashboard/tecnico/route.ts
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin, fetchAllRows } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
 
 export async function GET(req: NextRequest) {
@@ -105,19 +105,20 @@ export async function GET(req: NextRequest) {
       .eq('ciclo_escolar', ciclo)
 
     // Distribución por etapa — usando mismo filtro (sedes asignadas)
-    let qEtapa = supabaseAdmin
-      .from('inscripciones')
-      .select('etapa:etapas(nombre)')
-      .eq('ciclo_escolar', ciclo)
-      .eq('estado', 'en_curso')
+    // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta
+    const porEtapaData = await fetchAllRows<{ etapa: { nombre: string } | null }>((from, to) => {
+      let q = supabaseAdmin
+        .from('inscripciones')
+        .select('etapa:etapas(nombre)')
+        .eq('ciclo_escolar', ciclo)
+        .eq('estado', 'en_curso')
 
-    if (sedeIds.length > 0) {
-      qEtapa = qEtapa.or(`tecnico_id.eq.${tecnico.id},sede_id.in.(${sedeIds.join(',')})`)
-    } else {
-      qEtapa = qEtapa.eq('tecnico_id', tecnico.id)
-    }
+      q = sedeIds.length > 0
+        ? q.or(`tecnico_id.eq.${tecnico.id},sede_id.in.(${sedeIds.join(',')})`)
+        : q.eq('tecnico_id', tecnico.id)
 
-    const { data: porEtapaData } = await qEtapa
+      return q.range(from, to) as any
+    })
 
     const porEtapa: Record<string, number> = {}
     ;(porEtapaData ?? []).forEach((i: any) => {
@@ -126,19 +127,20 @@ export async function GET(req: NextRequest) {
     })
 
     // Distribución por sede
-    let qSede = supabaseAdmin
-      .from('inscripciones')
-      .select('sede:sedes(nombre)')
-      .eq('ciclo_escolar', ciclo)
-      .eq('estado', 'en_curso')
+    // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta
+    const porSedeData = await fetchAllRows<{ sede: { nombre: string } | null }>((from, to) => {
+      let q = supabaseAdmin
+        .from('inscripciones')
+        .select('sede:sedes(nombre)')
+        .eq('ciclo_escolar', ciclo)
+        .eq('estado', 'en_curso')
 
-    if (sedeIds.length > 0) {
-      qSede = qSede.or(`tecnico_id.eq.${tecnico.id},sede_id.in.(${sedeIds.join(',')})`)
-    } else {
-      qSede = qSede.eq('tecnico_id', tecnico.id)
-    }
+      q = sedeIds.length > 0
+        ? q.or(`tecnico_id.eq.${tecnico.id},sede_id.in.(${sedeIds.join(',')})`)
+        : q.eq('tecnico_id', tecnico.id)
 
-    const { data: porSedeData } = await qSede
+      return q.range(from, to) as any
+    })
 
     const porSede: Record<string, number> = {}
     ;(porSedeData ?? []).forEach((i: any) => {
