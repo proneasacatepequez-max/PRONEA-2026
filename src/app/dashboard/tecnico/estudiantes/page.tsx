@@ -1,7 +1,6 @@
 'use client'
 // src/app/dashboard/tecnico/estudiantes/page.tsx
-// FIX: muestra estudiantes propios + los de enlaces vinculados
-// Tabla horizontal completa con filtros por etapa, sede, municipio
+// Con filtro para ver: "Todos los de la sede" o "Solo mis estudiantes"
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 
@@ -16,12 +15,33 @@ export default function TecnicoEstudiantesPage() {
   const [modalEditarInsc, setModalEditarInsc] = useState<any>(null)
   const [formEditInsc,    setFormEditInsc]    = useState({ etapa_id: '', version_libro: 'nuevo' })
   const [guardandoInsc,   setGuardandoInsc]   = useState(false)
+  const [tecnicoActual, setTecnicoActual] = useState<any>(null)
 
   const [filtro, setFiltro] = useState({
-    buscar: '', etapa_id: '', sede_id: '', estado: 'en_curso',
+    buscar: '', 
+    etapa_id: '', 
+    sede_id: '', 
+    estado: 'en_curso',
+    tipo_vista: 'todos' // 👈 NUEVO: 'todos' o 'mis_estudiantes'
   })
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
+
+  // Obtener datos del técnico actual
+  useEffect(() => {
+    const obtenerTecnico = async () => {
+      try {
+        const res = await fetch('/api/auth/me')
+        const data = await res.json()
+        if (data?.tecnico) {
+          setTecnicoActual(data.tecnico)
+        }
+      } catch (error) {
+        console.error('Error al obtener técnico:', error)
+      }
+    }
+    obtenerTecnico()
+  }, [])
 
   const abrirEditarInsc = (insc: any) => {
     setFormEditInsc({
@@ -54,7 +74,18 @@ export default function TecnicoEstudiantesPage() {
 
   const cargar = useCallback(async () => {
     setLoading(true)
-    const params = new URLSearchParams({ ciclo, estado: filtro.estado || 'en_curso' })
+    
+    // Construir parámetros base
+    const params = new URLSearchParams({ 
+      ciclo, 
+      estado: filtro.estado || 'en_curso'
+    })
+    
+    // 🔥 NUEVO: Si selecciona "Solo mis estudiantes", filtramos por técnico
+    if (filtro.tipo_vista === 'mis_estudiantes' && tecnicoActual?.id) {
+      params.set('tecnico_id', tecnicoActual.id)
+    }
+    
     if (filtro.etapa_id) params.set('etapa_id', filtro.etapa_id)
     if (filtro.sede_id)  params.set('sede_id',  filtro.sede_id)
 
@@ -75,7 +106,7 @@ export default function TecnicoEstudiantesPage() {
     setEtapas(Array.isArray(et) ? et : [])
     setSedes(Array.isArray(se) ? se : [])
     setLoading(false)
-  }, [ciclo, filtro.etapa_id, filtro.sede_id, filtro.estado])
+  }, [ciclo, filtro.etapa_id, filtro.sede_id, filtro.estado, filtro.tipo_vista, tecnicoActual])
 
   useEffect(() => { cargar() }, [cargar])
 
@@ -86,9 +117,28 @@ export default function TecnicoEstudiantesPage() {
     return txt.includes(filtro.buscar.toLowerCase())
   })
 
-  // 📊 ESTADÍSTICAS MEJORADAS - SOLO DEL TÉCNICO
+  // Función para determinar el rol del técnico
+  const obtenerRolTecnico = (insc: any) => {
+    const tecnicoInsc = insc.tecnico as any
+    const tecnicoId = tecnicoInsc?.id
+    
+    if (tecnicoActual && tecnicoId === tecnicoActual.id) {
+      return {
+        esPrincipal: true,
+        label: '👤 Técnico principal',
+        className: 'bg-green-100 text-green-800 border-green-500'
+      }
+    }
+    
+    return {
+      esPrincipal: false,
+      label: '🤝 Técnico de apoyo',
+      className: 'bg-blue-100 text-blue-800 border-blue-400'
+    }
+  }
+
+  // 📊 ESTADÍSTICAS
   const estadisticas = (() => {
-    // Datos por etapa
     const porEtapa = new Map<string, {
       nombre: string
       total: number
@@ -132,7 +182,6 @@ export default function TecnicoEstudiantesPage() {
       fila.total++
       totalGeneral++
 
-      // Género
       const genero = (e?.genero ?? '').toLowerCase()
       if (genero === 'masculino') {
         fila.masculino++
@@ -145,7 +194,6 @@ export default function TecnicoEstudiantesPage() {
         totalOtro++
       }
 
-      // Versión de libro
       if (insc.version_libro === 'nuevo') {
         fila.versionNuevo++
         totalNuevo++
@@ -154,7 +202,6 @@ export default function TecnicoEstudiantesPage() {
         totalViejo++
       }
 
-      // Estado
       if (insc.estado === 'en_curso') {
         fila.enCurso++
         totalEnCurso++
@@ -204,7 +251,13 @@ export default function TecnicoEstudiantesPage() {
     }
   }
 
-  const limpiar = () => setFiltro(p => ({ ...p, buscar:'', etapa_id:'', sede_id:'' }))
+  const limpiar = () => setFiltro(p => ({ 
+    ...p, 
+    buscar:'', 
+    etapa_id:'', 
+    sede_id:'',
+    tipo_vista: 'todos'
+  }))
 
   const edad = (fn?: string) => {
     if (!fn) return '—'
@@ -218,6 +271,9 @@ export default function TecnicoEstudiantesPage() {
           <div className="page-title">🎓 Mis Estudiantes</div>
           <div className="text-xs text-gray-400">
             {filtrados.length} de {inscripciones.length} inscripciones · ciclo {ciclo}
+            {filtro.tipo_vista === 'mis_estudiantes' && (
+              <span className="ml-2 text-green-600 font-bold">(Solo mis estudiantes)</span>
+            )}
           </div>
         </div>
         <div className="flex gap-2 flex-wrap items-center">
@@ -235,7 +291,7 @@ export default function TecnicoEstudiantesPage() {
       <div className="pc">
         {/* Filtros */}
         <div className="card mb-4">
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
             <div className="col-span-2 md:col-span-2">
               <label className="lbl">Buscar</label>
               <input className="inp" placeholder="Nombre, código, CUI..."
@@ -266,16 +322,23 @@ export default function TecnicoEstudiantesPage() {
                 <option value="todos">Todos</option>
               </select>
             </div>
+            <div>
+              <label className="lbl">Ver</label>
+              <select className="inp" value={filtro.tipo_vista}
+                onChange={e => setFiltro(f => ({ ...f, tipo_vista: e.target.value }))}>
+                <option value="todos">📊 Todos los de la sede</option>
+                <option value="mis_estudiantes">👤 Solo mis estudiantes</option>
+              </select>
+            </div>
           </div>
           <div className="flex justify-end mt-2">
             <button className="btn btn-g btn-sm" onClick={limpiar}>Limpiar filtros</button>
           </div>
         </div>
 
-        {/* 📊 ESTADÍSTICAS MEJORADAS */}
+        {/* 📊 ESTADÍSTICAS */}
         {!loading && filtrados.length > 0 && (
           <div className="card mb-4">
-            {/* Resumen general */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 pb-4 border-b">
               <div className="text-center">
                 <div className="text-2xl font-bold text-blue-600">{estadisticas.totales.total}</div>
@@ -315,7 +378,6 @@ export default function TecnicoEstudiantesPage() {
               </div>
             </div>
 
-            {/* Detalle por etapa */}
             <div className="overflow-x-auto">
               <div className="font-semibold text-sm text-gray-700 mb-2">📊 Distribución por etapa</div>
               <table className="w-full text-sm border-collapse">
@@ -344,7 +406,6 @@ export default function TecnicoEstudiantesPage() {
                       <td className="px-3 py-2 text-center text-blue-600">{fila.completado}</td>
                     </tr>
                   ))}
-                  {/* Fila de totales */}
                   <tr className="bg-blue-50 font-bold">
                     <td className="px-3 py-2 text-blue-800">TOTAL</td>
                     <td className="px-3 py-2 text-center text-blue-800">{estadisticas.totales.total}</td>
@@ -375,21 +436,16 @@ export default function TecnicoEstudiantesPage() {
                   ? 'Sin resultados para los filtros aplicados'
                   : 'Sin inscripciones en este ciclo'}
               </div>
-              {!filtro.buscar && !filtro.etapa_id && !filtro.sede_id && (
-                <Link href="/dashboard/tecnico/inscribir" className="btn btn-p mt-4 inline-block">
-                  ＋ Inscribir primer estudiante
-                </Link>
-              )}
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse min-w-[1100px]">
+              <table className="w-full text-sm border-collapse min-w-[1200px]">
                 <thead>
                   <tr className="bg-gradient-to-r from-blue-800 to-blue-900 text-white text-left">
                     {[
                       'Código MINEDUC','Nombre completo','CUI','Edad',
                       'Teléfono','Etapa','Versión','Municipio','Sede',
-                      'Técnico','Estado','Acciones'
+                      'Técnico','Rol','Estado','Acciones'
                     ].map(h => (
                       <th key={h}
                         className="px-3 py-2.5 text-xs font-bold uppercase whitespace-nowrap border-r border-blue-700 last:border-0">
@@ -401,9 +457,12 @@ export default function TecnicoEstudiantesPage() {
                 <tbody>
                   {filtrados.map((insc: any, idx: number) => {
                     const e = insc.estudiante as any
+                    const rol = obtenerRolTecnico(insc)
+                    const tecnico = insc.tecnico as any
+                    
                     return (
                       <tr key={insc.id}
-                        className={`border-b hover:bg-blue-50/40 transition-colors ${idx%2===0?'bg-white':'bg-sky-50/20'}`}>
+                        className={`border-b hover:bg-blue-50/40 transition-colors ${idx%2===0?'bg-white':'bg-sky-50/20'} ${rol.esPrincipal ? 'border-l-4 border-l-green-500' : 'border-l-4 border-l-blue-400'}`}>
                         <td className="px-3 py-2 font-mono text-xs font-bold text-blue-700 whitespace-nowrap">
                           {e?.codigo_estudiante ?? <span className="text-gray-300 italic">Sin código</span>}
                         </td>
@@ -434,8 +493,17 @@ export default function TecnicoEstudiantesPage() {
                           {(insc.sede as any)?.nombre ?? '—'}
                         </td>
                         <td className="px-3 py-2 text-xs whitespace-nowrap">
-                          {(insc.tecnico as any)?.primer_nombre} {(insc.tecnico as any)?.primer_apellido}
-                          <div className="text-gray-400 font-mono text-xs">{(insc.tecnico as any)?.codigo_tecnico}</div>
+                          <div className="font-semibold">
+                            {tecnico?.primer_nombre} {tecnico?.primer_apellido}
+                          </div>
+                          <div className="text-gray-400 font-mono text-xs">
+                            {tecnico?.codigo_tecnico}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-bold ${rol.className}`}>
+                            {rol.label}
+                          </span>
                         </td>
                         <td className="px-3 py-2">
                           <span className={`badge text-xs ${insc.estado==='en_curso'?'badge-green':insc.estado==='completado'?'badge-blue':'badge-gray'}`}>
