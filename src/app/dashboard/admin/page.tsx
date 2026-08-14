@@ -38,6 +38,7 @@ export default async function AdminDashboard() {
       tecnicos!inner (id, primer_nombre, primer_apellido, codigo_tecnico, especialidad)
     `)
     .eq('ciclo_escolar', 2026)
+    .eq('estado', 'en_curso')
 
   // 📊 Obtener datos para estadísticas por sede
   const { data: sedesData } = await supabaseAdmin
@@ -47,6 +48,7 @@ export default async function AdminDashboard() {
       sedes!inner (id, nombre)
     `)
     .eq('ciclo_escolar', 2026)
+    .eq('estado', 'en_curso')
 
   // 📊 Obtener todos los técnicos con sus estadísticas
   const { data: tecnicosData } = await supabaseAdmin
@@ -320,14 +322,14 @@ export default async function AdminDashboard() {
           </div>
         )}
 
-        {/* 📊 TABLA DE ESTADÍSTICAS DETALLADAS POR ETAPA (NIVEL GLOBAL) */}
+        {/* 📊 TABLA 1: DISTRIBUCIÓN POR ETAPA */}
         {inscripcionesDetalle && inscripcionesDetalle.length > 0 && (
           <div className="card mb-5 overflow-hidden">
             <div className="flex items-center justify-between mb-3">
               <div>
-                <div className="card-title text-sm">📊 Distribución por etapa (Global)</div>
+                <div className="card-title text-sm">📊 Distribución por etapa</div>
                 <div className="text-xs text-gray-400">
-                  {estadisticasEtapa.totales.total} estudiantes · {estadisticasEtapa.porEtapa.length} etapas
+                  {totalEst} estudiantes · {estadisticasEtapa.porEtapa.length} etapas
                 </div>
               </div>
               <div className="flex gap-3 text-xs">
@@ -364,10 +366,9 @@ export default async function AdminDashboard() {
                       <td className="px-3 py-2 text-center text-blue-600">{fila.completado}</td>
                     </tr>
                   ))}
-                  {/* Fila de totales */}
                   <tr className="bg-blue-50 font-bold">
                     <td className="px-3 py-2 text-blue-800">TOTAL</td>
-                    <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.total}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{totalEst}</td>
                     <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.masculino}</td>
                     <td className="px-3 py-2 text-center text-pink-800">{estadisticasEtapa.totales.femenino}</td>
                     <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.nuevo}</td>
@@ -381,10 +382,18 @@ export default async function AdminDashboard() {
           </div>
         )}
 
-        {/* 📊 TABLA DE ESTADÍSTICAS POR SEDE (NIVEL GLOBAL) */}
+        {/* 📊 TABLA 2: DISTRIBUCIÓN POR SEDE */}
         {estadisticasSede.length > 0 && (
           <div className="card mb-5 overflow-hidden">
-            <div className="card-title text-sm mb-3">🏫 Distribución por sede (Global)</div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="card-title text-sm">🏫 Distribución por sede</div>
+                <div className="text-xs text-gray-400">
+                  {estadisticasSede.length} sedes · {totalEst} estudiantes
+                </div>
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>
@@ -400,16 +409,15 @@ export default async function AdminDashboard() {
                       <td className="px-3 py-2 font-semibold">{sede.nombre}</td>
                       <td className="px-3 py-2 text-center font-bold">{sede.total}</td>
                       <td className="px-3 py-2 text-center text-gray-500">
-                        {estadisticasEtapa.totales.total > 0 
-                          ? Math.round((sede.total / estadisticasEtapa.totales.total) * 100) 
+                        {totalEst > 0 
+                          ? Math.round((sede.total / totalEst) * 100) 
                           : 0}%
                       </td>
                     </tr>
                   ))}
-                  {/* Fila de totales */}
                   <tr className="bg-blue-50 font-bold">
                     <td className="px-3 py-2 text-blue-800">TOTAL</td>
-                    <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.total}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{totalEst}</td>
                     <td className="px-3 py-2 text-center text-blue-800">100%</td>
                   </tr>
                 </tbody>
@@ -418,7 +426,7 @@ export default async function AdminDashboard() {
           </div>
         )}
 
-        {/* 📊 TABLA DE TÉCNICOS CON ESTADÍSTICAS */}
+        {/* 📊 TABLA 3: TÉCNICOS Y SUS ESTADÍSTICAS */}
         {tecnicosEstadisticas.length > 0 && (
           <div className="card mb-5 overflow-hidden">
             <div className="card-title text-sm mb-3">👨‍🏫 Técnicos y sus estadísticas</div>
@@ -445,11 +453,10 @@ export default async function AdminDashboard() {
                       <td className="px-3 py-2 text-center text-gray-600">{tecnico.enlaces}</td>
                     </tr>
                   ))}
-                  {/* Fila de totales */}
                   <tr className="bg-blue-50 font-bold">
                     <td className="px-3 py-2 text-blue-800">TOTAL</td>
                     <td className="px-3 py-2 text-blue-800" colSpan={2}>—</td>
-                    <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.total}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{totalEst}</td>
                     <td className="px-3 py-2 text-center text-blue-800">{sedesData?.length ?? 0}</td>
                     <td className="px-3 py-2 text-center text-blue-800">{enlacesData?.length ?? 0}</td>
                   </tr>
@@ -459,7 +466,7 @@ export default async function AdminDashboard() {
           </div>
         )}
 
-        {/* 📊 TABLA DE ENLACES INSTITUCIONALES */}
+        {/* 📊 TABLA 4: ENLACES INSTITUCIONALES */}
         {enlacesEstadisticas.length > 0 && (
           <div className="card mb-5 overflow-hidden">
             <div className="card-title text-sm mb-3">🔗 Enlaces institucionales y sus estadísticas</div>
@@ -494,11 +501,10 @@ export default async function AdminDashboard() {
                       </td>
                     </tr>
                   ))}
-                  {/* Fila de totales */}
                   <tr className="bg-blue-50 font-bold">
                     <td className="px-3 py-2 text-blue-800">TOTAL</td>
                     <td className="px-3 py-2 text-blue-800" colSpan={5}>—</td>
-                    <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.total}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{totalEst}</td>
                     <td className="px-3 py-2 text-center text-blue-800">{enlacesEstadisticas.filter(e => e.estado === 'Activo').length} Activos</td>
                   </tr>
                 </tbody>
