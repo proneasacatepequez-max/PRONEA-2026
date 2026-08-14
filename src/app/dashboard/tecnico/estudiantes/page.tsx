@@ -86,24 +86,98 @@ export default function TecnicoEstudiantesPage() {
     return txt.includes(filtro.buscar.toLowerCase())
   })
 
-  // Estadística: hombres/mujeres por etapa, sobre lo que está filtrado actualmente
-  const statsPorEtapa = (() => {
-    const mapa = new Map<string, { nombre: string; masculino: number; femenino: number; otro: number }>()
-    for (const i of filtrados) {
-      const e = i.estudiante as any
-      const nombreEtapa = (i.etapa as any)?.nombre ?? 'Sin etapa'
-      if (!mapa.has(nombreEtapa)) mapa.set(nombreEtapa, { nombre: nombreEtapa, masculino: 0, femenino: 0, otro: 0 })
-      const fila = mapa.get(nombreEtapa)!
-      const g = (e?.genero ?? '').toLowerCase()
-      if (g === 'masculino') fila.masculino++
-      else if (g === 'femenino') fila.femenino++
-      else fila.otro++
+  // 📊 ESTADÍSTICAS MEJORADAS - SOLO DEL TÉCNICO
+  const estadisticas = (() => {
+    // Datos por etapa
+    const porEtapa = new Map<string, {
+      nombre: string
+      total: number
+      masculino: number
+      femenino: number
+      otro: number
+      versionNuevo: number
+      versionViejo: number
+      enCurso: number
+      completado: number
+    }>()
+
+    let totalGeneral = 0
+    let totalMasculino = 0
+    let totalFemenino = 0
+    let totalOtro = 0
+    let totalNuevo = 0
+    let totalViejo = 0
+    let totalEnCurso = 0
+    let totalCompletado = 0
+
+    for (const insc of filtrados) {
+      const e = insc.estudiante as any
+      const nombreEtapa = (insc.etapa as any)?.nombre ?? 'Sin etapa'
+      
+      if (!porEtapa.has(nombreEtapa)) {
+        porEtapa.set(nombreEtapa, {
+          nombre: nombreEtapa,
+          total: 0,
+          masculino: 0,
+          femenino: 0,
+          otro: 0,
+          versionNuevo: 0,
+          versionViejo: 0,
+          enCurso: 0,
+          completado: 0
+        })
+      }
+      
+      const fila = porEtapa.get(nombreEtapa)!
+      fila.total++
+      totalGeneral++
+
+      // Género
+      const genero = (e?.genero ?? '').toLowerCase()
+      if (genero === 'masculino') {
+        fila.masculino++
+        totalMasculino++
+      } else if (genero === 'femenino') {
+        fila.femenino++
+        totalFemenino++
+      } else {
+        fila.otro++
+        totalOtro++
+      }
+
+      // Versión de libro
+      if (insc.version_libro === 'nuevo') {
+        fila.versionNuevo++
+        totalNuevo++
+      } else {
+        fila.versionViejo++
+        totalViejo++
+      }
+
+      // Estado
+      if (insc.estado === 'en_curso') {
+        fila.enCurso++
+        totalEnCurso++
+      } else if (insc.estado === 'completado') {
+        fila.completado++
+        totalCompletado++
+      }
     }
-    return [...mapa.values()].sort((a, b) => a.nombre.localeCompare(b.nombre))
+
+    return {
+      porEtapa: Array.from(porEtapa.values()).sort((a, b) => a.nombre.localeCompare(b.nombre)),
+      totales: {
+        total: totalGeneral,
+        masculino: totalMasculino,
+        femenino: totalFemenino,
+        otro: totalOtro,
+        nuevo: totalNuevo,
+        viejo: totalViejo,
+        enCurso: totalEnCurso,
+        completado: totalCompletado
+      }
+    }
   })()
-  const totalMasc = statsPorEtapa.reduce((a, s) => a + s.masculino, 0)
-  const totalFem  = statsPorEtapa.reduce((a, s) => a + s.femenino, 0)
-  const totalOtro = statsPorEtapa.reduce((a, s) => a + s.otro, 0)
 
   const descargarExcel = async () => {
     setDescargando(true)
@@ -198,37 +272,89 @@ export default function TecnicoEstudiantesPage() {
           </div>
         </div>
 
-        {/* Estadística: hombres/mujeres por etapa */}
+        {/* 📊 ESTADÍSTICAS MEJORADAS */}
         {!loading && filtrados.length > 0 && (
           <div className="card mb-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="font-bold text-sm text-gray-700">📊 Estudiantes por etapa y género</div>
-              <div className="flex gap-3 text-xs font-bold">
-                <span className="text-blue-600">♂ {totalMasc} hombres</span>
-                <span className="text-pink-600">♀ {totalFem} mujeres</span>
-                {totalOtro > 0 && <span className="text-gray-400">— {totalOtro} sin especificar</span>}
-                <span className="text-gray-500">Total: {filtrados.length}</span>
+            {/* Resumen general */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 pb-4 border-b">
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">{estadisticas.totales.total}</div>
+                <div className="text-xs text-gray-500">Total estudiantes</div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-blue-600">
+                  {estadisticas.totales.masculino + estadisticas.totales.femenino + estadisticas.totales.otro}
+                </div>
+                <div className="text-xs text-gray-500">
+                  <span className="text-blue-600">♂ {estadisticas.totales.masculino}</span>
+                  {' · '}
+                  <span className="text-pink-600">♀ {estadisticas.totales.femenino}</span>
+                  {estadisticas.totales.otro > 0 && (
+                    <> · <span className="text-gray-400">⚪ {estadisticas.totales.otro}</span></>
+                  )}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-green-600">{estadisticas.totales.enCurso}</div>
+                <div className="text-xs text-gray-500">
+                  En curso
+                  {estadisticas.totales.completado > 0 && (
+                    <> · <span className="text-blue-600">{estadisticas.totales.completado} completados</span></>
+                  )}
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="text-2xl font-bold text-purple-600">
+                  {estadisticas.totales.nuevo}
+                </div>
+                <div className="text-xs text-gray-500">
+                  <span className="text-blue-600">📗 Nuevo</span>
+                  {' · '}
+                  <span className="text-orange-600">📙 {estadisticas.totales.viejo}</span>
+                </div>
               </div>
             </div>
+
+            {/* Detalle por etapa */}
             <div className="overflow-x-auto">
+              <div className="font-semibold text-sm text-gray-700 mb-2">📊 Distribución por etapa</div>
               <table className="w-full text-sm border-collapse">
                 <thead>
                   <tr className="bg-gray-100 text-left">
                     <th className="px-3 py-2 text-xs font-bold uppercase">Etapa</th>
-                    <th className="px-3 py-2 text-xs font-bold uppercase text-center text-blue-600">♂ Hombres</th>
-                    <th className="px-3 py-2 text-xs font-bold uppercase text-center text-pink-600">♀ Mujeres</th>
                     <th className="px-3 py-2 text-xs font-bold uppercase text-center">Total</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center text-blue-600">♂ H</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center text-pink-600">♀ M</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">📗 Nuevo</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">📙 Viejo</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">✅ En curso</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">✔️ Completado</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {statsPorEtapa.map(fila => (
-                    <tr key={fila.nombre} className="border-b">
-                      <td className="px-3 py-1.5 font-semibold">{fila.nombre}</td>
-                      <td className="px-3 py-1.5 text-center text-blue-600 font-bold">{fila.masculino}</td>
-                      <td className="px-3 py-1.5 text-center text-pink-600 font-bold">{fila.femenino}</td>
-                      <td className="px-3 py-1.5 text-center font-bold">{fila.masculino + fila.femenino + fila.otro}</td>
+                  {estadisticas.porEtapa.map(fila => (
+                    <tr key={fila.nombre} className="border-b hover:bg-gray-50">
+                      <td className="px-3 py-2 font-semibold">{fila.nombre}</td>
+                      <td className="px-3 py-2 text-center font-bold">{fila.total}</td>
+                      <td className="px-3 py-2 text-center text-blue-600 font-bold">{fila.masculino}</td>
+                      <td className="px-3 py-2 text-center text-pink-600 font-bold">{fila.femenino}</td>
+                      <td className="px-3 py-2 text-center text-blue-600">{fila.versionNuevo}</td>
+                      <td className="px-3 py-2 text-center text-orange-600">{fila.versionViejo}</td>
+                      <td className="px-3 py-2 text-center text-green-600">{fila.enCurso}</td>
+                      <td className="px-3 py-2 text-center text-blue-600">{fila.completado}</td>
                     </tr>
                   ))}
+                  {/* Fila de totales */}
+                  <tr className="bg-blue-50 font-bold">
+                    <td className="px-3 py-2 text-blue-800">TOTAL</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{estadisticas.totales.total}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{estadisticas.totales.masculino}</td>
+                    <td className="px-3 py-2 text-center text-pink-800">{estadisticas.totales.femenino}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{estadisticas.totales.nuevo}</td>
+                    <td className="px-3 py-2 text-center text-orange-800">{estadisticas.totales.viejo}</td>
+                    <td className="px-3 py-2 text-center text-green-800">{estadisticas.totales.enCurso}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{estadisticas.totales.completado}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -387,4 +513,3 @@ export default function TecnicoEstudiantesPage() {
     </div>
   )
 }
-
