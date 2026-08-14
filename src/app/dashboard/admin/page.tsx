@@ -32,8 +32,10 @@ export default async function AdminDashboard() {
       etapa_id,
       estudiante_id,
       sede_id,
+      tecnico_id,
       etapas!inner (id, nombre),
-      estudiantes!inner (id, genero)
+      estudiantes!inner (id, genero),
+      tecnicos!inner (id, primer_nombre, primer_apellido, codigo_tecnico, especialidad)
     `)
     .eq('ciclo_escolar', 2026)
 
@@ -45,6 +47,38 @@ export default async function AdminDashboard() {
       sedes!inner (id, nombre)
     `)
     .eq('ciclo_escolar', 2026)
+
+  // 📊 Obtener todos los técnicos con sus estadísticas
+  const { data: tecnicosData } = await supabaseAdmin
+    .from('tecnicos')
+    .select(`
+      id,
+      primer_nombre,
+      primer_apellido,
+      codigo_tecnico,
+      especialidad,
+      activo,
+      usuario_id
+    `)
+    .eq('activo', true)
+
+  // 📊 Obtener conteo de estudiantes por técnico
+  const { data: estudiantesPorTecnico } = await supabaseAdmin
+    .from('inscripciones')
+    .select('tecnico_id')
+    .eq('ciclo_escolar', 2026)
+    .eq('estado', 'en_curso')
+
+  // 📊 Obtener sedes por técnico
+  const { data: sedesPorTecnico } = await supabaseAdmin
+    .from('tecnico_sedes')
+    .select('tecnico_id')
+
+  // 📊 Obtener enlaces por técnico
+  const { data: enlacesPorTecnico } = await supabaseAdmin
+    .from('enlaces_institucionales')
+    .select('tecnico_id')
+    .eq('activo', true)
 
   // 📊 Obtener versión de libros
   const { data: porVersion } = await supabaseAdmin
@@ -68,6 +102,31 @@ export default async function AdminDashboard() {
     .select('id,accion,tabla_afectada,creado_en')
     .order('creado_en', { ascending: false })
     .limit(6)
+
+  // 📊 Obtener enlaces institucionales con sus sedes
+  const { data: enlacesData } = await supabaseAdmin
+    .from('enlaces_institucionales')
+    .select(`
+      id,
+      primer_nombre,
+      primer_apellido,
+      cargo,
+      telefono,
+      correo_personal,
+      sede_id,
+      tecnico_id,
+      activo,
+      sedes!inner (id, nombre, municipio_id),
+      municipios!inner (id, nombre)
+    `)
+    .eq('activo', true)
+
+  // 📊 Contar estudiantes por enlace (sede)
+  const { data: estudiantesPorEnlace } = await supabaseAdmin
+    .from('inscripciones')
+    .select('sede_id')
+    .eq('ciclo_escolar', 2026)
+    .eq('estado', 'en_curso')
 
   const hoy = new Date().toLocaleDateString('es-GT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
@@ -167,6 +226,57 @@ export default async function AdminDashboard() {
   const estadisticasSede = Array.from(porSedeDetalle.entries())
     .map(([nombre, total]) => ({ nombre, total }))
     .sort((a, b) => b.total - a.total)
+
+  // 📊 CALCULAR ESTADÍSTICAS POR TÉCNICO
+  const conteoEstudiantes = new Map<string, number>()
+  for (const item of (estudiantesPorTecnico ?? [])) {
+    const id = item.tecnico_id
+    conteoEstudiantes.set(id, (conteoEstudiantes.get(id) || 0) + 1)
+  }
+
+  const conteoSedes = new Map<string, number>()
+  for (const item of (sedesPorTecnico ?? [])) {
+    const id = item.tecnico_id
+    conteoSedes.set(id, (conteoSedes.get(id) || 0) + 1)
+  }
+
+  const conteoEnlaces = new Map<string, number>()
+  for (const item of (enlacesPorTecnico ?? [])) {
+    const id = item.tecnico_id
+    conteoEnlaces.set(id, (conteoEnlaces.get(id) || 0) + 1)
+  }
+
+  const tecnicosEstadisticas = (tecnicosData ?? [])
+    .map((t: any) => ({
+      nombre: `${t.primer_nombre} ${t.primer_apellido || ''}`.trim(),
+      codigo: t.codigo_tecnico || '—',
+      especialidad: t.especialidad || '—',
+      estudiantes: conteoEstudiantes.get(t.id) || 0,
+      sedes: conteoSedes.get(t.id) || 0,
+      enlaces: conteoEnlaces.get(t.id) || 0,
+      id: t.id
+    }))
+    .sort((a, b) => b.estudiantes - a.estudiantes)
+
+  // 📊 CALCULAR ESTADÍSTICAS POR ENLACE (SEDE)
+  const conteoEstudiantesEnlace = new Map<string, number>()
+  for (const item of (estudiantesPorEnlace ?? [])) {
+    const id = item.sede_id
+    conteoEstudiantesEnlace.set(id, (conteoEstudiantesEnlace.get(id) || 0) + 1)
+  }
+
+  const enlacesEstadisticas = (enlacesData ?? [])
+    .map((e: any) => ({
+      nombre: `${e.primer_nombre} ${e.primer_apellido || ''}`.trim(),
+      cargo: e.cargo || '—',
+      sede: (e.sedes as any)?.nombre || '—',
+      municipio: (e.municipios as any)?.nombre || '—',
+      correo: e.correo_personal || '—',
+      telefono: e.telefono || '—',
+      estudiantes: conteoEstudiantesEnlace.get(e.sede_id) || 0,
+      estado: e.activo ? 'Activo' : 'Inactivo'
+    }))
+    .sort((a, b) => b.estudiantes - a.estudiantes)
 
   return (
     <div className="ap">
@@ -301,6 +411,95 @@ export default async function AdminDashboard() {
                     <td className="px-3 py-2 text-blue-800">TOTAL</td>
                     <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.total}</td>
                     <td className="px-3 py-2 text-center text-blue-800">100%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 📊 TABLA DE TÉCNICOS CON ESTADÍSTICAS */}
+        {tecnicosEstadisticas.length > 0 && (
+          <div className="card mb-5 overflow-hidden">
+            <div className="card-title text-sm mb-3">👨‍🏫 Técnicos y sus estadísticas</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 text-left">
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Nombre</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Código</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Especialidad</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">Estudiantes</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">Sedes</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">Enlaces</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tecnicosEstadisticas.map((tecnico, idx) => (
+                    <tr key={tecnico.id} className={`border-b hover:bg-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                      <td className="px-3 py-2 font-semibold">{tecnico.nombre}</td>
+                      <td className="px-3 py-2 font-mono text-xs text-gray-500">{tecnico.codigo}</td>
+                      <td className="px-3 py-2 text-xs text-gray-600">{tecnico.especialidad}</td>
+                      <td className="px-3 py-2 text-center font-bold text-blue-600">{tecnico.estudiantes}</td>
+                      <td className="px-3 py-2 text-center text-gray-600">{tecnico.sedes}</td>
+                      <td className="px-3 py-2 text-center text-gray-600">{tecnico.enlaces}</td>
+                    </tr>
+                  ))}
+                  {/* Fila de totales */}
+                  <tr className="bg-blue-50 font-bold">
+                    <td className="px-3 py-2 text-blue-800">TOTAL</td>
+                    <td className="px-3 py-2 text-blue-800" colSpan={2}>—</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.total}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{sedesData?.length ?? 0}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{enlacesData?.length ?? 0}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* 📊 TABLA DE ENLACES INSTITUCIONALES */}
+        {enlacesEstadisticas.length > 0 && (
+          <div className="card mb-5 overflow-hidden">
+            <div className="card-title text-sm mb-3">🔗 Enlaces institucionales y sus estadísticas</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-gray-100 text-left">
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Nombre</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Cargo</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Sede</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Municipio</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Correo</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase">Teléfono</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">Estudiantes</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">Estado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {enlacesEstadisticas.map((enlace, idx) => (
+                    <tr key={idx} className={`border-b hover:bg-gray-50 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
+                      <td className="px-3 py-2 font-semibold">{enlace.nombre}</td>
+                      <td className="px-3 py-2 text-xs text-gray-600">{enlace.cargo}</td>
+                      <td className="px-3 py-2 text-xs text-gray-600">{enlace.sede}</td>
+                      <td className="px-3 py-2 text-xs text-gray-600">{enlace.municipio}</td>
+                      <td className="px-3 py-2 text-xs text-gray-500">{enlace.correo}</td>
+                      <td className="px-3 py-2 text-xs text-gray-500">{enlace.telefono}</td>
+                      <td className="px-3 py-2 text-center font-bold text-blue-600">{enlace.estudiantes}</td>
+                      <td className="px-3 py-2 text-center">
+                        <span className={`badge text-xs ${enlace.estado === 'Activo' ? 'badge-green' : 'badge-gray'}`}>
+                          {enlace.estado === 'Activo' ? '✅ Activo' : '❌ Inactivo'}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Fila de totales */}
+                  <tr className="bg-blue-50 font-bold">
+                    <td className="px-3 py-2 text-blue-800">TOTAL</td>
+                    <td className="px-3 py-2 text-blue-800" colSpan={5}>—</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.total}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{enlacesEstadisticas.filter(e => e.estado === 'Activo').length} Activos</td>
                   </tr>
                 </tbody>
               </table>
