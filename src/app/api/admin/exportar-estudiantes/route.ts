@@ -1,6 +1,6 @@
 // src/app/api/admin/exportar-estudiantes/route.ts — NUEVA RUTA
 import { NextRequest, NextResponse } from 'next/server'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin, fetchAllRows } from '@/lib/supabase'
 import { getSession, err } from '@/lib/auth'
 import * as XLSX from 'xlsx'
 
@@ -11,8 +11,7 @@ export async function GET(req: NextRequest) {
 
   const ciclo = parseInt(req.nextUrl.searchParams.get('ciclo') ?? '2026')
 
-  let q = supabaseAdmin.from('inscripciones')
-    .select(`
+  const selectExport = `
       id, ciclo_escolar, version_libro, estado, fecha_inscripcion, tiene_ajuste_discapacidad,
       estudiante:estudiantes(
         codigo_estudiante, codigo_sireex,
@@ -24,9 +23,10 @@ export async function GET(req: NextRequest) {
       etapa:etapas(nombre, nivel),
       sede:sedes(nombre),
       tecnico:tecnicos!inscripciones_tecnico_id_fkey(primer_nombre, primer_apellido, codigo_tecnico)
-    `)
-    .eq('ciclo_escolar', ciclo)
-    .order('fecha_inscripcion', { ascending: false })
+    `
+
+  // Sin filtro adicional por defecto (administrador y coordinador_digeex ven todo el ciclo)
+  let filtroRol: (query: any) => any = (query) => query
 
   // Director filtra por sedes de su sede
   if (s.rol === 'director') {
@@ -36,14 +36,29 @@ export async function GET(req: NextRequest) {
       const { data: sedesDepto } = await supabaseAdmin
         .from('sedes').select('id').eq('departamento_id', dir.departamento_id)
       const sedeIds = (sedesDepto ?? []).map((sd: any) => sd.id)
-      if (sedeIds.length > 0) q = q.in('sede_id', sedeIds)
+      if (sedeIds.length > 0) filtroRol = (query) => query.in('sede_id', sedeIds)
     } else if (dir?.sede_id) {
-      q = q.eq('sede_id', dir.sede_id)
+      filtroRol = (query) => query.eq('sede_id', dir!.sede_id)
     }
   }
 
-  const { data, error } = await q
-  if (error) return err(error.message, 500)
+  // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta.
+  // Este export es global (sin filtro de estado ni de rol para admin), así
+  // que con ~1800 inscripciones/año era el que más rápido se truncaba.
+  let data: any[]
+  try {
+    data = await fetchAllRows<any>((from, to) => {
+      let qq = supabaseAdmin.from('inscripciones')
+        .select(selectExport)
+        .eq('ciclo_escolar', ciclo)
+        .order('fecha_inscripcion', { ascending: false })
+
+      qq = filtroRol(qq)
+      return qq.range(from, to) as any
+    })
+  } catch (e: any) {
+    return err('Error al consultar inscripciones: ' + (e.message ?? ''), 500)
+  }
 
   const filas = (data ?? []).map((i: any, idx: number) => {
     const e  = i.estudiante as any
