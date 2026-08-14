@@ -21,8 +21,8 @@ export default async function AdminDashboard() {
     supabaseAdmin.from('autorizaciones_director').select('*', { count: 'exact', head: true }).is('autorizado_por_admin', null).eq('activo', true),
   ])
 
-  // 📊 Obtener datos para estadísticas detalladas por etapa
-  const { data: inscripcionesDetalle } = await supabaseAdmin
+  // 📊 OBTENER INSCRIPCIONES CON ETAPA Y ESTUDIANTE - SIMPLIFICADO
+  const { data: inscripcionesRaw } = await supabaseAdmin
     .from('inscripciones')
     .select(`
       id,
@@ -32,13 +32,20 @@ export default async function AdminDashboard() {
       etapa_id,
       estudiante_id,
       sede_id,
-      tecnico_id,
-      etapas!inner (id, nombre),
-      estudiantes!inner (id, genero),
-      tecnicos!inner (id, primer_nombre, primer_apellido, codigo_tecnico, especialidad)
+      tecnico_id
     `)
     .eq('ciclo_escolar', 2026)
     .eq('estado', 'en_curso')
+
+  // 📊 OBTENER ETAPAS POR SEPARADO
+  const { data: etapasData } = await supabaseAdmin
+    .from('etapas')
+    .select('id, nombre')
+
+  // 📊 OBTENER ESTUDIANTES POR SEPARADO (solo genero)
+  const { data: estudiantesData } = await supabaseAdmin
+    .from('estudiantes')
+    .select('id, genero')
 
   // 📊 Obtener datos para estadísticas por sede
   const { data: sedesData } = await supabaseAdmin
@@ -132,7 +139,14 @@ export default async function AdminDashboard() {
 
   const hoy = new Date().toLocaleDateString('es-GT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
-  // 📊 CALCULAR ESTADÍSTICAS DETALLADAS POR ETAPA (NIVEL GLOBAL)
+  // 📊 CREAR MAPAS PARA BÚSQUEDA RÁPIDA
+  const etapasMap = new Map()
+  etapasData?.forEach((e: any) => { etapasMap.set(e.id, e.nombre) })
+
+  const estudiantesMap = new Map()
+  estudiantesData?.forEach((e: any) => { estudiantesMap.set(e.id, e.genero) })
+
+  // 📊 CALCULAR ESTADÍSTICAS DETALLADAS POR ETAPA
   const porEtapaDetalle = new Map<string, {
     nombre: string
     total: number
@@ -145,7 +159,6 @@ export default async function AdminDashboard() {
     completado: number
   }>()
 
-  let totalGeneral = 0
   let totalMasculino = 0
   let totalFemenino = 0
   let totalOtro = 0
@@ -154,8 +167,8 @@ export default async function AdminDashboard() {
   let totalEnCurso = 0
   let totalCompletado = 0
 
-  for (const insc of (inscripcionesDetalle ?? [])) {
-    const nombreEtapa = (insc.etapas as any)?.nombre ?? 'Sin etapa'
+  for (const insc of (inscripcionesRaw ?? [])) {
+    const nombreEtapa = etapasMap.get(insc.etapa_id) ?? 'Sin etapa'
     
     if (!porEtapaDetalle.has(nombreEtapa)) {
       porEtapaDetalle.set(nombreEtapa, {
@@ -173,9 +186,8 @@ export default async function AdminDashboard() {
     
     const fila = porEtapaDetalle.get(nombreEtapa)!
     fila.total++
-    totalGeneral++
 
-    const genero = (insc.estudiantes as any)?.genero?.toLowerCase() ?? ''
+    const genero = (estudiantesMap.get(insc.estudiante_id) ?? '').toLowerCase()
     if (genero === 'masculino') {
       fila.masculino++
       totalMasculino++
@@ -207,7 +219,7 @@ export default async function AdminDashboard() {
   const estadisticasEtapa = {
     porEtapa: Array.from(porEtapaDetalle.values()).sort((a, b) => a.nombre.localeCompare(b.nombre)),
     totales: {
-      total: totalGeneral,
+      total: totalEst,
       masculino: totalMasculino,
       femenino: totalFemenino,
       otro: totalOtro,
@@ -323,7 +335,7 @@ export default async function AdminDashboard() {
         )}
 
         {/* 📊 TABLA 1: DISTRIBUCIÓN POR ETAPA */}
-        {inscripcionesDetalle && inscripcionesDetalle.length > 0 && (
+        {inscripcionesRaw && inscripcionesRaw.length > 0 && (
           <div className="card mb-5 overflow-hidden">
             <div className="flex items-center justify-between mb-3">
               <div>
