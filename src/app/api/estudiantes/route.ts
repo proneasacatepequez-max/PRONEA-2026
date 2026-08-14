@@ -3,7 +3,7 @@
 // Se usa municipio_id para la ubicación geográfica
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { supabaseAdmin } from '@/lib/supabase'
+import { supabaseAdmin, fetchAllRows } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
 
 async function getCicloActual(): Promise<number> {
@@ -43,15 +43,25 @@ export async function GET(req: NextRequest) {
   const ciclo  = p.get('ciclo')   ?? '2026'
   const detalle = p.get('detalle') === '1'
 
-  let q = supabaseAdmin.from('estudiantes')
-    .select(`id, codigo_estudiante, primer_nombre, primer_apellido,
-             segundo_apellido, telefono, cui, cui_pendiente, activo`)
-    .eq('activo', true)
-    .order('primer_apellido')
-
-  const { data, error } = await q
-  if (error) return err(error.message, 500)
-  return ok({ data: data ?? [], total: (data ?? []).length })
+  // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta.
+  // Esta lista es la base de la búsqueda/deduplicación en Inscribir — si se
+  // trunca en 1000, un estudiante que ya existe puede "no aparecer" y
+  // terminar duplicado. `estudiantes` es acumulativo entre ciclos, así que
+  // es la tabla con más riesgo de crecer más allá de 1000 filas.
+  try {
+    const data = await fetchAllRows<any>((from, to) =>
+      supabaseAdmin
+        .from('estudiantes')
+        .select(`id, codigo_estudiante, primer_nombre, primer_apellido,
+                 segundo_apellido, telefono, cui, cui_pendiente, activo`)
+        .eq('activo', true)
+        .order('primer_apellido')
+        .range(from, to) as any
+    )
+    return ok({ data, total: data.length })
+  } catch (e: any) {
+    return err(e.message ?? 'Error al obtener estudiantes', 500)
+  }
 }
 
 export async function POST(req: NextRequest) {
