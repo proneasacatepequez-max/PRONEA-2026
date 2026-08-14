@@ -1,7 +1,7 @@
 'use client'
 // src/app/dashboard/tecnico/estudiantes/page.tsx
-// Con filtro para ver: "Todos los de la sede" o "Solo mis estudiantes"
-import { useState, useEffect, useCallback } from 'react'
+// FIX: Mostrar SOLO los estudiantes del técnico actual (como en el Dashboard)
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import Link from 'next/link'
 
 export default function TecnicoEstudiantesPage() {
@@ -15,33 +15,16 @@ export default function TecnicoEstudiantesPage() {
   const [modalEditarInsc, setModalEditarInsc] = useState<any>(null)
   const [formEditInsc,    setFormEditInsc]    = useState({ etapa_id: '', version_libro: 'nuevo' })
   const [guardandoInsc,   setGuardandoInsc]   = useState(false)
-  const [tecnicoActual, setTecnicoActual] = useState<any>(null)
 
   const [filtro, setFiltro] = useState({
     buscar: '', 
     etapa_id: '', 
     sede_id: '', 
     estado: 'en_curso',
-    tipo_vista: 'todos' // 👈 NUEVO: 'todos' o 'mis_estudiantes'
+    tipo_vista: 'mis_estudiantes' // 👈 Por defecto: "Solo mis estudiantes"
   })
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
-
-  // Obtener datos del técnico actual
-  useEffect(() => {
-    const obtenerTecnico = async () => {
-      try {
-        const res = await fetch('/api/auth/me')
-        const data = await res.json()
-        if (data?.tecnico) {
-          setTecnicoActual(data.tecnico)
-        }
-      } catch (error) {
-        console.error('Error al obtener técnico:', error)
-      }
-    }
-    obtenerTecnico()
-  }, [])
 
   const abrirEditarInsc = (insc: any) => {
     setFormEditInsc({
@@ -75,19 +58,16 @@ export default function TecnicoEstudiantesPage() {
   const cargar = useCallback(async () => {
     setLoading(true)
     
-    // Construir parámetros base
+    // 🔥 PARÁMETROS: Incluir el técnico actual (como en el Dashboard)
     const params = new URLSearchParams({ 
       ciclo, 
       estado: filtro.estado || 'en_curso'
     })
     
-    // 🔥 NUEVO: Si selecciona "Solo mis estudiantes", filtramos por técnico
-    if (filtro.tipo_vista === 'mis_estudiantes' && tecnicoActual?.id) {
-      params.set('tecnico_id', tecnicoActual.id)
-    }
-    
     if (filtro.etapa_id) params.set('etapa_id', filtro.etapa_id)
     if (filtro.sede_id)  params.set('sede_id',  filtro.sede_id)
+
+    // 👈 ELIMINAR el filtro tecnico_id de la URL (NO funciona en /api/inscripciones)
 
     const [insRes, et, se] = await Promise.all([
       fetch(`/api/inscripciones?${params}`)
@@ -101,21 +81,59 @@ export default function TecnicoEstudiantesPage() {
       flash('❌ ' + (insRes.body?.error ?? `Error al cargar estudiantes (${insRes.status})`))
       setInscripciones([])
     } else {
+      // Guardar TODOS los datos (sin filtrar en el backend)
       setInscripciones(insRes.body?.data ?? [])
     }
     setEtapas(Array.isArray(et) ? et : [])
     setSedes(Array.isArray(se) ? se : [])
     setLoading(false)
-  }, [ciclo, filtro.etapa_id, filtro.sede_id, filtro.estado, filtro.tipo_vista, tecnicoActual])
+  }, [ciclo, filtro.etapa_id, filtro.sede_id, filtro.estado])
 
   useEffect(() => { cargar() }, [cargar])
 
-  const filtrados = inscripciones.filter(i => {
-    if (!filtro.buscar.trim()) return true
-    const e   = i.estudiante as any
-    const txt = `${e?.primer_nombre ?? ''} ${e?.segundo_nombre ?? ''} ${e?.primer_apellido ?? ''} ${e?.segundo_apellido ?? ''} ${e?.codigo_estudiante ?? ''} ${e?.cui ?? ''}`.toLowerCase()
-    return txt.includes(filtro.buscar.toLowerCase())
-  })
+  // 🔥 FILTRADO LOCAL: Usar useMemo para filtrar los estudiantes
+  // Esto simula lo que hace el Dashboard pero en el frontend
+  const [tecnicoActual, setTecnicoActual] = useState<any>(null)
+
+  // Obtener datos del técnico actual (como en el Dashboard)
+  useEffect(() => {
+    const obtenerTecnico = async () => {
+      try {
+        const res = await fetch('/api/auth/me')
+        const data = await res.json()
+        if (data?.tecnico) {
+          setTecnicoActual(data.tecnico)
+        }
+      } catch (error) {
+        console.error('Error al obtener técnico:', error)
+      }
+    }
+    obtenerTecnico()
+  }, [])
+
+  // 🔥 FILTRO PRINCIPAL: Aplicar los filtros localmente
+  const filtrados = useMemo(() => {
+    let resultado = inscripciones
+
+    // 1. FILTRO DE TÉCNICO: Si es "Solo mis estudiantes", filtrar por técnico actual
+    if (filtro.tipo_vista === 'mis_estudiantes' && tecnicoActual?.id) {
+      resultado = resultado.filter(i => {
+        const tecnicoId = (i.tecnico as any)?.id
+        return tecnicoId === tecnicoActual.id
+      })
+    }
+
+    // 2. FILTRO DE BÚSQUEDA
+    if (filtro.buscar.trim()) {
+      resultado = resultado.filter(i => {
+        const e = i.estudiante as any
+        const txt = `${e?.primer_nombre ?? ''} ${e?.segundo_nombre ?? ''} ${e?.primer_apellido ?? ''} ${e?.segundo_apellido ?? ''} ${e?.codigo_estudiante ?? ''} ${e?.cui ?? ''}`.toLowerCase()
+        return txt.includes(filtro.buscar.toLowerCase())
+      })
+    }
+
+    return resultado
+  }, [inscripciones, filtro, tecnicoActual])
 
   // Función para determinar el rol del técnico
   const obtenerRolTecnico = (insc: any) => {
@@ -138,7 +156,7 @@ export default function TecnicoEstudiantesPage() {
   }
 
   // 📊 ESTADÍSTICAS
-  const estadisticas = (() => {
+  const estadisticas = useMemo(() => {
     const porEtapa = new Map<string, {
       nombre: string
       total: number
@@ -224,7 +242,7 @@ export default function TecnicoEstudiantesPage() {
         completado: totalCompletado
       }
     }
-  })()
+  }, [filtrados])
 
   const descargarExcel = async () => {
     setDescargando(true)
@@ -256,7 +274,7 @@ export default function TecnicoEstudiantesPage() {
     buscar:'', 
     etapa_id:'', 
     sede_id:'',
-    tipo_vista: 'todos'
+    tipo_vista: 'mis_estudiantes'
   }))
 
   const edad = (fn?: string) => {
@@ -271,8 +289,10 @@ export default function TecnicoEstudiantesPage() {
           <div className="page-title">🎓 Mis Estudiantes</div>
           <div className="text-xs text-gray-400">
             {filtrados.length} de {inscripciones.length} inscripciones · ciclo {ciclo}
-            {filtro.tipo_vista === 'mis_estudiantes' && (
-              <span className="ml-2 text-green-600 font-bold">(Solo mis estudiantes)</span>
+            {filtro.tipo_vista === 'mis_estudiantes' && tecnicoActual && (
+              <span className="ml-2 text-green-600 font-bold">
+                (Solo mis estudiantes: {filtrados.length})
+              </span>
             )}
           </div>
         </div>
@@ -326,8 +346,8 @@ export default function TecnicoEstudiantesPage() {
               <label className="lbl">Ver</label>
               <select className="inp" value={filtro.tipo_vista}
                 onChange={e => setFiltro(f => ({ ...f, tipo_vista: e.target.value }))}>
-                <option value="todos">📊 Todos los de la sede</option>
                 <option value="mis_estudiantes">👤 Solo mis estudiantes</option>
+                <option value="todos">📊 Todos los de la sede</option>
               </select>
             </div>
           </div>
@@ -336,7 +356,7 @@ export default function TecnicoEstudiantesPage() {
           </div>
         </div>
 
-        {/* 📊 ESTADÍSTICAS */}
+        {/* 📊 ESTADÍSTICAS - Solo si hay estudiantes */}
         {!loading && filtrados.length > 0 && (
           <div className="card mb-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4 pb-4 border-b">
