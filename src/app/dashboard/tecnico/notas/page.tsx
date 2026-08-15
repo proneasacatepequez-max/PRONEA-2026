@@ -140,6 +140,11 @@ function NotasContent() {
     window.open(`/api/escalas/pdf?inscripcion_id=${inscSel.id}&libro_id=${libroSel.id}`, '_blank')
   }
 
+  const abrirBoleta = () => {
+    if (!inscSel) { flash('❌ Selecciona un estudiante primero'); return }
+    window.open(`/api/boleta/pdf?inscripcion_id=${inscSel.id}`, '_blank')
+  }
+
   const filtrados = inscripciones.filter(i => {
     if (!buscarQ.trim()) return true
     const e   = i.estudiante
@@ -172,6 +177,9 @@ function NotasContent() {
           </div>
         </div>
         <div className="flex gap-2">
+          {inscSel && (
+            <button className="btn btn-g text-sm" onClick={abrirBoleta}>🧾 Boleta de Calificaciones</button>
+          )}
           {inscSel && libroSel && (
             <button className="btn btn-g text-sm" onClick={abrirPDF}>📄 PDF</button>
           )}
