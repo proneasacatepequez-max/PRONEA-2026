@@ -128,7 +128,21 @@ function NotasContent() {
     const d = await res.json()
     if (res.ok) {
       setNotasMap(prev => ({ ...prev, [key]: nota }))
-      flash('✅ Nota guardada')
+
+      // Recalcular resumen (ambos libros) para que, si ya se registraron
+      // todas las notas de tareas y exámenes de la etapa, la inscripción
+      // se marque automáticamente como "completada".
+      try {
+        const calc = await fetch('/api/notas/calcular', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ inscripcion_id: inscSel.id }),
+        }).then(r => r.json())
+        flash(calc?.inscripcion_completada
+          ? '✅ Nota guardada — 🎓 ¡Etapa completada!'
+          : '✅ Nota guardada')
+      } catch {
+        flash('✅ Nota guardada')
+      }
     } else {
       flash('❌ ' + (d.error ?? 'Error al guardar nota'))
     }
