@@ -118,6 +118,31 @@ export default function TecnicoEstudiantesPage() {
     finally { setGuardandoEstadoId(null); setEditandoEstadoId(null) }
   }
 
+  // 🔄 Forzar la revisión del estado según las notas ya registradas.
+  // Necesario para inscripciones cuyas notas ya estaban completas ANTES de
+  // que existiera el auto-completado (el auto-completado solo se dispara
+  // al guardar una nota nueva) — con este botón se revisa sin tener que
+  // volver a tocar ninguna nota.
+  const recalcularEstado = async (insc: any) => {
+    setGuardandoEstadoId(insc.id)
+    try {
+      const res = await fetch('/api/notas/calcular', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inscripcion_id: insc.id }),
+      })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al recalcular')); return }
+      if (d.inscripcion_completada) {
+        flash('🎓 ¡Estudiante marcado como completada!')
+        setInscripciones(prev => prev.map(i => i.id === insc.id ? { ...i, estado: 'completada' } : i))
+      } else {
+        flash('ℹ️ Aún faltan notas por registrar (o el estado ya no es "en curso")')
+      }
+    } catch { flash('❌ Error de conexión') }
+    finally { setGuardandoEstadoId(null) }
+  }
+
   const cargar = useCallback(async () => {
     setLoading(true)
 
@@ -653,6 +678,12 @@ export default function TecnicoEstudiantesPage() {
                               className="btn btn-s btn-sm" title="Editar etapa / versión de libro"
                               onClick={() => abrirEditarInsc(insc)}>
                               ✏️
+                            </button>
+                            <button
+                              className="btn btn-g btn-sm" title="Revisar notas y actualizar estado si ya están completas"
+                              disabled={guardandoEstadoId === insc.id}
+                              onClick={() => recalcularEstado(insc)}>
+                              🔄
                             </button>
                           </div>
                         </td>
