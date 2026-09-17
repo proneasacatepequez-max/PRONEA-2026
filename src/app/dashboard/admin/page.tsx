@@ -236,7 +236,7 @@ export default async function AdminDashboard() {
     if (insc.estado === 'en_curso') {
       fila.enCurso++
       totalEnCurso++
-    } else if (insc.estado === 'completado') {
+    } else if (insc.estado === 'completada') {
       fila.completado++
       totalCompletado++
     }
