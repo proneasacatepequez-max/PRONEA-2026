@@ -322,11 +322,22 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
+  const ESTADOS_VALIDOS = ['en_curso', 'completada', 'retirada', 'suspendida', 'finalizada']
+
   const upd: any = {}
   if (estado !== undefined) {
-    if (!['en_curso', 'aprobado', 'reprobado', 'retirado', 'completada'].includes(estado))
-      return err('estado inválido', 400)
+    if (!ESTADOS_VALIDOS.includes(estado))
+      return err(`estado inválido — valores permitidos: ${ESTADOS_VALIDOS.join(', ')}`, 400)
     upd.estado = estado
+    // Si el técnico marca manualmente la inscripción como completada (por
+    // ejemplo porque el resultado final vino de otra fuente y no del
+    // registro de notas), fijamos fecha_cierre automáticamente si no venía
+    // ya en el body y la inscripción no tenía una fecha de cierre previa.
+    if (estado === 'completada' && fecha_inscripcion === undefined && b.fecha_cierre === undefined) {
+      const { data: inscActual } = await supabaseAdmin.from('inscripciones')
+        .select('fecha_cierre').eq('id', id).maybeSingle()
+      upd.fecha_cierre = inscActual?.fecha_cierre ?? new Date().toISOString().slice(0, 10)
+    }
   }
   if (fecha_inscripcion !== undefined) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha_inscripcion)) {
