@@ -106,8 +106,8 @@ function EnlaceNotasContent() {
     const d = await res.json()
     if (!res.ok) { flash('❌ ' + d.error) }
     else {
-      flash('✅ Guardado')
       setTareas(prev => prev.map(t => t.id === tareaId ? { ...t, nota } : t))
+      await recalcularYAvisar()
     }
     setSaving(null)
   }
@@ -124,10 +124,27 @@ function EnlaceNotasContent() {
     const d = await res.json()
     if (!res.ok) { flash('❌ ' + d.error) }
     else {
-      flash('✅ Guardado')
       setExamenes(prev => prev.map(ex => ex.id === examenId ? { ...ex, nota_original, puntos_obtenidos: d.puntos_obtenidos } : ex))
+      await recalcularYAvisar()
     }
     setSaving(null)
+  }
+
+  // Recalcular resumen (ambos libros) tras guardar una nota: si ya se
+  // registraron todas las notas de tareas y exámenes de la etapa, la
+  // inscripción se marca automáticamente como "completada".
+  const recalcularYAvisar = async () => {
+    try {
+      const calc = await fetch('/api/notas/calcular', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inscripcion_id: inscId }),
+      }).then(r => r.json())
+      flash(calc?.inscripcion_completada
+        ? '✅ Guardado — 🎓 ¡Etapa completada!'
+        : '✅ Guardado')
+    } catch {
+      flash('✅ Guardado')
+    }
   }
 
   // Sin inscId
@@ -453,3 +470,4 @@ export default function EnlaceNotasPage() {
     </Suspense>
   )
 }
+
