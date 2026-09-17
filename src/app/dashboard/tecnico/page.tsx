@@ -148,8 +148,8 @@ export default function TecnicoDashboard() {
                           {(insc.sede as any)?.nombre ?? '—'}
                         </td>
                         <td className="px-3 py-2">
-                          <span className={`badge text-xs ${insc.estado === 'en_curso' ? 'badge-green' : insc.estado === 'completado' ? 'badge-blue' : 'badge-gray'}`}>
-                            {insc.estado === 'en_curso' ? '✅ En curso' : insc.estado === 'completado' ? '✔️ Completado' : insc.estado}
+                          <span className={`badge text-xs ${insc.estado === 'en_curso' ? 'badge-green' : insc.estado === 'completada' ? 'badge-blue' : 'badge-gray'}`}>
+                            {insc.estado === 'en_curso' ? '✅ En curso' : insc.estado === 'completada' ? '✔️ Completada' : insc.estado}
                           </span>
                         </td>
                         <td className="px-3 py-2 text-center">
