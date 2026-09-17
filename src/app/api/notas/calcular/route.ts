@@ -166,12 +166,13 @@ export async function POST(req: NextRequest) {
     }, { onConflict: 'inscripcion_id,libro_id' })
 
     resultados.push({
-      libro_id:    libro.id,
-      numero:      num,
-      total_libro: totalLibro,
-      pct_libro:   pctLibro,
+      libro_id:       libro.id,
+      numero:         num,
+      total_libro:    totalLibro,
+      pct_libro:      pctLibro,
       promovido,
-      areas:       resumenAreas,
+      notas_completas: hayNotasCompletas,
+      areas:          resumenAreas,
     })
   }
 
@@ -198,6 +199,36 @@ export async function POST(req: NextRequest) {
     }, { onConflict: 'inscripcion_id' })
   }
 
-  return ok({ ok: true, resultados })
+  // ── AUTO-COMPLETADO DE LA INSCRIPCIÓN ──────────────────────────────────
+  // Si ya se registraron TODAS las notas (tareas y exámenes) de TODOS los
+  // libros de esta etapa/versión, marcamos automáticamente la inscripción
+  // como "completada". Esto solo aplica cuando se recalculan AMBOS libros
+  // (numero_libro no especificado en el body) — si solo se recalculó un
+  // libro puntual no se puede afirmar nada sobre el otro, así que no se
+  // evalúa el auto-completado en ese caso.
+  //
+  // Importante: solo se autocompleta si el estado actual es 'en_curso'.
+  // Si un técnico ya cambió manualmente el estado (por ejemplo porque el
+  // resultado final vino de otra fuente), ese cambio nunca se pisa aquí.
+  let inscripcion_completada = false
+
+  if (!numero_libro && resultados.length > 0) {
+    const todasNotasCompletas = resultados.every((r: any) => r.notas_completas)
+
+    if (todasNotasCompletas) {
+      const { data: inscActual } = await supabaseAdmin.from('inscripciones')
+        .select('estado, fecha_cierre').eq('id', inscripcion_id).single()
+
+      if (inscActual?.estado === 'en_curso') {
+        const { error: errCierre } = await supabaseAdmin.from('inscripciones').update({
+          estado: 'completada',
+          fecha_cierre: inscActual.fecha_cierre ?? new Date().toISOString().slice(0, 10),
+        }).eq('id', inscripcion_id)
+        if (!errCierre) inscripcion_completada = true
+      }
+    }
+  }
+
+  return ok({ ok: true, resultados, inscripcion_completada })
 }
 
