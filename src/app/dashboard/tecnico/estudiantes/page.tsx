@@ -17,6 +17,17 @@ export default function TecnicoEstudiantesPage() {
   const [guardandoInsc,   setGuardandoInsc]   = useState(false)
   const [tecnicoActual, setTecnicoActual] = useState<any>(null)
   const [errorTecnico, setErrorTecnico] = useState(false)
+  const [editandoEstadoId, setEditandoEstadoId] = useState<string | null>(null)
+  const [guardandoEstadoId, setGuardandoEstadoId] = useState<string | null>(null)
+
+  // Estados válidos de una inscripción (enum estado_inscripcion en la BD)
+  const ESTADOS_INSCRIPCION = [
+    { value: 'en_curso',   label: '✅ En curso' },
+    { value: 'completada', label: '✔️ Completada' },
+    { value: 'retirada',   label: '🚪 Retirada' },
+    { value: 'suspendida', label: '⏸️ Suspendida' },
+    { value: 'finalizada', label: '🏁 Finalizada' },
+  ]
 
   const [filtro, setFiltro] = useState({
     buscar: '',
@@ -83,6 +94,28 @@ export default function TecnicoEstudiantesPage() {
       cargar()
     } catch { flash('❌ Error de conexión') }
     finally { setGuardandoInsc(false) }
+  }
+
+  // ✏️ Cambiar manualmente el estado de una inscripción.
+  // Normalmente el estado pasa a "completada" solo (automáticamente) cuando
+  // ya se registraron todas las notas de tareas y exámenes en Registro de
+  // Notas — pero cuando el resultado final del estudiante viene de otra
+  // fuente (no del registro de notas), el técnico puede editarlo aquí.
+  const cambiarEstado = async (insc: any, nuevoEstado: string) => {
+    if (nuevoEstado === insc.estado) { setEditandoEstadoId(null); return }
+    setGuardandoEstadoId(insc.id)
+    try {
+      const res = await fetch('/api/inscripciones', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: insc.id, estado: nuevoEstado }),
+      })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al actualizar el estado')); return }
+      flash('✅ Estado actualizado')
+      setInscripciones(prev => prev.map(i => i.id === insc.id ? { ...i, estado: nuevoEstado } : i))
+    } catch { flash('❌ Error de conexión') }
+    finally { setGuardandoEstadoId(null); setEditandoEstadoId(null) }
   }
 
   const cargar = useCallback(async () => {
@@ -245,7 +278,7 @@ export default function TecnicoEstudiantesPage() {
       if (insc.estado === 'en_curso') {
         fila.enCurso++
         totalEnCurso++
-      } else if (insc.estado === 'completado') {
+      } else if (insc.estado === 'completada') {
         fila.completado++
         totalCompletado++
       }
@@ -383,7 +416,10 @@ export default function TecnicoEstudiantesPage() {
               <select className="inp" value={filtro.estado}
                 onChange={e => setFiltro(f => ({ ...f, estado: e.target.value }))}>
                 <option value="en_curso">En curso</option>
-                <option value="completado">Completado</option>
+                <option value="completada">Completada</option>
+                <option value="retirada">Retirada</option>
+                <option value="suspendida">Suspendida</option>
+                <option value="finalizada">Finalizada</option>
                 <option value="todos">Todos</option>
               </select>
             </div>
@@ -571,9 +607,37 @@ export default function TecnicoEstudiantesPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <span className={`badge text-xs ${insc.estado==='en_curso'?'badge-green':insc.estado==='completado'?'badge-blue':'badge-gray'}`}>
-                            {insc.estado}
-                          </span>
+                          {editandoEstadoId === insc.id ? (
+                            <select
+                              className="inp text-xs py-1"
+                              autoFocus
+                              defaultValue={insc.estado}
+                              disabled={guardandoEstadoId === insc.id}
+                              onChange={e => cambiarEstado(insc, e.target.value)}
+                              onBlur={() => setEditandoEstadoId(null)}
+                            >
+                              {ESTADOS_INSCRIPCION.map(op => (
+                                <option key={op.value} value={op.value}>{op.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <button
+                              type="button"
+                              title="Clic para editar el estado"
+                              onClick={() => setEditandoEstadoId(insc.id)}
+                              className={`badge text-xs cursor-pointer hover:opacity-80 ${
+                                insc.estado === 'en_curso' ? 'badge-green'
+                                : insc.estado === 'completada' ? 'badge-blue'
+                                : insc.estado === 'retirada' ? 'badge-red'
+                                : insc.estado === 'suspendida' ? 'badge-yellow'
+                                : 'badge-gray'
+                              }`}
+                            >
+                              {guardandoEstadoId === insc.id ? '⏳...' : (
+                                ESTADOS_INSCRIPCION.find(e => e.value === insc.estado)?.label ?? insc.estado
+                              )} ✏️
+                            </button>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex gap-1 flex-nowrap">
