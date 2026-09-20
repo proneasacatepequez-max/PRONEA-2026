@@ -202,15 +202,22 @@ export async function POST(req: NextRequest) {
   // ── AUTO-COMPLETADO DE LA INSCRIPCIÓN ──────────────────────────────────
   // Si ya se registraron TODAS las notas (tareas y exámenes) de TODOS los
   // libros de esta etapa/versión, marcamos automáticamente la inscripción
-  // como "completada". Esto solo aplica cuando se recalculan AMBOS libros
-  // (numero_libro no especificado en el body) — si solo se recalculó un
-  // libro puntual no se puede afirmar nada sobre el otro, así que no se
-  // evalúa el auto-completado en ese caso.
+  // como 'completada' — sin importar si es la última etapa del programa o
+  // no, porque el ciclo escolar todavía está en curso.
+  //
+  // El paso a 'finalizada' (egreso definitivo de PRONEA) NO ocurre aquí:
+  // ocurre de forma perezosa la próxima vez que alguien CONSULTE esa
+  // inscripción en un ciclo escolar posterior (ver egresarSiCorresponde en
+  // src/lib/estadoInscripcion.ts, usado en GET /api/inscripciones). Así,
+  // un estudiante que termina 5to. Bachillerato en 2025 queda 'completada'
+  // durante 2025, y al buscarlo ya en 2026 el sistema lo pasa a
+  // 'finalizada' automáticamente.
   //
   // Importante: solo se autocompleta si el estado actual es 'en_curso'.
   // Si un técnico ya cambió manualmente el estado (por ejemplo porque el
   // resultado final vino de otra fuente), ese cambio nunca se pisa aquí.
   let inscripcion_completada = false
+  let estado_final: string | null = null
 
   if (!numero_libro && resultados.length > 0) {
     const todasNotasCompletas = resultados.every((r: any) => r.notas_completas)
@@ -224,11 +231,12 @@ export async function POST(req: NextRequest) {
           estado: 'completada',
           fecha_cierre: inscActual.fecha_cierre ?? new Date().toISOString().slice(0, 10),
         }).eq('id', inscripcion_id)
-        if (!errCierre) inscripcion_completada = true
+
+        if (!errCierre) { inscripcion_completada = true; estado_final = 'completada' }
       }
     }
   }
 
-  return ok({ ok: true, resultados, inscripcion_completada })
+  return ok({ ok: true, resultados, inscripcion_completada, estado_final })
 }
 
