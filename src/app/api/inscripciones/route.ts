@@ -2,6 +2,7 @@
 import { NextRequest } from 'next/server'
 import { supabaseAdmin, fetchAllRows } from '@/lib/supabase'
 import { getSession, ok, err } from '@/lib/auth'
+import { egresarUnaSiCorresponde, egresarLoteSiCorresponde } from '@/lib/estadoInscripcion'
 
 export async function GET(req: NextRequest) {
   const s = await getSession(req)
@@ -39,7 +40,11 @@ export async function GET(req: NextRequest) {
       .single()
 
     if (error) return err(error.message, 404)
-    return ok(data)
+    // Egreso perezoso: si esta inscripción ya está 'completada' desde un
+    // ciclo anterior y era la última etapa del programa, la pasamos a
+    // 'finalizada' en este momento (al ser consultada).
+    const dataConEgreso = await egresarUnaSiCorresponde(data as any)
+    return ok(dataConEgreso)
   }
 
   // ── Query base ────────────────────────────────────────────────────────
@@ -200,7 +205,11 @@ export async function GET(req: NextRequest) {
   // (que ve todo el ciclo sin filtro de rol) SÍ podía quedar truncado.
   try {
     const data = await fetchAllRows<any>(buildQuery)
-    return ok({ data })
+    // Egreso perezoso (ver src/lib/estadoInscripcion.ts): cualquier fila
+    // 'completada' de un ciclo anterior en la última etapa del programa
+    // pasa a 'finalizada' justo ahora, al ser consultada.
+    const dataConEgreso = await egresarLoteSiCorresponde(data)
+    return ok({ data: dataConEgreso })
   } catch (e: any) {
     return err(e.message ?? 'Error al obtener inscripciones', 500)
   }
