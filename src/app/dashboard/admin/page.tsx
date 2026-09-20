@@ -23,6 +23,9 @@ export default async function AdminDashboard() {
 
   // 📊 OBTENER INSCRIPCIONES CON ETAPA Y ESTUDIANTE - SIMPLIFICADO
   // Paginado con fetchAllRows: PostgREST limita a 1000 filas por consulta
+  // IMPORTANTE: aquí NO se filtra por estado — el admin necesita ver
+  // también a los estudiantes ya completados/finalizados/retirados, no
+  // solo a los que siguen "en_curso".
   const inscripcionesRaw = await fetchAllRows<any>((from, to) =>
     supabaseAdmin
       .from('inscripciones')
@@ -37,7 +40,6 @@ export default async function AdminDashboard() {
         tecnico_id
       `)
       .eq('ciclo_escolar', 2026)
-      .eq('estado', 'en_curso')
       .range(from, to) as any
   )
 
@@ -183,6 +185,7 @@ export default async function AdminDashboard() {
     versionViejo: number
     enCurso: number
     completado: number
+    otrosEstados: number
   }>()
 
   let totalMasculino = 0
@@ -192,6 +195,8 @@ export default async function AdminDashboard() {
   let totalViejo = 0
   let totalEnCurso = 0
   let totalCompletado = 0
+  let totalOtrosEstados = 0
+  let totalGeneralEtapas = 0
 
   for (const insc of (inscripcionesRaw ?? [])) {
     const nombreEtapa = etapasMap.get(insc.etapa_id) ?? 'Sin etapa'
@@ -206,12 +211,14 @@ export default async function AdminDashboard() {
         versionNuevo: 0,
         versionViejo: 0,
         enCurso: 0,
-        completado: 0
+        completado: 0,
+        otrosEstados: 0
       })
     }
     
     const fila = porEtapaDetalle.get(nombreEtapa)!
     fila.total++
+    totalGeneralEtapas++
 
     const genero = (estudiantesMap.get(insc.estudiante_id) ?? '').toLowerCase()
     if (genero === 'masculino') {
@@ -239,20 +246,25 @@ export default async function AdminDashboard() {
     } else if (insc.estado === 'completada') {
       fila.completado++
       totalCompletado++
+    } else {
+      // retirada, suspendida, finalizada
+      fila.otrosEstados++
+      totalOtrosEstados++
     }
   }
 
   const estadisticasEtapa = {
     porEtapa: Array.from(porEtapaDetalle.values()).sort((a, b) => a.nombre.localeCompare(b.nombre)),
     totales: {
-      total: totalEst,
+      total: totalGeneralEtapas,
       masculino: totalMasculino,
       femenino: totalFemenino,
       otro: totalOtro,
       nuevo: totalNuevo,
       viejo: totalViejo,
       enCurso: totalEnCurso,
-      completado: totalCompletado
+      completado: totalCompletado,
+      otrosEstados: totalOtrosEstados
     }
   }
 
@@ -367,7 +379,7 @@ export default async function AdminDashboard() {
               <div>
                 <div className="card-title text-sm">📊 Distribución por etapa</div>
                 <div className="text-xs text-gray-400">
-                  {totalEst} estudiantes · {estadisticasEtapa.porEtapa.length} etapas
+                  {estadisticasEtapa.totales.total} estudiantes · {estadisticasEtapa.porEtapa.length} etapas
                 </div>
               </div>
               <div className="flex gap-3 text-xs">
@@ -389,6 +401,7 @@ export default async function AdminDashboard() {
                     <th className="px-3 py-2 text-xs font-bold uppercase text-center">📙 Viejo</th>
                     <th className="px-3 py-2 text-xs font-bold uppercase text-center">✅ En curso</th>
                     <th className="px-3 py-2 text-xs font-bold uppercase text-center">✔️ Completado</th>
+                    <th className="px-3 py-2 text-xs font-bold uppercase text-center">⚪ Otros</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -402,17 +415,19 @@ export default async function AdminDashboard() {
                       <td className="px-3 py-2 text-center text-orange-600">{fila.versionViejo}</td>
                       <td className="px-3 py-2 text-center text-green-600">{fila.enCurso}</td>
                       <td className="px-3 py-2 text-center text-blue-600">{fila.completado}</td>
+                      <td className="px-3 py-2 text-center text-gray-400">{fila.otrosEstados}</td>
                     </tr>
                   ))}
                   <tr className="bg-blue-50 font-bold">
                     <td className="px-3 py-2 text-blue-800">TOTAL</td>
-                    <td className="px-3 py-2 text-center text-blue-800">{totalEst}</td>
+                    <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.total}</td>
                     <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.masculino}</td>
                     <td className="px-3 py-2 text-center text-pink-800">{estadisticasEtapa.totales.femenino}</td>
                     <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.nuevo}</td>
                     <td className="px-3 py-2 text-center text-orange-800">{estadisticasEtapa.totales.viejo}</td>
                     <td className="px-3 py-2 text-center text-green-800">{estadisticasEtapa.totales.enCurso}</td>
                     <td className="px-3 py-2 text-center text-blue-800">{estadisticasEtapa.totales.completado}</td>
+                    <td className="px-3 py-2 text-center text-gray-500">{estadisticasEtapa.totales.otrosEstados}</td>
                   </tr>
                 </tbody>
               </table>
