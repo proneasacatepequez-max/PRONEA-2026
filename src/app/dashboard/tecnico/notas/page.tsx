@@ -23,6 +23,7 @@ function NotasContent() {
   const [saving,        setSaving]        = useState<string | null>(null)
   const [msg,           setMsg]           = useState('')
   const [etapaFiltro,   setEtapaFiltro]   = useState('')
+  const [estadoFiltro,  setEstadoFiltro]  = useState('en_curso')
   const [etapas,        setEtapas]        = useState<any[]>([])
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500) }
@@ -41,7 +42,7 @@ function NotasContent() {
   // Cargar inscripciones
   const cargarInscrip = useCallback(async () => {
     setLoading(true)
-    const params = new URLSearchParams({ ciclo, estado: 'en_curso' })
+    const params = new URLSearchParams({ ciclo, estado: estadoFiltro })
     if (etapaFiltro) params.set('etapa_id', etapaFiltro)
     const res  = await fetch(`/api/inscripciones?${params}`).catch(() => null)
     const body = await res?.json().catch(() => ({})) ?? {}
@@ -52,7 +53,7 @@ function NotasContent() {
       setInscripciones(body.data ?? [])
     }
     setLoading(false)
-  }, [ciclo, etapaFiltro])
+  }, [ciclo, etapaFiltro, estadoFiltro])
 
   useEffect(() => { cargarInscrip() }, [cargarInscrip])
 
@@ -137,9 +138,9 @@ function NotasContent() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ inscripcion_id: inscSel.id }),
         }).then(r => r.json())
-        flash(calc?.inscripcion_completada
-          ? '✅ Nota guardada — 🎓 ¡Etapa completada!'
-          : '✅ Nota guardada')
+        flash(!calc?.inscripcion_completada ? '✅ Nota guardada'
+          : calc.estado_final === 'finalizada' ? '✅ Nota guardada — 🏁 ¡Programa finalizado, el estudiante egresó de PRONEA!'
+          : '✅ Nota guardada — 🎓 ¡Etapa completada!')
       } catch {
         flash('✅ Nota guardada')
       }
@@ -221,6 +222,14 @@ function NotasContent() {
                   <option value="">Todas las etapas</option>
                   {etapas.map((e: any) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
                 </select>
+                <select className="inp text-sm" value={estadoFiltro} onChange={e => setEstadoFiltro(e.target.value)}>
+                  <option value="en_curso">✅ En curso</option>
+                  <option value="completada">✔️ Completada</option>
+                  <option value="finalizada">🏁 Finalizada</option>
+                  <option value="retirada">🚪 Retirada</option>
+                  <option value="suspendida">⏸️ Suspendida</option>
+                  <option value="todos">Todos los estados</option>
+                </select>
               </div>
 
               {loading ? (
@@ -229,7 +238,7 @@ function NotasContent() {
                 </div>
               ) : filtrados.length === 0 ? (
                 <div className="text-center py-6 text-gray-400 text-xs">
-                  {buscarQ ? 'Sin resultados' : 'Sin inscripciones activas'}
+                  {buscarQ ? 'Sin resultados' : 'Sin inscripciones en este estado'}
                 </div>
               ) : (
                 <div className="space-y-1 max-h-[60vh] overflow-y-auto">
