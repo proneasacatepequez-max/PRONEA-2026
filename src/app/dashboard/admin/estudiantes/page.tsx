@@ -10,6 +10,7 @@ export default function AdminEstudiantesPage() {
   const [filtroEtapa,   setFiltroEtapa]   = useState('')
   const [filtroSede,    setFiltroSede]    = useState('')
   const [filtroTecnico, setFiltroTecnico] = useState('')
+  const [filtroEstado,  setFiltroEstado]  = useState('')
   const [ciclo,         setCiclo]         = useState('2026')
   const [etapas,        setEtapas]        = useState<any[]>([])
   const [tecnicos,      setTecnicos]      = useState<any[]>([])
@@ -24,6 +25,17 @@ export default function AdminEstudiantesPage() {
   const [modalTipo,     setModalTipo]     = useState<'detalle'|'editar'>('detalle')
   const [formEst,       setFormEst]       = useState<any>({})
   const [savingEst,     setSavingEst]     = useState(false)
+  const [editandoEstadoId, setEditandoEstadoId] = useState<string | null>(null)
+  const [guardandoEstadoId, setGuardandoEstadoId] = useState<string | null>(null)
+
+  // Estados válidos de una inscripción (enum estado_inscripcion en la BD)
+  const ESTADOS_INSCRIPCION = [
+    { value: 'en_curso',   label: '✅ En curso' },
+    { value: 'completada', label: '✔️ Completada (etapa actual)' },
+    { value: 'retirada',   label: '🚪 Retirada' },
+    { value: 'suspendida', label: '⏸️ Suspendida' },
+    { value: 'finalizada', label: '🏁 Finalizada (egresó de PRONEA)' },
+  ]
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 4000) }
 
@@ -71,6 +83,50 @@ export default function AdminEstudiantesPage() {
     finally { setEliminandoInsc(false) }
   }
 
+  // ✏️ Cambiar manualmente el estado de una inscripción (ej. el resultado
+  // final vino de otra fuente y no del registro de notas).
+  const cambiarEstado = async (insc: any, nuevoEstado: string) => {
+    if (nuevoEstado === insc.estado) { setEditandoEstadoId(null); return }
+    setGuardandoEstadoId(insc.id)
+    try {
+      const res = await fetch('/api/inscripciones', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: insc.id, estado: nuevoEstado }),
+      })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al actualizar el estado')); return }
+      flash('✅ Estado actualizado')
+      setInscripciones(prev => prev.map(i => i.id === insc.id ? { ...i, estado: nuevoEstado } : i))
+    } catch { flash('❌ Error de conexión') }
+    finally { setGuardandoEstadoId(null); setEditandoEstadoId(null) }
+  }
+
+  // 🔄 Forzar la revisión del estado según las notas ya registradas (para
+  // inscripciones cuyas notas quedaron completas antes de que existiera
+  // el auto-completado, que solo se dispara al guardar una nota nueva).
+  const recalcularEstado = async (insc: any) => {
+    setGuardandoEstadoId(insc.id)
+    try {
+      const res = await fetch('/api/notas/calcular', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inscripcion_id: insc.id }),
+      })
+      const d = await res.json()
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al recalcular')); return }
+      if (d.inscripcion_completada) {
+        flash(d.estado_final === 'finalizada'
+          ? '🏁 ¡Programa finalizado! El estudiante egresó de PRONEA'
+          : '🎓 ¡Estudiante marcado como completada!')
+        setInscripciones(prev => prev.map(i => i.id === insc.id ? { ...i, estado: d.estado_final } : i))
+      } else {
+        flash('ℹ️ Aún faltan notas por registrar (o el estado ya no es "en curso")')
+      }
+    } catch { flash('❌ Error de conexión') }
+    finally { setGuardandoEstadoId(null) }
+  }
+
   const cargar = useCallback(async () => {
     setLoading(true)
     const [ins, et, se, tec] = await Promise.all([
@@ -96,6 +152,7 @@ export default function AdminEstudiantesPage() {
         && (!filtroEtapa   || String((i.etapa as any)?.id) === filtroEtapa)
         && (!filtroSede    || (i.sede as any)?.id === filtroSede)
         && (!filtroTecnico || (i.tecnico as any)?.id === filtroTecnico)
+        && (!filtroEstado  || i.estado === filtroEstado)
   })
 
   const abrirEditar = (insc: any) => {
@@ -200,8 +257,17 @@ export default function AdminEstudiantesPage() {
                 ))}
               </select>
             </div>
+            <div className="w-44">
+              <label className="lbl">Estado</label>
+              <select className="inp" value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
+                <option value="">Todos</option>
+                {ESTADOS_INSCRIPCION.map(op => (
+                  <option key={op.value} value={op.value}>{op.label}</option>
+                ))}
+              </select>
+            </div>
             <div className="flex items-end">
-              <button className="btn btn-g" onClick={() => { setBuscar(''); setFiltroEtapa(''); setFiltroSede(''); setFiltroTecnico('') }}>
+              <button className="btn btn-g" onClick={() => { setBuscar(''); setFiltroEtapa(''); setFiltroSede(''); setFiltroTecnico(''); setFiltroEstado('') }}>
                 Limpiar
               </button>
             </div>
@@ -268,9 +334,37 @@ export default function AdminEstudiantesPage() {
                           {(insc.tecnico as any)?.primer_nombre} {(insc.tecnico as any)?.primer_apellido}
                         </td>
                         <td className="px-3 py-2">
-                          <span className={`badge text-xs ${insc.estado === 'en_curso' ? 'badge-green' : 'badge-gray'}`}>
-                            {insc.estado}
-                          </span>
+                          {editandoEstadoId === insc.id ? (
+                            <select
+                              className="inp text-xs py-1"
+                              autoFocus
+                              defaultValue={insc.estado}
+                              disabled={guardandoEstadoId === insc.id}
+                              onChange={e => cambiarEstado(insc, e.target.value)}
+                              onBlur={() => setEditandoEstadoId(null)}
+                            >
+                              {ESTADOS_INSCRIPCION.map(op => (
+                                <option key={op.value} value={op.value}>{op.label}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <button
+                              type="button"
+                              title="Clic para editar el estado"
+                              onClick={() => setEditandoEstadoId(insc.id)}
+                              className={`badge text-xs cursor-pointer hover:opacity-80 ${
+                                insc.estado === 'en_curso' ? 'badge-green'
+                                : insc.estado === 'completada' ? 'badge-blue'
+                                : insc.estado === 'retirada' ? 'badge-red'
+                                : insc.estado === 'suspendida' ? 'badge-yellow'
+                                : 'badge-gray'
+                              }`}
+                            >
+                              {guardandoEstadoId === insc.id ? '⏳...' : (
+                                ESTADOS_INSCRIPCION.find(op => op.value === insc.estado)?.label ?? insc.estado
+                              )} ✏️
+                            </button>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex gap-1">
@@ -280,6 +374,9 @@ export default function AdminEstudiantesPage() {
                               className="btn btn-p btn-sm" title="Editar datos del estudiante">✏️</button>
                             <button onClick={() => abrirEditarInsc(insc)}
                               className="btn btn-s btn-sm" title="Editar etapa / versión de libro">🎓</button>
+                            <button onClick={() => recalcularEstado(insc)}
+                              disabled={guardandoEstadoId === insc.id}
+                              className="btn btn-g btn-sm" title="Revisar notas y actualizar estado si ya están completas">🔄</button>
                             <button onClick={() => eliminarInsc(insc)}
                               className="btn btn-d btn-sm" title="Eliminar inscripción de esta etapa">🗑️</button>
                           </div>
