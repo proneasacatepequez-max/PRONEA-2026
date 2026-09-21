@@ -2,6 +2,7 @@
 // src/app/dashboard/admin/estudiantes/page.tsx — NUEVA PÁGINA
 // Administrador ve TODOS los estudiantes con tabla horizontal completa
 import { useState, useEffect, useCallback } from 'react'
+import * as XLSX from 'xlsx'
 
 export default function AdminEstudiantesPage() {
   const [inscripciones, setInscripciones] = useState<any[]>([])
@@ -27,6 +28,9 @@ export default function AdminEstudiantesPage() {
   const [savingEst,     setSavingEst]     = useState(false)
   const [editandoEstadoId, setEditandoEstadoId] = useState<string | null>(null)
   const [guardandoEstadoId, setGuardandoEstadoId] = useState<string | null>(null)
+  const [seleccionados, setSeleccionados] = useState<Set<string>>(new Set())
+  const [estadoMasivo,  setEstadoMasivo]  = useState('completada')
+  const [aplicandoMasivo, setAplicandoMasivo] = useState(false)
 
   // Estados válidos de una inscripción (enum estado_inscripcion en la BD)
   const ESTADOS_INSCRIPCION = [
@@ -155,6 +159,80 @@ export default function AdminEstudiantesPage() {
         && (!filtroEstado  || i.estado === filtroEstado)
   })
 
+  // 📊 Resumen rápido de estados, sobre lo que está filtrado ahora mismo
+  const resumenEstados = filtrados.reduce((acc, i) => {
+    if (i.estado === 'en_curso') acc.enCurso++
+    else if (i.estado === 'completada') acc.completada++
+    else acc.otros++
+    return acc
+  }, { enCurso: 0, completada: 0, otros: 0 })
+
+  // ⚠️ Códigos MINEDUC provisionales (pendientes de asignar el código real)
+  const esCodigoTemporal = (codigo?: string | null) => {
+    if (!codigo) return true
+    const c = codigo.toLowerCase()
+    return c.startsWith('pendiente') || c.startsWith('pediente') || c.startsWith('temp') || c.startsWith('est-')
+  }
+
+  // ── Selección múltiple (respeta lo que está filtrado) ──────────────────
+  const idsFiltrados = filtrados.map(i => i.id)
+  const todosSeleccionados = idsFiltrados.length > 0 && idsFiltrados.every(id => seleccionados.has(id))
+
+  const toggleSeleccion = (id: string) => {
+    setSeleccionados(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleSeleccionarTodos = () => {
+    setSeleccionados(prev => {
+      if (todosSeleccionados) {
+        const next = new Set(prev)
+        idsFiltrados.forEach(id => next.delete(id))
+        return next
+      }
+      return new Set([...Array.from(prev), ...idsFiltrados])
+    })
+  }
+
+  const aplicarEstadoMasivo = async () => {
+    if (seleccionados.size === 0) return
+    if (!confirm(`¿Cambiar el estado de ${seleccionados.size} estudiante(s) a "${ESTADOS_INSCRIPCION.find(o => o.value === estadoMasivo)?.label}"?`)) return
+    setAplicandoMasivo(true)
+    let ok = 0, fallidos = 0
+    for (const id of Array.from(seleccionados)) {
+      const res = await fetch('/api/inscripciones', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, estado: estadoMasivo }),
+      }).catch(() => null)
+      if (res?.ok) ok++; else fallidos++
+    }
+    flash(fallidos === 0 ? `✅ ${ok} actualizados` : `⚠️ ${ok} actualizados, ${fallidos} con error`)
+    setSeleccionados(new Set())
+    setAplicandoMasivo(false)
+    cargar()
+  }
+
+  const recalcularMasivo = async () => {
+    if (seleccionados.size === 0) return
+    setAplicandoMasivo(true)
+    let completados = 0, revisados = 0
+    for (const id of Array.from(seleccionados)) {
+      const res = await fetch('/api/notas/calcular', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inscripcion_id: id }),
+      }).then(r => r.json()).catch(() => null)
+      revisados++
+      if (res?.inscripcion_completada) completados++
+    }
+    flash(`🔄 ${revisados} revisados — ${completados} pasaron a completada/finalizada`)
+    setSeleccionados(new Set())
+    setAplicandoMasivo(false)
+    cargar()
+  }
+
   const abrirEditar = (insc: any) => {
     const e = insc.estudiante as any
     setFormEst({
@@ -190,15 +268,75 @@ export default function AdminEstudiantesPage() {
     setSavingEst(false)
   }
 
-  const descargarExcel = async () => {
+  const descargarExcel = () => {
+    if (filtrados.length === 0) { flash('❌ No hay datos para exportar con estos filtros'); return }
     setDescargando(true)
-    const res = await fetch(`/api/admin/exportar-estudiantes?ciclo=${ciclo}`)
-    if (!res.ok) { flash('❌ Error al exportar'); setDescargando(false); return }
-    const blob = await res.blob()
-    const url  = URL.createObjectURL(blob)
-    const a    = document.createElement('a')
-    a.href = url; a.download = `Todos-Estudiantes-${ciclo}.xlsx`; a.click()
-    URL.revokeObjectURL(url); setDescargando(false)
+    try {
+      const filas = filtrados.map((insc: any, idx: number) => {
+        const e  = insc.estudiante as any
+        const fn = e?.fecha_nacimiento
+        return {
+          'No.':              idx + 1,
+          'Código MINEDUC':   e?.codigo_estudiante ?? '',
+          'CUI':              e?.cui ?? '',
+          'Primer Apellido':  e?.primer_apellido ?? '',
+          'Segundo Apellido': e?.segundo_apellido ?? '',
+          'Primer Nombre':    e?.primer_nombre ?? '',
+          'Segundo Nombre':   e?.segundo_nombre ?? '',
+          'Fecha Nacimiento': fn ?? '',
+          'Edad':             fn ? new Date().getFullYear() - new Date(fn).getFullYear() : '',
+          'Género':           e?.genero ?? '',
+          'Teléfono':         e?.telefono ?? '',
+          'Correo':           e?.correo ?? '',
+          'Etapa':            (insc.etapa as any)?.nombre ?? '',
+          'Versión Libro':    insc.version_libro ?? '',
+          'Sede':             (insc.sede as any)?.nombre ?? '',
+          'Técnico':          `${(insc.tecnico as any)?.primer_nombre ?? ''} ${(insc.tecnico as any)?.primer_apellido ?? ''}`.trim(),
+          'Estado':           insc.estado ?? '',
+          'Con Ajuste':       insc.tiene_ajuste_discapacidad ? 'Sí' : 'No',
+          'Código temporal':  esCodigoTemporal(e?.codigo_estudiante) ? 'Sí — revisar' : '',
+        }
+      })
+
+      const wb = XLSX.utils.book_new()
+      const ws = XLSX.utils.json_to_sheet(filas)
+      ws['!cols'] = [
+        {wch:5},{wch:16},{wch:14},{wch:18},{wch:18},{wch:16},{wch:16},
+        {wch:14},{wch:6},{wch:10},{wch:12},{wch:26},{wch:20},{wch:12},
+        {wch:22},{wch:26},{wch:14},{wch:10},{wch:14},
+      ]
+      XLSX.utils.book_append_sheet(wb, ws, 'Estudiantes')
+
+      const etapaNombre  = filtroEtapa   ? etapas.find((e: any) => String(e.id) === filtroEtapa)?.nombre : null
+      const sedeNombre   = filtroSede    ? sedes.find((s: any) => s.id === filtroSede)?.nombre : null
+      const tec          = filtroTecnico ? tecnicos.find((t: any) => t.id === filtroTecnico) : null
+      const tecNombre    = tec ? `${tec.primer_nombre} ${tec.primer_apellido}` : null
+      const estadoNombre = filtroEstado  ? ESTADOS_INSCRIPCION.find(o => o.value === filtroEstado)?.label : null
+      const filtrosTexto = [
+        buscar ? `Buscar: "${buscar}"` : null,
+        etapaNombre ? `Etapa: ${etapaNombre}` : null,
+        sedeNombre ? `Sede: ${sedeNombre}` : null,
+        tecNombre ? `Técnico: ${tecNombre}` : null,
+        estadoNombre ? `Estado: ${estadoNombre}` : null,
+      ].filter(Boolean).join(' · ') || 'Sin filtros (todos los estudiantes del ciclo)'
+
+      const info = [
+        ['PRONEA — Listado de estudiantes'],
+        ['Ciclo escolar', ciclo],
+        ['Filtros aplicados', filtrosTexto],
+        ['Total registros', filas.length],
+        ['Generado el', new Date().toLocaleString('es-GT')],
+      ]
+      const wsInfo = XLSX.utils.aoa_to_sheet(info)
+      wsInfo['!cols'] = [{wch:20},{wch:55}]
+      XLSX.utils.book_append_sheet(wb, wsInfo, 'Resumen')
+
+      XLSX.writeFile(wb, `Estudiantes-${ciclo}${filtroEstado ? '-' + filtroEstado : ''}.xlsx`)
+    } catch {
+      flash('❌ Error al generar el Excel')
+    } finally {
+      setDescargando(false)
+    }
   }
 
   const FE = (k: string) => (e: React.ChangeEvent<HTMLInputElement|HTMLSelectElement>) =>
@@ -213,6 +351,11 @@ export default function AdminEstudiantesPage() {
         <div>
           <div className="page-title">🎓 Todos los Estudiantes</div>
           <div className="text-xs text-gray-400">{filtrados.length} de {inscripciones.length} · ciclo {ciclo}</div>
+          <div className="flex gap-3 text-xs mt-1">
+            <span className="text-green-600 font-bold">✅ {resumenEstados.enCurso} en curso</span>
+            <span className="text-blue-600 font-bold">✔️ {resumenEstados.completada} completadas</span>
+            <span className="text-gray-500 font-bold">⚪ {resumenEstados.otros} otros</span>
+          </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           {msg && <span className={`text-sm font-bold ${msg.startsWith('✅') ? 'text-green-600' : 'text-red-500'}`}>{msg}</span>}
@@ -274,6 +417,29 @@ export default function AdminEstudiantesPage() {
           </div>
         </div>
 
+        {/* Barra de acción masiva — solo aparece con selección activa */}
+        {seleccionados.size > 0 && (
+          <div className="card mb-4 bg-blue-50 border border-blue-200 flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-bold text-blue-800">
+              {seleccionados.size} seleccionado{seleccionados.size === 1 ? '' : 's'}
+            </span>
+            <select className="inp text-sm w-56" value={estadoMasivo} onChange={e => setEstadoMasivo(e.target.value)}>
+              {ESTADOS_INSCRIPCION.map(op => (
+                <option key={op.value} value={op.value}>{op.label}</option>
+              ))}
+            </select>
+            <button className="btn btn-p btn-sm" onClick={aplicarEstadoMasivo} disabled={aplicandoMasivo}>
+              {aplicandoMasivo ? '⏳...' : '💾 Aplicar estado'}
+            </button>
+            <button className="btn btn-g btn-sm" onClick={recalcularMasivo} disabled={aplicandoMasivo}>
+              {aplicandoMasivo ? '⏳...' : '🔄 Recalcular seleccionados'}
+            </button>
+            <button className="btn btn-g btn-sm ml-auto" onClick={() => setSeleccionados(new Set())}>
+              Deseleccionar todo
+            </button>
+          </div>
+        )}
+
         <div className="card overflow-hidden">
           {loading ? (
             <div className="flex justify-center py-12">
@@ -289,6 +455,9 @@ export default function AdminEstudiantesPage() {
               <table className="w-full text-sm border-collapse min-w-[1100px]">
                 <thead>
                   <tr className="bg-gradient-to-r from-blue-800 to-blue-900 text-white text-left">
+                    <th className="px-3 py-3 border-r border-blue-700">
+                      <input type="checkbox" checked={todosSeleccionados} onChange={toggleSeleccionarTodos} />
+                    </th>
                     {['#','Código MINEDUC','Nombre completo','CUI','Edad','Tel.','Etapa','Libro','Sede','Técnico','Estado','Acciones'].map(h => (
                       <th key={h} className="px-3 py-3 text-xs font-bold uppercase tracking-wide whitespace-nowrap border-r border-blue-700 last:border-0">
                         {h}
@@ -303,11 +472,18 @@ export default function AdminEstudiantesPage() {
                     return (
                       <tr key={insc.id}
                         className={`border-b hover:bg-blue-50 transition-colors ${par ? 'bg-white' : 'bg-sky-50/40'}`}>
+                        <td className="px-3 py-2">
+                          <input type="checkbox" checked={seleccionados.has(insc.id)}
+                            onChange={() => toggleSeleccion(insc.id)} />
+                        </td>
                         <td className="px-3 py-2 text-xs text-gray-400 font-mono">{idx + 1}</td>
                         <td className="px-3 py-2">
                           <span className="font-mono text-xs font-bold text-blue-700">
                             {e?.codigo_estudiante ?? <span className="text-gray-300 italic">Sin código</span>}
                           </span>
+                          {esCodigoTemporal(e?.codigo_estudiante) && (
+                            <span className="ml-1 text-orange-500" title="Código provisional — pendiente de asignar el código MINEDUC real">⚠️</span>
+                          )}
                         </td>
                         <td className="px-3 py-2">
                           <div className="font-semibold whitespace-nowrap text-gray-900">
