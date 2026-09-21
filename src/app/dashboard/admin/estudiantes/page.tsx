@@ -201,36 +201,56 @@ export default function AdminEstudiantesPage() {
     if (seleccionados.size === 0) return
     if (!confirm(`¿Cambiar el estado de ${seleccionados.size} estudiante(s) a "${ESTADOS_INSCRIPCION.find(o => o.value === estadoMasivo)?.label}"?`)) return
     setAplicandoMasivo(true)
-    let ok = 0, fallidos = 0
-    for (const id of Array.from(seleccionados)) {
-      const res = await fetch('/api/inscripciones', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, estado: estadoMasivo }),
-      }).catch(() => null)
-      if (res?.ok) ok++; else fallidos++
-    }
-    flash(fallidos === 0 ? `✅ ${ok} actualizados` : `⚠️ ${ok} actualizados, ${fallidos} con error`)
-    setSeleccionados(new Set())
-    setAplicandoMasivo(false)
-    cargar()
+    const idsArr = Array.from(seleccionados)
+    const TANDA = 500
+    let actualizados = 0, omitidos = 0, huboError = false
+    try {
+      for (let i = 0; i < idsArr.length; i += TANDA) {
+        const res = await fetch('/api/inscripciones/lote', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: idsArr.slice(i, i + TANDA), estado: estadoMasivo }),
+        })
+        const d = await res.json()
+        if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al actualizar')); huboError = true; break }
+        actualizados += d.actualizados ?? 0
+        omitidos += d.omitidos ?? 0
+      }
+      if (!huboError) {
+        flash(omitidos > 0
+          ? `✅ ${actualizados} actualizados (${omitidos} omitidos, sin permiso)`
+          : `✅ ${actualizados} actualizados`)
+      }
+      setSeleccionados(new Set())
+      cargar()
+    } catch { flash('❌ Error de conexión') }
+    finally { setAplicandoMasivo(false) }
   }
 
   const recalcularMasivo = async () => {
     if (seleccionados.size === 0) return
     setAplicandoMasivo(true)
-    let completados = 0, revisados = 0
-    for (const id of Array.from(seleccionados)) {
-      const res = await fetch('/api/notas/calcular', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inscripcion_id: id }),
-      }).then(r => r.json()).catch(() => null)
-      revisados++
-      if (res?.inscripcion_completada) completados++
-    }
-    flash(`🔄 ${revisados} revisados — ${completados} pasaron a completada/finalizada`)
-    setSeleccionados(new Set())
-    setAplicandoMasivo(false)
-    cargar()
+    const idsArr = Array.from(seleccionados)
+    const TANDA = 500
+    let total = 0, completados = 0, errores = 0, huboError = false
+    try {
+      for (let i = 0; i < idsArr.length; i += TANDA) {
+        const res = await fetch('/api/notas/calcular/lote', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ inscripcion_ids: idsArr.slice(i, i + TANDA) }),
+        })
+        const d = await res.json()
+        if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al recalcular')); huboError = true; break }
+        total += d.total ?? 0
+        completados += d.completados ?? 0
+        errores += d.errores ?? 0
+      }
+      if (!huboError) {
+        flash(`🔄 ${total} revisados — ${completados} pasaron a completada/finalizada` + (errores > 0 ? ` (${errores} con error)` : ''))
+      }
+      setSeleccionados(new Set())
+      cargar()
+    } catch { flash('❌ Error de conexión') }
+    finally { setAplicandoMasivo(false) }
   }
 
   const abrirEditar = (insc: any) => {
