@@ -29,6 +29,7 @@ function EscalasContent() {
   const [inscripciones, setInscripciones] = useState<any[]>([])
   const [loadInsc,      setLoadInsc]      = useState(false)
   const [buscarEst,     setBuscarEst]     = useState('')
+  const [estadoFiltro,  setEstadoFiltro]  = useState('en_curso')
   const [inscSel,       setInscSel]       = useState<any>(null)
 
   // Notas
@@ -50,6 +51,20 @@ function EscalasContent() {
   }, [])
 
   // Etapa → libros + inscripciones
+  const cargarInscripciones = useCallback(async (etapaId: string, estado: string) => {
+    setLoadInsc(true)
+    const res = await fetch(`/api/inscripciones?etapa_id=${etapaId}&estado=${estado}&ciclo=2026`)
+      .then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }))
+      .catch(() => ({ ok: false, body: { error: 'Error de conexión' } }))
+    if (!res.ok) {
+      flash('❌ ' + (res.body?.error ?? 'Error al cargar estudiantes'))
+      setInscripciones([])
+    } else {
+      setInscripciones(res.body?.data ?? [])
+    }
+    setLoadInsc(false)
+  }, [])
+
   const seleccionarEtapa = async (etapa: any) => {
     setEtapaSel(etapa)
     setLibroSel(null); setLibros([])
@@ -58,23 +73,20 @@ function EscalasContent() {
     setNotasMap({}); setAreaSel('')
     if (!etapa) return
     setLoadLib(true)
-    setLoadInsc(true)
-    const [lb, insRes] = await Promise.all([
+    const [lb] = await Promise.all([
       fetch(`/api/libros?etapa_id=${etapa.id}`).then(r => r.json()).catch(() => []),
-      fetch(`/api/inscripciones?etapa_id=${etapa.id}&estado=en_curso&ciclo=2026`)
-        .then(async r => ({ ok: r.ok, body: await r.json().catch(() => ({})) }))
-        .catch(() => ({ ok: false, body: { error: 'Error de conexión' } })),
+      cargarInscripciones(etapa.id, estadoFiltro),
     ])
     setLibros(Array.isArray(lb) ? lb : [])
-    if (!insRes.ok) {
-      flash('❌ ' + (insRes.body?.error ?? 'Error al cargar estudiantes'))
-      setInscripciones([])
-    } else {
-      setInscripciones(insRes.body?.data ?? [])
-    }
     setLoadLib(false)
-    setLoadInsc(false)
   }
+
+  // Recargar la lista de estudiantes si el técnico cambia el filtro de
+  // estado sin cambiar de etapa (ej. para ver a los ya "completada").
+  useEffect(() => {
+    if (etapaSel) cargarInscripciones(etapaSel.id, estadoFiltro)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estadoFiltro])
 
   // Libro → tareas
   const seleccionarLibro = useCallback(async (libro: any) => {
@@ -217,9 +229,9 @@ function EscalasContent() {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ inscripcion_id: inscSel.id }),
         }).then(r => r.json())
-        flash(calc?.inscripcion_completada
-          ? '✅ Nota guardada — 🎓 ¡Etapa completada!'
-          : '✅ Nota guardada')
+        flash(!calc?.inscripcion_completada ? '✅ Nota guardada'
+          : calc.estado_final === 'finalizada' ? '✅ Nota guardada — 🏁 ¡Programa finalizado, el estudiante egresó de PRONEA!'
+          : '✅ Nota guardada — 🎓 ¡Etapa completada!')
       } catch {
         flash('✅ Nota guardada')
       }
@@ -375,13 +387,22 @@ function EscalasContent() {
                   placeholder="🔍 Nombre, código, CUI..."
                   value={buscarEst}
                   onChange={e => setBuscarEst(e.target.value)} />
+                <select className="inp text-xs mb-2" value={estadoFiltro}
+                  onChange={e => setEstadoFiltro(e.target.value)}>
+                  <option value="en_curso">✅ En curso</option>
+                  <option value="completada">✔️ Completada</option>
+                  <option value="finalizada">🏁 Finalizada</option>
+                  <option value="retirada">🚪 Retirada</option>
+                  <option value="suspendida">⏸️ Suspendida</option>
+                  <option value="todos">Todos los estados</option>
+                </select>
                 {loadInsc ? (
                   <div className="flex justify-center py-3">
                     <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : inscFiltradas.length === 0 ? (
                   <p className="text-xs text-gray-400 text-center py-2">
-                    {buscarEst ? 'Sin resultados' : 'Sin inscripciones activas'}
+                    {buscarEst ? 'Sin resultados' : 'Sin inscripciones en este estado'}
                   </p>
                 ) : (
                   <div className="space-y-1 max-h-72 overflow-y-auto">
@@ -875,6 +896,5 @@ export default function TecnicoEscalasPage() {
     </Suspense>
   )
 }
-
 
 
