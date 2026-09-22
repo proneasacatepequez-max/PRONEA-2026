@@ -139,9 +139,9 @@ function EnlaceNotasContent() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ inscripcion_id: inscId }),
       }).then(r => r.json())
-      flash(calc?.inscripcion_completada
-        ? '✅ Guardado — 🎓 ¡Etapa completada!'
-        : '✅ Guardado')
+      flash(!calc?.inscripcion_completada ? '✅ Guardado'
+        : calc.estado_final === 'finalizada' ? '✅ Guardado — 🏁 ¡Programa finalizado, el estudiante egresó de PRONEA!'
+        : '✅ Guardado — 🎓 ¡Etapa completada!')
     } catch {
       flash('✅ Guardado')
     }
@@ -222,6 +222,34 @@ function EnlaceNotasContent() {
   const puntosObt = tareas.filter(t => t.nota !== null).reduce((a, t) => a + t.nota, 0)
   const puntosMax = tareas.reduce((a, t) => a + (t.puntos_max ?? 5), 0)
   const zonaPct   = puntosMax > 0 ? ((puntosObt / puntosMax) * 100).toFixed(1) : '0.0'
+
+  // 🎨 Tarjetas de progreso por área — 30 pts tareas + 20 pts examen = 50 pts
+  const colorArea = (nombre: string = '') => {
+    const n = nombre.toLowerCase()
+    if (n.includes('matemática') || n.includes('matematica'))            return 'bg-blue-900'
+    if (n.includes('comunicaci') || n.includes('lenguaje'))              return 'bg-red-900'
+    if (n.includes('ciencias naturales'))                                return 'bg-green-900'
+    if (n.includes('ciencias sociales'))                                 return 'bg-orange-800'
+    if (n.includes('productividad') || n.includes('emprendimiento'))    return 'bg-teal-700'
+    return 'bg-gray-700'
+  }
+
+  const resumenPorArea = areasConTareas.map((a: any) => {
+    const tareasArea = tareas.filter((t: any) => String(t.area?.id) === String(a.id))
+    const examenArea = examenes.find((e: any) => String(e.area?.id) === String(a.id))
+
+    const obtTareas = tareasArea.reduce((acc: number, t: any) => acc + (t.nota ?? 0), 0)
+    const maxTareas = tareasArea.reduce((acc: number, t: any) => acc + (t.puntos_max ?? 5), 0)
+    const zona      = maxTareas > 0 ? Math.round((obtTareas / maxTareas) * 30 * 10) / 10 : 0
+
+    const examPts = examenArea?.puntos_obtenidos != null
+      ? examenArea.puntos_obtenidos
+      : (examenArea?.nota_original != null ? Math.round((examenArea.nota_original / 100) * 20 * 10) / 10 : 0)
+
+    const totalArea = Math.round((zona + examPts) * 10) / 10
+
+    return { area: a, totalArea }
+  })
 
   return (
     <div className="ap">
@@ -308,6 +336,19 @@ function EnlaceNotasContent() {
                     ✅ Tareas completas — puedes registrar los exámenes abajo
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Tarjetas de progreso por área (30 pts tareas + 20 pts examen = 50 pts) */}
+            {resumenPorArea.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2 mb-4">
+                {resumenPorArea.map(({ area, totalArea }) => (
+                  <div key={area.id}
+                    className={`${colorArea(area.nombre)} text-white rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 shadow-sm`}>
+                    <span className="text-xs font-bold leading-tight">{area.nombre}</span>
+                    <span className="text-[11px] font-medium whitespace-nowrap ml-auto">{totalArea}/50 pts.</span>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -470,4 +511,3 @@ export default function EnlaceNotasPage() {
     </Suspense>
   )
 }
-
