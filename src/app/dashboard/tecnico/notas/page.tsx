@@ -181,6 +181,31 @@ function NotasContent() {
   const esBachillerato = inscSel?.etapa?.codigo?.startsWith('BA') ?? false
   const campoProy      = esBachillerato ? 'proyecto' : 'leccion'
 
+  // 🎨 Tarjetas de progreso por área (30 pts tareas + 20 pts examen = 50 pts)
+  const colorArea = (nombre: string = '') => {
+    const n = nombre.toLowerCase()
+    if (n.includes('matemática') || n.includes('matematica'))         return 'bg-blue-900'
+    if (n.includes('comunicaci') || n.includes('lenguaje'))           return 'bg-red-900'
+    if (n.includes('ciencias naturales'))                             return 'bg-green-900'
+    if (n.includes('ciencias sociales'))                              return 'bg-orange-800'
+    if (n.includes('productividad') || n.includes('emprendimiento')) return 'bg-teal-700'
+    return 'bg-gray-700'
+  }
+
+  const resumenPorArea = areas
+    .filter((a: any) => tareas.some((t: any) => t.area?.id === a.id) || examenes.some((e: any) => e.area?.id === a.id))
+    .map((a: any) => {
+      const tareasArea = tareas.filter((t: any) => t.area?.id === a.id)
+      const examenArea = examenes.find((e: any) => e.area?.id === a.id)
+      const zona       = calcZona(tareasArea) ?? 0
+      const examKey    = examenArea ? `e-${examenArea.id}` : null
+      const examNota   = examKey ? notasMap[examKey] : null
+      const examPts    = examNota !== null && examNota !== undefined
+        ? Math.round((examNota / 100) * 20 * 10) / 10 : 0
+      const totalArea  = Math.round((zona + examPts) * 10) / 10
+      return { area: a, totalArea }
+    })
+
   return (
     <div className="ap">
       <header className="topbar">
@@ -356,6 +381,19 @@ function NotasContent() {
                       onClick={() => setOrdenPagina(v => !v)}>
                       📄 {ordenPagina ? '✓ ' : ''}Ordenar por página
                     </button>
+                  </div>
+                )}
+
+                {/* Tarjetas de progreso por área (30 pts tareas + 20 pts examen = 50 pts) */}
+                {resumenPorArea.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-2">
+                    {resumenPorArea.map(({ area, totalArea }) => (
+                      <div key={area.id}
+                        className={`${colorArea(area.nombre)} text-white rounded-xl px-3 py-2.5 flex items-center justify-between gap-2 shadow-sm`}>
+                        <span className="text-xs font-bold leading-tight">{area.nombre}</span>
+                        <span className="text-[11px] font-medium whitespace-nowrap ml-auto">{totalArea}/50 pts.</span>
+                      </div>
+                    ))}
                   </div>
                 )}
 
