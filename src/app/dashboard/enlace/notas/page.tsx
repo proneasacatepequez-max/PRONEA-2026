@@ -5,11 +5,12 @@
 // calificar. Ahora usa el mismo patrón robusto del técnico: catálogo real
 // (tareas_catalogo) + notas existentes fusionadas.
 import { Suspense, useState, useEffect, useCallback } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 function EnlaceNotasContent() {
   const sp     = useSearchParams()
+  const router = useRouter()
   const inscId = sp.get('id') ?? ''
 
   const [permChecked,  setPermChecked]  = useState(false)
@@ -29,6 +30,17 @@ function EnlaceNotasContent() {
   const [saving,    setSaving]    = useState<string | null>(null)
   const [msg,       setMsg]       = useState('')
 
+  // Buscador propio de estudiante dentro de "Ingresar Notas" — así el
+  // enlace puede llegar a un estudiante sin depender de la lista de "Mis
+  // Estudiantes" (esa lista solo muestra "en_curso"). Aquí sí puede elegir
+  // ver "Completada", "Finalizada", etc.
+  const [etapasLista,       setEtapasLista]       = useState<any[]>([])
+  const [listaInsc,         setListaInsc]         = useState<any[]>([])
+  const [loadingLista,      setLoadingLista]      = useState(false)
+  const [buscarLista,       setBuscarLista]       = useState('')
+  const [etapaFiltroLista,  setEtapaFiltroLista]  = useState('')
+  const [estadoFiltroLista, setEstadoFiltroLista] = useState('en_curso')
+
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 2500) }
 
   // 1) Verificar permiso primero
@@ -40,7 +52,40 @@ function EnlaceNotasContent() {
       setPermChecked(true)
     }).catch(() => { setTienePermiso(false); setPermChecked(true) })
     fetch('/api/areas').then(r => r.json()).then(ar => setAreas(Array.isArray(ar) ? ar : [])).catch(() => {})
+    fetch('/api/etapas').then(r => r.json()).then(et => setEtapasLista(Array.isArray(et) ? et : [])).catch(() => {})
   }, [])
+
+  // 1b) Cargar la lista de estudiantes para el buscador propio (solo
+  // cuando no hay un estudiante ya elegido por URL)
+  const cargarLista = useCallback(async () => {
+    setLoadingLista(true)
+    const params = new URLSearchParams({ ciclo: '2026', estado: estadoFiltroLista })
+    if (etapaFiltroLista) params.set('etapa_id', etapaFiltroLista)
+    const res  = await fetch(`/api/inscripciones?${params}`).catch(() => null)
+    const body = await res?.json().catch(() => ({})) ?? {}
+    setListaInsc(res?.ok ? (body.data ?? []) : [])
+    setLoadingLista(false)
+  }, [etapaFiltroLista, estadoFiltroLista])
+
+  useEffect(() => {
+    if (permChecked && tienePermiso && !inscId) cargarLista()
+  }, [permChecked, tienePermiso, inscId, cargarLista])
+
+  const listaFiltrada = listaInsc.filter((i: any) => {
+    if (!buscarLista.trim()) return true
+    const e   = i.estudiante
+    const txt = `${e?.primer_nombre ?? ''} ${e?.primer_apellido ?? ''} ${e?.codigo_estudiante ?? ''} ${e?.cui ?? ''}`.toLowerCase()
+    return txt.includes(buscarLista.toLowerCase())
+  })
+
+  const ESTADOS_LISTA = [
+    { value: 'en_curso',   label: '✅ En curso' },
+    { value: 'completada', label: '✔️ Completada' },
+    { value: 'finalizada', label: '🏁 Finalizada' },
+    { value: 'retirada',   label: '🚪 Retirada' },
+    { value: 'suspendida', label: '⏸️ Suspendida' },
+    { value: 'todos',      label: 'Todos los estados' },
+  ]
 
   // 3) Al elegir libro: catálogo completo + notas existentes fusionadas
   const seleccionarLibro = useCallback(async (libro: any) => {
@@ -147,22 +192,6 @@ function EnlaceNotasContent() {
     }
   }
 
-  // Sin inscId
-  if (!inscId) return (
-    <div className="ap">
-      <header className="topbar"><div className="page-title">📝 Ingresar Notas</div></header>
-      <div className="pc">
-        <div className="alert al-w">
-          Selecciona un estudiante desde{' '}
-          <Link href="/dashboard/enlace/estudiantes" className="underline font-bold">
-            Mis Estudiantes
-          </Link>{' '}
-          para ingresar notas.
-        </div>
-      </div>
-    </div>
-  )
-
   // Verificando permiso
   if (!permChecked) return (
     <div className="ap">
@@ -192,6 +221,67 @@ function EnlaceNotasContent() {
       </div>
     </div>
   )
+
+  // Sin inscId → buscador propio (incluye estudiantes ya completados/etc.)
+  if (!inscId) return (
+    <div className="ap">
+      <header className="topbar">
+        <div>
+          <div className="page-title">📝 Ingresar Notas</div>
+          <div className="text-xs text-gray-400">Busca al estudiante para registrar sus notas</div>
+        </div>
+      </header>
+      <div className="pc max-w-2xl">
+        <div className="card">
+          <div className="card-title text-sm">🎓 Selecciona un estudiante</div>
+          <div className="space-y-2 mb-3">
+            <input className="inp text-sm" placeholder="🔍 Nombre, código, CUI..."
+              value={buscarLista} onChange={e => setBuscarLista(e.target.value)} />
+            <div className="flex gap-2 flex-wrap">
+              <select className="inp text-sm flex-1 min-w-[10rem]" value={etapaFiltroLista}
+                onChange={e => setEtapaFiltroLista(e.target.value)}>
+                <option value="">Todas las etapas</option>
+                {etapasLista.map((et: any) => <option key={et.id} value={et.id}>{et.nombre}</option>)}
+              </select>
+              <select className="inp text-sm flex-1 min-w-[10rem]" value={estadoFiltroLista}
+                onChange={e => setEstadoFiltroLista(e.target.value)}>
+                {ESTADOS_LISTA.map(op => <option key={op.value} value={op.value}>{op.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {loadingLista ? (
+            <div className="flex justify-center py-8">
+              <div className="w-6 h-6 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : listaFiltrada.length === 0 ? (
+            <div className="text-center py-8 text-gray-400 text-sm">
+              {buscarLista ? 'Sin resultados' : 'Sin estudiantes en este estado'}
+            </div>
+          ) : (
+            <div className="space-y-1 max-h-[55vh] overflow-y-auto">
+              {listaFiltrada.map((i: any) => {
+                const e = i.estudiante
+                return (
+                  <button key={i.id}
+                    onClick={() => router.push(`/dashboard/enlace/notas?id=${i.id}`)}
+                    className="w-full text-left px-3 py-2 rounded-xl border-2 border-gray-100 hover:border-purple-300 hover:bg-purple-50/30 transition-all text-sm">
+                    <div className="font-semibold truncate">{e?.primer_apellido}, {e?.primer_nombre}</div>
+                    <div className="text-xs text-gray-400 flex items-center gap-1 mt-0.5 flex-wrap">
+                      <span className="truncate">{i.etapa?.nombre}</span>
+                      <span>{i.version_libro === 'nuevo' ? '📗' : '📙'}</span>
+                      <span className="font-mono">{e?.codigo_estudiante}</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+
 
   const areasConTareas = areas.filter(a =>
     tareas.some((t: any) => String(t.area?.id) === String(a.id)) ||
@@ -301,7 +391,7 @@ function EnlaceNotasContent() {
             onClick={() => setOrdenPagina(v => !v)}>
             📄 {ordenPagina ? '✓ ' : ''}Ordenar por página
           </button>
-          <Link href="/dashboard/enlace/estudiantes" className="btn btn-g">← Volver</Link>
+          <Link href="/dashboard/enlace/notas" className="btn btn-g">← Volver</Link>
         </div>
       </header>
 
