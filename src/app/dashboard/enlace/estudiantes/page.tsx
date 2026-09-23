@@ -215,7 +215,13 @@ export default function EnlaceEstudiantesPage() {
                           {miPerfil?.primer_nombre} {miPerfil?.primer_apellido}
                         </td>
                         <td className="px-3 py-2">
-                          <span className={`badge text-xs ${insc.estado==='en_curso'?'badge-green':'badge-gray'}`}>
+                          <span className={`badge text-xs ${
+                            insc.estado === 'en_curso' ? 'badge-green'
+                            : insc.estado === 'completada' ? 'badge-blue'
+                            : insc.estado === 'retirada' ? 'badge-red'
+                            : insc.estado === 'suspendida' ? 'badge-yellow'
+                            : 'badge-gray'
+                          }`}>
                             {insc.estado}
                           </span>
                         </td>
