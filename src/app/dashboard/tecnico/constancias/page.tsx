@@ -58,11 +58,13 @@ export default function ConstanciasPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ inscripcion_id: inscSel.id, firmante_id: firmanteId || undefined }),
       })
-      const d = await res.json()
-      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al generar')); return }
+      const texto = await res.text()
+      let d: any = {}
+      try { d = texto ? JSON.parse(texto) : {} } catch { d = { error: `Respuesta inesperada del servidor (HTTP ${res.status}): ${texto.slice(0, 200)}` } }
+      if (!res.ok) { flash('❌ ' + (d.error ?? `Error al generar (HTTP ${res.status})`)); return }
       flash('✅ Constancia generada — enviada a validación del director')
       cargarHistorial(estSel.id)
-    } catch { flash('❌ Error de conexión') }
+    } catch (e: any) { flash('❌ No se pudo conectar con el servidor: ' + (e?.message ?? 'error desconocido')) }
     finally { setGenerando(false) }
   }
 
@@ -79,7 +81,7 @@ export default function ConstanciasPage() {
     <div className="ap">
       <header className="topbar"><div className="page-title">📄 Constancias de Inscripción</div></header>
       <div className="pc max-w-3xl">
-        {msg && <div className="alert al-s mb-4">{msg}</div>}
+        {msg && <div className={`alert ${msg.startsWith('❌') ? 'al-e' : 'al-s'} mb-4`}>{msg}</div>}
 
         {!estSel ? (
           <div className="card">
