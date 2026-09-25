@@ -56,7 +56,7 @@ export default function FirmantesConstanciasPage() {
     <div className="ap">
       <header className="topbar"><div className="page-title">✍️ Firmantes de Constancias</div></header>
       <div className="pc max-w-3xl">
-        {msg && <div className="alert al-s mb-4">{msg}</div>}
+        {msg && <div className={`alert ${msg.startsWith('❌') ? 'al-e' : 'al-s'} mb-4`}>{msg}</div>}
 
         <div className="card mb-5">
           <div className="card-title text-sm">{editandoId ? '✏️ Editar firmante' : '➕ Agregar firmante'}</div>
