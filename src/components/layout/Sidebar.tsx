@@ -34,6 +34,7 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
       { href: '/dashboard/admin/sedes',    icon: '🏫', label: 'Sedes'           },
       { href: '/dashboard/admin/recursos', icon: '🎬', label: 'Recursos'        },
       { href: '/dashboard/admin/ajustes',  icon: '♿', label: 'Tipos de Ajuste' },
+      { href: '/dashboard/admin/firmantes-constancias', icon: '✍️', label: 'Firmantes de Constancias' },
     ]},
     { section: 'SIREEX', items: [
       { href: '/dashboard/admin/sireex', icon: '📤', label: 'Grupos SIREEX' },
@@ -60,6 +61,7 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
       { href: '/dashboard/tecnico/ajustes',       icon: '♿', label: 'Adecuaciones'         },
       { href: '/dashboard/tecnico/dua',           icon: '📐', label: 'Planif. DUA'          },
       { href: '/dashboard/tecnico/sesiones',      icon: '🗓️', label: 'Sesiones'             },
+      { href: '/dashboard/tecnico/constancias',   icon: '📄', label: 'Constancias'          },
     ]},
     { section: 'Recursos', items: [
       { href: '/dashboard/tecnico/recursos', icon: '🎬', label: 'Recursos Apoyo' },
@@ -77,6 +79,9 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
     ]},
     { section: 'SIREEX', items: [
       { href: '/dashboard/director/sireex', icon: '📤', label: 'Grupos SIREEX' },
+    ]},
+    { section: 'Documentos', items: [
+      { href: '/dashboard/director/constancias', icon: '📄', label: 'Constancias Pendientes' },
     ]},
     { section: 'Permisos', items: [
       { href: '/dashboard/director/autorizaciones', icon: '🔐', label: 'Autorizar Enlaces' },
