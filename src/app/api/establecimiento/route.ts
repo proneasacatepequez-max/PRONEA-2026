@@ -24,6 +24,7 @@ export async function PUT(req: NextRequest) {
     'nombre_completo','nombre_corto','departamento','municipio','direccion',
     'telefono','whatsapp','correo','facebook','sitio_web','horario_atencion',
     'director_nombre','director_titulo',
+    'logo_url','logo_mineduc_url','logo_digeex_url','logo_establecimiento_url',
   ]
 
   const upd: any = {}
