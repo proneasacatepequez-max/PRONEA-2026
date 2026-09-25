@@ -28,11 +28,13 @@ export default function ConstanciasDirectorPage() {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accion: 'validar' }),
       })
-      const d = await res.json()
+      const texto = await res.text()
+      let d: any = {}
+      try { d = texto ? JSON.parse(texto) : {} } catch { d = { error: `Respuesta inesperada (HTTP ${res.status})` } }
       if (!res.ok) { flash('❌ ' + (d.error ?? 'Error')); return }
       flash('✅ Constancia validada')
       cargar()
-    } catch { flash('❌ Error de conexión') }
+    } catch (e: any) { flash('❌ No se pudo conectar con el servidor: ' + (e?.message ?? 'error desconocido')) }
     finally { setProcesando(null) }
   }
 
@@ -44,12 +46,14 @@ export default function ConstanciasDirectorPage() {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accion: 'rechazar', motivo }),
       })
-      const d = await res.json()
+      const texto = await res.text()
+      let d: any = {}
+      try { d = texto ? JSON.parse(texto) : {} } catch { d = { error: `Respuesta inesperada (HTTP ${res.status})` } }
       if (!res.ok) { flash('❌ ' + (d.error ?? 'Error')); return }
       flash('✅ Constancia rechazada — el técnico deberá generar una nueva')
       setRechazandoId(null); setMotivo('')
       cargar()
-    } catch { flash('❌ Error de conexión') }
+    } catch (e: any) { flash('❌ No se pudo conectar con el servidor: ' + (e?.message ?? 'error desconocido')) }
     finally { setProcesando(null) }
   }
 
@@ -62,7 +66,7 @@ export default function ConstanciasDirectorPage() {
         </div>
       </header>
       <div className="pc max-w-3xl">
-        {msg && <div className="alert al-s mb-4">{msg}</div>}
+        {msg && <div className={`alert ${msg.startsWith('❌') ? 'al-e' : 'al-s'} mb-4`}>{msg}</div>}
 
         {loading ? (
           <div className="flex justify-center py-16">
@@ -117,3 +121,4 @@ export default function ConstanciasDirectorPage() {
     </div>
   )
 }
+
