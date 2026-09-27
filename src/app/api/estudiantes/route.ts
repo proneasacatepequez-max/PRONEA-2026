@@ -171,11 +171,13 @@ export async function POST(req: NextRequest) {
 
   if (error) return err('Error al registrar estudiante: ' + error.message, 500)
 
-  await supabaseAdmin.from('auditoria').insert({
-    usuario_id: s.sub, accion: 'CREAR_ESTUDIANTE',
-    tabla_afectada: 'estudiantes', registro_id: data.id,
-    datos_nuevos: { codigo: codigoEstudiante, nombre: `${primer_nombre} ${primer_apellido}` },
-  }).catch(() => {})
+  try {
+    await supabaseAdmin.from('auditoria').insert({
+      usuario_id: s.sub, accion: 'CREAR_ESTUDIANTE',
+      tabla_afectada: 'estudiantes', registro_id: data.id,
+      datos_nuevos: { codigo: codigoEstudiante, nombre: `${primer_nombre} ${primer_apellido}` },
+    })
+  } catch { /* la auditoría nunca debe bloquear la respuesta principal */ }
 
   return ok({ ok: true, id: data.id, codigo_estudiante: data.codigo_estudiante }, 201)
 }
