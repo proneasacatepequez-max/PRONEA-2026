@@ -121,10 +121,12 @@ export async function POST(req: NextRequest) {
 
   if (error) return err(error.message, 500)
 
-  await supabaseAdmin.from('grupos_sireex_historial').insert({
-    grupo_sireex_id: data.id, accion: 'CREADO', usuario_id: s.sub,
-    detalle: `Grupo creado: ${data.codigo}`,
-  }).catch(() => {})
+  try {
+    await supabaseAdmin.from('grupos_sireex_historial').insert({
+      grupo_sireex_id: data.id, accion: 'CREADO', usuario_id: s.sub,
+      detalle: `Grupo creado: ${data.codigo}`,
+    })
+  } catch { /* el historial nunca debe bloquear la respuesta principal */ }
 
   return ok(data, 201)
 }
@@ -173,10 +175,12 @@ export async function PATCH(req: NextRequest) {
   if (error) return err(error.message, 500)
 
   if (b.tecnico_id !== undefined || b.sede_id !== undefined) {
-    await supabaseAdmin.from('grupos_sireex_historial').insert({
-      grupo_sireex_id: b.id, accion: 'REASIGNADO', usuario_id: s.sub,
-      detalle: `Reasignado por ${s.rol}${b.tecnico_id ? ' — nuevo técnico' : ''}${b.sede_id ? ' — nueva sede' : ''}`,
-    }).catch(() => {})
+    try {
+      await supabaseAdmin.from('grupos_sireex_historial').insert({
+        grupo_sireex_id: b.id, accion: 'REASIGNADO', usuario_id: s.sub,
+        detalle: `Reasignado por ${s.rol}${b.tecnico_id ? ' — nuevo técnico' : ''}${b.sede_id ? ' — nueva sede' : ''}`,
+      })
+    } catch { /* el historial nunca debe bloquear la respuesta principal */ }
   }
 
   return ok({ ok: true })
@@ -201,9 +205,11 @@ export async function DELETE(req: NextRequest) {
   const { error } = await supabaseAdmin.from('grupos_sireex').delete().eq('id', id)
   if (error) return err(error.message, 500)
 
-  await supabaseAdmin.from('grupos_sireex_historial').insert({
-    grupo_sireex_id: id, accion: 'ELIMINADO', usuario_id: s.sub, detalle: 'Grupo eliminado',
-  }).catch(() => {})
+  try {
+    await supabaseAdmin.from('grupos_sireex_historial').insert({
+      grupo_sireex_id: id, accion: 'ELIMINADO', usuario_id: s.sub, detalle: 'Grupo eliminado',
+    })
+  } catch { /* el historial nunca debe bloquear la respuesta principal */ }
 
   return ok({ ok: true, mensaje: '✅ Grupo eliminado' })
 }
