@@ -29,12 +29,14 @@ export async function POST(req: NextRequest) {
 
   if (error) return err(error.message, 500)
 
-  await supabaseAdmin.from('auditoria').insert({
-    usuario_id:      s.sub,
-    accion:          'ASIGNAR_TECNICO_SEDE',
-    tabla_afectada:  'tecnico_sedes',
-    datos_nuevos:    { tecnico_id, sede_id },
-  }).catch(() => {})
+  try {
+    await supabaseAdmin.from('auditoria').insert({
+      usuario_id:      s.sub,
+      accion:          'ASIGNAR_TECNICO_SEDE',
+      tabla_afectada:  'tecnico_sedes',
+      datos_nuevos:    { tecnico_id, sede_id },
+    })
+  } catch { /* la auditoría nunca debe bloquear la respuesta principal */ }
 
   return ok({ ok: true, mensaje: `Técnico asignado a ${sede.nombre}` })
 }
