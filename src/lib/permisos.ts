@@ -15,10 +15,12 @@ export async function verificarPermiso(
     if (error) { console.error('[verificarPermiso]', error.message); return { permitido: false, motivo: 'Error al verificar' } }
     const permitido = data === true
     if (!permitido) {
-      supabaseAdmin.rpc('registrar_intento_no_autorizado', {
-        p_usuario_id: usuarioId, p_permiso: permiso,
-        p_accion: `Intento de ${permiso}`, p_ip: ip ?? null,
-      }).catch(() => {})
+      try {
+        await supabaseAdmin.rpc('registrar_intento_no_autorizado', {
+          p_usuario_id: usuarioId, p_permiso: permiso,
+          p_accion: `Intento de ${permiso}`, p_ip: ip ?? null,
+        })
+      } catch { /* no debe alterar la respuesta de permitido/motivo */ }
     }
     return { permitido, motivo: permitido ? 'Autorizado' : `Sin permiso para "${permiso}"` }
   } catch { return { permitido: false, motivo: 'Error interno' } }
