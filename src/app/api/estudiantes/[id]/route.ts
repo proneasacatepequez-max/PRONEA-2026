@@ -99,13 +99,15 @@ export async function PATCH(
   if (error) return err(error.message, 500)
 
   // Auditoría
-  await supabaseAdmin.from('auditoria').insert({
-    usuario_id:     s.sub,
-    accion:         'EDITAR_ESTUDIANTE',
-    tabla_afectada: 'estudiantes',
-    registro_id:    id,
-    datos_nuevos:   upd,
-  }).catch(() => {})
+  try {
+    await supabaseAdmin.from('auditoria').insert({
+      usuario_id:     s.sub,
+      accion:         'EDITAR_ESTUDIANTE',
+      tabla_afectada: 'estudiantes',
+      registro_id:    id,
+      datos_nuevos:   upd,
+    })
+  } catch { /* la auditoría nunca debe bloquear la respuesta principal */ }
 
   return ok({ ok: true, mensaje: 'Estudiante actualizado correctamente' })
 }
