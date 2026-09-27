@@ -33,10 +33,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const logosHTML = await obtenerLogosHeaderHTML()
 
   // El texto ya viene con saltos de línea planos — los convertimos a <br>
-  // respetando los párrafos (doble salto = párrafo nuevo).
-  const cuerpoHTML = c.texto_generado
-    .split('\n\n')
-    .map((parrafo: string) => `<p style="margin:0 0 18px 0;text-align:justify">${parrafo.replace(/\n/g, '<br/>')}</p>`)
+  // respetando los párrafos (doble salto = párrafo nuevo). El primer
+  // párrafo (lugar y fecha) va alineado a la derecha, el último (nombre,
+  // cargo y dependencia del firmante) va centrado — el resto, justificado.
+  const parrafos = c.texto_generado.split('\n\n')
+  const cuerpoHTML = parrafos
+    .map((parrafo: string, i: number) => {
+      const esFecha = i === 0
+      const esFirma = i === parrafos.length - 1
+      const align = esFecha ? 'right' : esFirma ? 'center' : 'justify'
+      const pesoExtra = esFirma ? 'font-weight:bold;' : ''
+      return `<p style="margin:0 0 18px 0;text-align:${align};${pesoExtra}">${parrafo.replace(/\n/g, '<br/>')}</p>`
+    })
     .join('\n')
 
   const html = `<!DOCTYPE html>
