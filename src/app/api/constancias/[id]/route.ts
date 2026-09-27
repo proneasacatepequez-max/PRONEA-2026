@@ -42,10 +42,12 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     const { error } = await supabaseAdmin.from('constancias_inscripcion').update(upd).eq('id', id)
     if (error) return err(error.message, 500)
 
-    await supabaseAdmin.from('auditoria').insert({
-      usuario_id: s.sub, accion: `constancia_${accion}`, tabla_afectada: 'constancias_inscripcion',
-      registro_id: id, datos_nuevos: upd,
-    }).catch(() => {})
+    try {
+      await supabaseAdmin.from('auditoria').insert({
+        usuario_id: s.sub, accion: `constancia_${accion}`, tabla_afectada: 'constancias_inscripcion',
+        registro_id: id, datos_nuevos: upd,
+      })
+    } catch { /* la auditoría nunca debe bloquear la acción principal */ }
 
     return ok({ ok: true })
   } catch (e: any) {
