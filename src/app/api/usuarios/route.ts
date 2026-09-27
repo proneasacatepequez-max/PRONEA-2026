@@ -150,9 +150,11 @@ export async function POST(req: NextRequest) {
       }
 
       if (sede_id && tecCreado) {
-        await supabaseAdmin.from('tecnico_sedes').insert({
-          tecnico_id: tecCreado.id, sede_id, es_principal: true, activo: true,
-        }).catch(() => {})
+        try {
+          await supabaseAdmin.from('tecnico_sedes').insert({
+            tecnico_id: tecCreado.id, sede_id, es_principal: true, activo: true,
+          })
+        } catch { /* no debe bloquear la creación del usuario */ }
       }
     }
 
@@ -218,9 +220,11 @@ export async function POST(req: NextRequest) {
       }
 
       if (tecnico_id && enlCreado) {
-        await supabaseAdmin.from('tecnico_enlaces').insert({
-          tecnico_id, enlace_id: enlCreado.id, ciclo_escolar: 2026, activo: true,
-        }).catch(() => {})
+        try {
+          await supabaseAdmin.from('tecnico_enlaces').insert({
+            tecnico_id, enlace_id: enlCreado.id, ciclo_escolar: 2026, activo: true,
+          })
+        } catch { /* no debe bloquear la creación del usuario */ }
       }
     }
 
@@ -244,15 +248,17 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch (e: any) {
-    await supabaseAdmin.from('usuarios').delete().eq('id', usu.id).catch(() => {})
+    try { await supabaseAdmin.from('usuarios').delete().eq('id', usu.id) } catch { /* best-effort cleanup */ }
     return err('Error inesperado al crear perfil: ' + (e?.message ?? ''), 500)
   }
 
-  await supabaseAdmin.from('auditoria').insert({
-    usuario_id: s.sub, accion: 'CREAR_USUARIO',
-    tabla_afectada: 'usuarios', registro_id: usu.id,
-    datos_nuevos: { correo: correoNorm, rol },
-  }).catch(() => {})
+  try {
+    await supabaseAdmin.from('auditoria').insert({
+      usuario_id: s.sub, accion: 'CREAR_USUARIO',
+      tabla_afectada: 'usuarios', registro_id: usu.id,
+      datos_nuevos: { correo: correoNorm, rol },
+    })
+  } catch { /* la auditoría nunca debe bloquear la respuesta principal */ }
 
   return ok({
     ok: true, id: usu.id, correo: correoNorm, rol, contrasena,
@@ -369,11 +375,13 @@ export async function PATCH(req: NextRequest) {
       if (eCoord) return err('Error al actualizar coordinador: ' + eCoord.message, 500)
     }
 
-    await supabaseAdmin.from('auditoria').insert({
-      usuario_id: s.sub, accion: 'EDITAR_USUARIO',
-      tabla_afectada: 'usuarios', registro_id: id,
-      datos_nuevos: { perfil: nombreUpd, sede_id, tecnico_id },
-    }).catch(() => {})
+    try {
+      await supabaseAdmin.from('auditoria').insert({
+        usuario_id: s.sub, accion: 'EDITAR_USUARIO',
+        tabla_afectada: 'usuarios', registro_id: id,
+        datos_nuevos: { perfil: nombreUpd, sede_id, tecnico_id },
+      })
+    } catch { /* la auditoría nunca debe bloquear la respuesta principal */ }
 
     return ok({ ok: true, mensaje: '✅ Usuario actualizado correctamente' })
   }
@@ -401,10 +409,12 @@ export async function DELETE(req: NextRequest) {
   const { error } = await supabaseAdmin.from('usuarios').update({ activo: false }).eq('id', id)
   if (error) return err(error.message, 500)
 
-  await supabaseAdmin.from('auditoria').insert({
-    usuario_id: s.sub, accion: 'DESACTIVAR_USUARIO',
-    tabla_afectada: 'usuarios', registro_id: id,
-  }).catch(() => {})
+  try {
+    await supabaseAdmin.from('auditoria').insert({
+      usuario_id: s.sub, accion: 'DESACTIVAR_USUARIO',
+      tabla_afectada: 'usuarios', registro_id: id,
+    })
+  } catch { /* la auditoría nunca debe bloquear la respuesta principal */ }
 
   return ok({ ok: true, mensaje: '✅ Usuario desactivado' })
 }
