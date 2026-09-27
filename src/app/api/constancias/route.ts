@@ -122,10 +122,12 @@ export async function POST(req: NextRequest) {
 
     if (errIns) return err(errIns.message, 500)
 
-    await supabaseAdmin.from('auditoria').insert({
-      usuario_id: s.sub, accion: 'generar_constancia', tabla_afectada: 'constancias_inscripcion',
-      registro_id: creada.id, datos_nuevos: { numero_constancia: numeroConstancia, estudiante_id: est.id },
-    }).catch(() => {})
+    try {
+      await supabaseAdmin.from('auditoria').insert({
+        usuario_id: s.sub, accion: 'generar_constancia', tabla_afectada: 'constancias_inscripcion',
+        registro_id: creada.id, datos_nuevos: { numero_constancia: numeroConstancia, estudiante_id: est.id },
+      })
+    } catch { /* la auditoría nunca debe bloquear la generación de la constancia */ }
 
     return ok({ ok: true, constancia: creada })
   } catch (e: any) {
