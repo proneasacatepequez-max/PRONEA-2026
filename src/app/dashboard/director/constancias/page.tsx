@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 
 export default function ConstanciasDirectorPage() {
   const [lista, setLista]   = useState<any[]>([])
+  const [aviso, setAviso]   = useState('')
   const [loading, setLoading] = useState(true)
   const [procesando, setProcesando] = useState<string | null>(null)
   const [rechazandoId, setRechazandoId] = useState<string | null>(null)
@@ -16,6 +17,7 @@ export default function ConstanciasDirectorPage() {
     setLoading(true)
     const d = await fetch('/api/constancias?estado=pendiente_validacion').then(r => r.json()).catch(() => ({ data: [] }))
     setLista(d?.data ?? [])
+    setAviso(d?.aviso ?? '')
     setLoading(false)
   }, [])
 
@@ -72,6 +74,8 @@ export default function ConstanciasDirectorPage() {
           <div className="flex justify-center py-16">
             <div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : aviso ? (
+          <div className="alert al-w">⚠️ {aviso}</div>
         ) : lista.length === 0 ? (
           <div className="card text-center py-12 text-gray-400">✅ No hay constancias pendientes de validación</div>
         ) : (
@@ -121,4 +125,3 @@ export default function ConstanciasDirectorPage() {
     </div>
   )
 }
-
