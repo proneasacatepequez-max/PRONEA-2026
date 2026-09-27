@@ -184,10 +184,14 @@ export async function GET(req: NextRequest) {
     // igual que el resto de bandejas del director en este sistema.
     if (s.rol === 'director') {
       const { data: dir } = await supabaseAdmin.from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
-      if (!dir?.sede_id) return ok({ data: [] })
+      if (!dir?.sede_id) {
+        return ok({ data: [], aviso: 'No se encontró tu perfil de director (o no tiene una sede asignada) — por eso no se puede filtrar ninguna constancia. Pide al administrador que revise tu usuario en Usuarios.' })
+      }
       const { data: inscsDeLaSede } = await supabaseAdmin.from('inscripciones').select('id').eq('sede_id', dir.sede_id)
       const idsPermitidos = (inscsDeLaSede ?? []).map((i: any) => i.id)
-      if (idsPermitidos.length === 0) return ok({ data: [] })
+      if (idsPermitidos.length === 0) {
+        return ok({ data: [], aviso: 'Tu sede no tiene ninguna inscripción registrada todavía.' })
+      }
       q = q.in('inscripcion_id', idsPermitidos)
     }
 
