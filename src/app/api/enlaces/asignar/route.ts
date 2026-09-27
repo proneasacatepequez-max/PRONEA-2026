@@ -57,11 +57,12 @@ export async function PATCH(req: NextRequest) {
   if (tecnico_id && tecnico_id !== enlaceActual.tecnico_id) {
     // Desactivar vínculo anterior si existía
     if (enlaceActual.tecnico_id) {
-      await supabaseAdmin.from('tecnico_enlaces')
-        .update({ activo: false })
-        .eq('enlace_id', enlace_id)
-        .eq('tecnico_id', enlaceActual.tecnico_id)
-        .catch(() => {})
+      try {
+        await supabaseAdmin.from('tecnico_enlaces')
+          .update({ activo: false })
+          .eq('enlace_id', enlace_id)
+          .eq('tecnico_id', enlaceActual.tecnico_id)
+      } catch { /* no debe bloquear la respuesta principal */ }
     }
     // Crear o reactivar el nuevo vínculo
     const { data: existeVinculo } = await supabaseAdmin
@@ -72,9 +73,11 @@ export async function PATCH(req: NextRequest) {
       await supabaseAdmin.from('tecnico_enlaces')
         .update({ activo: true }).eq('id', existeVinculo.id)
     } else {
-      await supabaseAdmin.from('tecnico_enlaces').insert({
-        tecnico_id, enlace_id, ciclo_escolar: 2026, activo: true,
-      }).catch(() => {})
+      try {
+        await supabaseAdmin.from('tecnico_enlaces').insert({
+          tecnico_id, enlace_id, ciclo_escolar: 2026, activo: true,
+        })
+      } catch { /* no debe bloquear la respuesta principal */ }
     }
   }
 
