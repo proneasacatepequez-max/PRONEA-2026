@@ -72,12 +72,17 @@ ${datos.cargoFirmante}${datos.dependenciaFirmante ? '\n' + datos.dependenciaFirm
 export async function obtenerLogosHeaderHTML(): Promise<string> {
   const { data: info } = await supabaseAdmin
     .from('info_establecimiento')
-    .select('logo_mineduc_url, logo_digeex_url, logo_establecimiento_url')
+    .select('logo_url, logo_mineduc_url, logo_digeex_url, logo_establecimiento_url')
     .eq('id', 1)
     .single()
 
-  const logos = [info?.logo_mineduc_url, info?.logo_digeex_url, info?.logo_establecimiento_url]
+  let logos = [info?.logo_mineduc_url, info?.logo_digeex_url, info?.logo_establecimiento_url]
     .filter(Boolean) as string[]
+
+  // Si no se llenó ninguno de los 3 logos "para documentos oficiales",
+  // se usa el logo general de PRONEA como respaldo — mejor mostrar algo
+  // que dejar el encabezado completamente vacío.
+  if (logos.length === 0 && info?.logo_url) logos = [info.logo_url]
 
   if (logos.length === 0) return ''
 
@@ -85,7 +90,7 @@ export async function obtenerLogosHeaderHTML(): Promise<string> {
     `<img src="${url}" style="height:70px;max-width:220px;object-fit:contain" />`
 
   if (logos.length === 1) {
-    return `<div style="text-align:center;margin-bottom:24px">${imgTag(logos[0])}</div>`
+    return `<div style="text-align:left;margin-bottom:24px">${imgTag(logos[0])}</div>`
   }
   // 2 o 3 logos: distribuidos en una fila (izquierda…derecha)
   return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
