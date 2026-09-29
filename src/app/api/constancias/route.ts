@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       firmante_id,
       grupo_sireex_manual,
       modalidad_manual,
-      fecha_inscripcion_manual,   // ← NUEVO: formato YYYY-MM-DD
+      fecha_inscripcion_manual,   // formato YYYY-MM-DD
     } = await req.json().catch(() => ({}))
     if (!inscripcion_id) return err('inscripcion_id requerido', 400)
 
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
       modalidad,
       codigo_grupo_sireex: codigoGrupoSireex,
       modalidad_texto: modalidadTexto,
-      fecha_inscripcion_texto: fechaInscripcionTexto,   // ← NUEVO
+      fecha_inscripcion_texto: fechaInscripcionTexto,
     }
     const datosFirmanteSnapshot = { ...firmante }
 
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
       nombreEtapaFormateado: formatearEtapaParaTexto(etapa?.nombre ?? ''),
       codigoGrupoSireex,
       cicloEscolar: insc.ciclo_escolar,
-      fechaInscripcion: fechaInscripcionTexto,   // ← usa la manual si vino
+      fechaInscripcion: fechaInscripcionTexto,
       modalidad: modalidadTexto,
       municipio: 'Antigua Guatemala',
       nombreFirmante: firmante.nombre_completo,
@@ -213,11 +213,9 @@ export async function GET(req: NextRequest) {
       const { data, error } = await q.eq('id', id).single()
       if (error || !data) return err(error?.message ?? 'Constancia no encontrada', 404)
 
-      if (s.rol === 'director') {
-        const { data: dir } = await supabaseAdmin.from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
-        const { data: insc } = await supabaseAdmin.from('inscripciones').select('sede_id').eq('id', data.inscripcion_id).maybeSingle()
-        if (!dir?.sede_id || insc?.sede_id !== dir.sede_id) return err('Sin permiso sobre esta constancia', 403)
-      } else if (s.rol === 'tecnico') {
+      // El director es validador GLOBAL — puede ver cualquier constancia.
+      // El técnico solo las de sus propias inscripciones.
+      if (s.rol === 'tecnico') {
         const { data: tec } = await supabaseAdmin.from('tecnicos').select('id').eq('usuario_id', s.sub).maybeSingle()
         const { data: insc } = await supabaseAdmin.from('inscripciones').select('tecnico_id').eq('id', data.inscripcion_id).maybeSingle()
         if (!tec?.id || insc?.tecnico_id !== tec.id) return err('Sin permiso sobre esta constancia', 403)
@@ -234,31 +232,13 @@ export async function GET(req: NextRequest) {
     if (inscripcionId) q = q.eq('inscripcion_id', inscripcionId)
     if (estado) q = q.eq('estado', estado)
 
-    // El director solo ve las constancias de estudiantes de SU sede
+    // ⚠️ El director valida constancias de TODAS las sedes — es el rol
+    // encargado de la validación final de documentos oficiales. Los filtros
+    // por sede aplican en otras bandejas (escalas, notas, estudiantes), pero
+    // NO aquí: si no, las constancias de otras sedes quedan sin validador.
     if (s.rol === 'director') {
-      const { data: dir } = await supabaseAdmin.from('directores').select('sede_id, sede:sedes(nombre)').eq('usuario_id', s.sub).maybeSingle()
-      if (!dir?.sede_id) {
-        return ok({ data: [], aviso: 'No se encontró tu perfil de director (o no tiene una sede asignada) — por eso no se puede filtrar ninguna constancia. Pide al administrador que revise tu usuario en Usuarios.' })
-      }
-      const nombreSede = (dir.sede as any)?.nombre ?? 'tu sede'
-      const { data: inscsDeLaSede } = await supabaseAdmin.from('inscripciones').select('id').eq('sede_id', dir.sede_id)
-      const idsPermitidos = (inscsDeLaSede ?? []).map((i: any) => i.id)
-      if (idsPermitidos.length === 0) {
-        return ok({ data: [], aviso: `${nombreSede} no tiene ninguna inscripción registrada todavía.` })
-      }
-      q = q.in('inscripcion_id', idsPermitidos)
-
       const { data, error } = await q.order('generado_en', { ascending: false }).limit(200)
       if (error) return err(error.message, 500)
-
-      if ((data ?? []).length === 0 && (estado === 'pendiente_validacion' || !estado)) {
-        const { count } = await supabaseAdmin.from('constancias_inscripcion')
-          .select('*', { count: 'exact', head: true }).eq('estado', 'pendiente_validacion')
-        if ((count ?? 0) > 0) {
-          return ok({ data: [], aviso: `No hay constancias pendientes en ${nombreSede}. Sí hay ${count} pendiente(s) en total en el sistema, pero de otra(s) sede(s) — revisa a qué sede pertenece la inscripción del estudiante.` })
-        }
-      }
-
       return ok({ data: data ?? [] })
     }
 
