@@ -31,7 +31,7 @@ export default function ConstanciasPage() {
   const [firmanteId, setFirmanteId] = useState('')
   const [grupoSireexManual, setGrupoSireexManual] = useState('')
   const [modalidadManual, setModalidadManual] = useState('')
-  const [fechaInscripcionManual, setFechaInscripcionManual] = useState('')  // YYYY-MM-DD
+  const [fechaInscripcionManual, setFechaInscripcionManual] = useState('')
   const [generando, setGenerando] = useState(false)
 
   // — Histórico global (tabla) —
@@ -336,6 +336,7 @@ export default function ConstanciasPage() {
                 <tbody>
                   {listaFiltradaGlobal.map((c: any) => {
                     const est = c.datos_estudiante_snapshot ?? {}
+                    const puedeImprimir = c.estado === 'validado' || c.estado === 'exportado'
                     return (
                       <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50/60 align-top">
                         <td className="px-4 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">{c.numero_constancia}</td>
@@ -351,14 +352,29 @@ export default function ConstanciasPage() {
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <a
-                            href={`/api/constancias/${c.id}/imprimir`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn btn-g btn-sm whitespace-nowrap"
-                          >
-                            👁️ Ver / Imprimir
-                          </a>
+                          {puedeImprimir ? (
+                            <a
+                              href={`/api/constancias/${c.id}/imprimir`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn btn-g btn-sm whitespace-nowrap"
+                            >
+                              👁️ Ver / Imprimir
+                            </a>
+                          ) : c.estado === 'pendiente_validacion' ? (
+                            <span
+                              className="text-xs text-gray-400 italic"
+                              title="El director debe validarla antes de poder imprimirla"
+                            >
+                              ⏳ Pendiente de validación
+                            </span>
+                          ) : c.estado === 'rechazado' ? (
+                            <span className="text-xs text-red-500 italic" title="El director rechazó esta constancia">
+                              ❌ Rechazada
+                            </span>
+                          ) : c.estado === 'anulado' ? (
+                            <span className="text-xs text-gray-400 italic">🚫 Anulada</span>
+                          ) : null}
                         </td>
                       </tr>
                     )
