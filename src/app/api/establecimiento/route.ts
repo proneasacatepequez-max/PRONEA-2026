@@ -32,6 +32,12 @@ export async function PUT(req: NextRequest) {
     if (b[campo] !== undefined) upd[campo] = b[campo] || null
   }
 
+  // Posición del logo MINEDUC en las constancias (izquierda / centro / derecha)
+  const POS_CONSTANCIA = ['izquierda', 'centro', 'derecha']
+  if (b.constancia_logo_mineduc_pos !== undefined && POS_CONSTANCIA.includes(b.constancia_logo_mineduc_pos)) {
+    upd.constancia_logo_mineduc_pos = b.constancia_logo_mineduc_pos
+  }
+
   upd.actualizado_en  = new Date().toISOString()
   upd.actualizado_por = s.sub
 
