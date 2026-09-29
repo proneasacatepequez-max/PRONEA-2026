@@ -16,6 +16,30 @@ function fechaCortaGT(fecha: string | null): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
+// Calcula el siguiente correlativo buscando MAX(numero_constancia)
+// del ciclo escolar, en vez de contar filas (contar falla si se
+// elimina alguna constancia — ya pasó con el botón Eliminar).
+async function siguienteNumeroConstancia(cicloEscolar: number): Promise<string> {
+  const prefijo = `CNST-${cicloEscolar}-`
+  const { data, error } = await supabaseAdmin
+    .from('constancias_inscripcion')
+    .select('numero_constancia')
+    .like('numero_constancia', `${prefijo}%`)
+    .order('numero_constancia', { ascending: false })
+    .limit(1)
+
+  if (error) throw new Error('No se pudo leer constancias: ' + error.message)
+
+  let siguiente = 1
+  if (data && data.length > 0) {
+    const ultimo = data[0].numero_constancia as string
+    const partes = ultimo.split('-')
+    const num = parseInt(partes[partes.length - 1], 10)
+    if (!isNaN(num)) siguiente = num + 1
+  }
+  return `${prefijo}${String(siguiente).padStart(6, '0')}`
+}
+
 export async function POST(req: NextRequest) {
   try {
     const s = await getSession(req)
@@ -25,7 +49,7 @@ export async function POST(req: NextRequest) {
       inscripcion_id,
       firmante_id,
       grupo_sireex_manual,
-      modalidad_manual,   // ← NUEVO
+      modalidad_manual,
     } = await req.json().catch(() => ({}))
     if (!inscripcion_id) return err('inscripcion_id requerido', 400)
 
@@ -51,11 +75,9 @@ export async function POST(req: NextRequest) {
 
     const est: any = insc.estudiante
     const etapa: any = insc.etapa
-    const sede: any = insc.sede
     const modalidad: any = insc.modalidad
     if (!est) return err('No se encontró el estudiante asociado a esta inscripción', 404)
 
-    // Modalidad: si el técnico escribió una manual, esa manda.
     const modalidadTexto: string = (modalidad_manual?.trim() || modalidad?.nombre || 'Presencial')
 
     let codigoGrupoSireex: string | null = grupo_sireex_manual?.trim() || null
@@ -84,7 +106,10 @@ export async function POST(req: NextRequest) {
     const nombreCompleto = [est.primer_nombre, est.segundo_nombre, est.primer_apellido, est.apellido_casada || est.segundo_apellido]
       .filter(Boolean).join(' ')
 
-    const datosEstudianteSnapshot = { ...est, nombre_completo: nombreCompleto, etapa, sede, modalidad, codigo_grupo_sireex: codigoGrupoSireex, modalidad_texto: modalidadTexto }
+    const datosEstudianteSnapshot = {
+      ...est, nombre_completo: nombreCompleto, etapa, sede: insc.sede, modalidad,
+      codigo_grupo_sireex: codigoGrupoSireex, modalidad_texto: modalidadTexto,
+    }
     const datosFirmanteSnapshot = { ...firmante }
 
     const textoGenerado = generarTextoConstancia({
@@ -96,36 +121,50 @@ export async function POST(req: NextRequest) {
       codigoGrupoSireex,
       cicloEscolar: insc.ciclo_escolar,
       fechaInscripcion: fechaCortaGT(insc.fecha_inscripcion),
-      modalidad: modalidadTexto,       // ← usa el manual si vino
-      municipio: 'Antigua Guatemala',  // ← forzado (aunque generarTextoConstancia ya lo ignora)
+      modalidad: modalidadTexto,
+      municipio: 'Antigua Guatemala',
       nombreFirmante: firmante.nombre_completo,
       cargoFirmante: firmante.cargo,
       dependenciaFirmante: firmante.dependencia,
     })
 
-    const { count, error: errCount } = await supabaseAdmin.from('constancias_inscripcion').select('*', { count: 'exact', head: true })
-    if (errCount) return err('No se pudo leer la tabla constancias_inscripcion — ¿ya corriste el SQL? Detalle: ' + errCount.message, 500)
-    const siguiente = (count ?? 0) + 1
-    const numeroConstancia = `CNST-${insc.ciclo_escolar}-${String(siguiente).padStart(6, '0')}`
+    // Número correlativo con reintento por colisión (unique constraint)
+    let creada: any = null
+    let ultimoError: string | null = null
+    for (let intento = 0; intento < 5; intento++) {
+      const numeroConstancia = await siguienteNumeroConstancia(insc.ciclo_escolar)
+      const { data, error: errIns } = await supabaseAdmin
+        .from('constancias_inscripcion')
+        .insert({
+          numero_constancia: numeroConstancia,
+          estudiante_id: est.id,
+          inscripcion_id: insc.id,
+          firmante_id: firmante.id,
+          datos_estudiante_snapshot: datosEstudianteSnapshot,
+          datos_firmante_snapshot: datosFirmanteSnapshot,
+          texto_generado: textoGenerado,
+          estado: 'pendiente_validacion',
+          generado_por: s.sub,
+        })
+        .select()
+        .single()
 
-    const { data: creada, error: errIns } = await supabaseAdmin.from('constancias_inscripcion').insert({
-      numero_constancia: numeroConstancia,
-      estudiante_id: est.id,
-      inscripcion_id: insc.id,
-      firmante_id: firmante.id,
-      datos_estudiante_snapshot: datosEstudianteSnapshot,
-      datos_firmante_snapshot: datosFirmanteSnapshot,
-      texto_generado: textoGenerado,
-      estado: 'pendiente_validacion',
-      generado_por: s.sub,
-    }).select().single()
+      if (!errIns && data) { creada = data; break }
 
-    if (errIns) return err(errIns.message, 500)
+      if (errIns && !errIns.message.includes('duplicate key')) {
+        return err(errIns.message, 500)
+      }
+      ultimoError = errIns?.message ?? null
+    }
+
+    if (!creada) {
+      return err('No se pudo generar un número correlativo único tras varios intentos. Detalle: ' + (ultimoError ?? 'desconocido'), 500)
+    }
 
     try {
       await supabaseAdmin.from('auditoria').insert({
         usuario_id: s.sub, accion: 'generar_constancia', tabla_afectada: 'constancias_inscripcion',
-        registro_id: creada.id, datos_nuevos: { numero_constancia: numeroConstancia, estudiante_id: est.id },
+        registro_id: creada.id, datos_nuevos: { numero_constancia: creada.numero_constancia, estudiante_id: est.id },
       })
     } catch { /* no bloquear */ }
 
@@ -202,7 +241,7 @@ export async function GET(req: NextRequest) {
       return ok({ data: data ?? [] })
     }
 
-    // Técnico: limitar a sus propias inscripciones (para que su tabla no muestre de otros)
+    // Técnico: limitar a sus propias inscripciones
     if (s.rol === 'tecnico') {
       const { data: tec } = await supabaseAdmin.from('tecnicos').select('id').eq('usuario_id', s.sub).maybeSingle()
       if (!tec?.id) return ok({ data: [] })
