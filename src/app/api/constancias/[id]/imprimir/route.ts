@@ -1,7 +1,4 @@
 // src/app/api/constancias/[id]/imprimir/route.ts
-// Mismo patrón que boleta/pdf: devuelve HTML imprimible (Camino A — sin
-// generar un archivo real ni subirlo a Storage). El navegador del técnico
-// hace "Guardar como PDF" desde el diálogo de impresión.
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
@@ -19,7 +16,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (error || !c) return new NextResponse('Constancia no encontrada', { status: 404 })
 
-  // Mismo resguardo de alcance que en GET /api/constancias
+  // Resguardo de alcance
   if (s.rol === 'director') {
     const { data: dir } = await supabaseAdmin.from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
     const { data: insc } = await supabaseAdmin.from('inscripciones').select('sede_id').eq('id', c.inscripcion_id).maybeSingle()
@@ -32,14 +29,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   const logosHTML = await obtenerLogosHeaderHTML()
 
-  // El texto ya viene con saltos de línea planos — los convertimos a <br>
-  // respetando los párrafos (doble salto = párrafo nuevo).
-  //   • 1er párrafo (lugar y fecha)              → alineado a la derecha,
-  //     con un espacio grande debajo antes de "A QUIEN CORRESPONDA".
-  //   • último párrafo (nombre/cargo/dependencia) → centrado, en negrita,
-  //     con un espacio grande ARRIBA (~1 pulgada) para dejar lugar a la
-  //     firma física manuscrita.
-  //   • el resto                                  → justificado, espaciado normal.
   const parrafos = c.texto_generado.split('\n\n')
   const cuerpoHTML = parrafos
     .map((parrafo: string, i: number) => {
@@ -48,11 +37,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       let estilo = 'text-align:justify;margin:0 0 18px 0;'
       if (esFecha) estilo = 'text-align:right;margin:0 0 48px 0;'
       if (esFirma) estilo = 'text-align:center;font-weight:bold;margin:1in 0 0 0;'
-      return `<p style="${estilo}">${parrafo.replace(/\n/g, '<br/>')}</p>`
+      // 1) Escapar HTML básico (por seguridad, por si alguien mete < >)
+      // 2) Convertir marcadores @@texto@@ a <b>texto</b>
+      // 3) Saltos de línea simples a <br/>
+      const safe = parrafo
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+      const conNegrilla = safe.replace(/@@([^@]+)@@/g, '<b>$1</b>')
+      const conSaltos = conNegrilla.replace(/\n/g, '<br/>')
+      return `<p style="${estilo}">${conSaltos}</p>`
     })
     .join('\n')
 
-  const badgeClase = c.estado.replace(/_/g, '-') // pendiente_validacion → pendiente-validacion
+  const badgeClase = c.estado.replace(/_/g, '-')
 
   const html = `<!DOCTYPE html>
 <html lang="es">
