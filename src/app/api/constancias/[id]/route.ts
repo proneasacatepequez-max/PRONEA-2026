@@ -27,11 +27,10 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       .eq('id', id).single()
     if (error || !c) return err('Constancia no encontrada', 404)
 
-    if (s.rol === 'director') {
-      const { data: dir } = await supabaseAdmin.from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
-      const { data: insc } = await supabaseAdmin.from('inscripciones').select('sede_id').eq('id', c.inscripcion_id).maybeSingle()
-      if (!dir?.sede_id || insc?.sede_id !== dir.sede_id) return err('Sin permiso sobre esta constancia', 403)
-    } else if (s.rol === 'tecnico' && accion === 'marcar_exportado') {
+    // El director es validador GLOBAL — puede validar/rechazar cualquier
+    // constancia sin importar la sede. El técnico solo puede tocar las de
+    // sus propias inscripciones (y solo para marcar exportado).
+    if (s.rol === 'tecnico' && accion === 'marcar_exportado') {
       const { data: tec } = await supabaseAdmin.from('tecnicos').select('id').eq('usuario_id', s.sub).maybeSingle()
       const { data: insc } = await supabaseAdmin.from('inscripciones').select('tecnico_id').eq('id', c.inscripcion_id).maybeSingle()
       if (!tec?.id || insc?.tecnico_id !== tec.id) return err('Sin permiso sobre esta constancia', 403)
@@ -77,6 +76,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 }
 
+// DELETE → eliminar físicamente (solo admin)
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
