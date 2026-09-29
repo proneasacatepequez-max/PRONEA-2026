@@ -75,6 +75,16 @@ export function fechaLargaGT(d: Date = new Date()): string {
 // ── Texto completo de la constancia ─────────────────────────────────────
 // Los marcadores @@...@@ se reemplazan por <b>...</b> en el render
 // (imprimir/route.ts), para no guardar HTML crudo en BD.
+//
+// Reglas de "lugar" (IMPORTANTE — no confundir):
+//   • Encabezado de fecha ("Antigua Guatemala, 29 de septiembre...") →
+//     FIJO. Es donde se emite el documento.
+//   • Párrafo legal ("...en la modalidad X en <municipio>") → DINÁMICO.
+//     Es el municipio donde el estudiante RECIBE clases, o sea el
+//     municipio de la sede de la inscripción.
+//   • Cierre ("...en el municipio de Antigua Guatemala.") → FIJO.
+//     Es donde se firma la constancia (Coordinador Departamental DIGEEX
+//     con sede en Antigua Guatemala). NO cambia por sede.
 export function generarTextoConstancia(datos: {
   fechaActual: string
   nombreCompleto: string
@@ -85,7 +95,7 @@ export function generarTextoConstancia(datos: {
   cicloEscolar: number
   fechaInscripcion: string
   modalidad: string
-  municipio: string
+  municipio: string          // municipio de la SEDE (dinámico, solo párrafo legal)
   nombreFirmante: string
   cargoFirmante: string
   dependenciaFirmante: string | null
@@ -94,13 +104,17 @@ export function generarTextoConstancia(datos: {
     ? `${datos.codigoGrupoSireex}-${datos.cicloEscolar}`
     : `(sin grupo SIREEX asignado)`
 
+  // Municipio de la SEDE (donde el estudiante recibe clases). Si por
+  // alguna razón viene vacío, se usa Antigua Guatemala como respaldo.
+  const municipioSede = datos.municipio?.trim() || 'Antigua Guatemala'
+
   return `Antigua Guatemala, ${datos.fechaActual}
 
 A QUIEN CORRESPONDA
 
 De manera atenta hago de su conocimiento que el(la) @@${datos.nombreCompleto.toUpperCase()}@@ con Documento de Identificación CUI/DPI No. @@${datos.cui ?? 'PENDIENTE'}@@, con código de estudiante @@${datos.codigoEstudiante}@@.
 
-Actualmente se encuentra inscrito en el Sistema de Información y Registro Extraescolar – SIREEX- en ${datos.nombreEtapaFormateado}, en el grupo @@${grupo}@@ dentro de la formación educativa que maneja el Programa Nacional de Educación Alternativa - PRONEA, desde la fecha @@${datos.fechaInscripcion}@@. Así mismo se manifiesta que está llevando su proceso educativo en la modalidad @@${datos.modalidad}@@ en Antigua Guatemala.
+Actualmente se encuentra inscrito en el Sistema de Información y Registro Extraescolar – SIREEX- en ${datos.nombreEtapaFormateado}, en el grupo @@${grupo}@@ dentro de la formación educativa que maneja el Programa Nacional de Educación Alternativa - PRONEA, desde la fecha @@${datos.fechaInscripcion}@@. Así mismo se manifiesta que está llevando su proceso educativo en la modalidad @@${datos.modalidad}@@ en ${municipioSede}.
 
 Y para los usos legales que al interesado convenga, se extiende y firma la presente en el municipio de Antigua Guatemala.
 
@@ -110,12 +124,6 @@ ${datos.cargoFirmante}${datos.dependenciaFirmante ? '\n' + datos.dependenciaFirm
 }
 
 // ── Encabezado con logos dinámicos (desde info_establecimiento) ────────
-// NOTA: el documento original proponía una tabla configuracion_logos
-// (varios logos con posición/tamaño configurable), pero esa tabla no se
-// usa en ningún lado del sistema todavía. En cambio, info_establecimiento
-// ya tiene 4 campos de logo con una pantalla de admin funcionando
-// (Establecimiento → 🖼️ Logos) y dos de ellos ya están etiquetados
-// literalmente "Para documentos oficiales" — así que se usan esos.
 export async function obtenerLogosHeaderHTML(): Promise<string> {
   const { data: info } = await supabaseAdmin
     .from('info_establecimiento')
@@ -126,10 +134,7 @@ export async function obtenerLogosHeaderHTML(): Promise<string> {
   let logos = [info?.logo_mineduc_url, info?.logo_digeex_url, info?.logo_establecimiento_url]
     .filter(Boolean) as string[]
 
-  // Si no se llenó ninguno de los 3 logos "para documentos oficiales",
-  // se usa el logo general de PRONEA como respaldo.
   if (logos.length === 0 && info?.logo_url) logos = [info.logo_url]
-
   if (logos.length === 0) return ''
 
   const imgTag = (url: string) =>
@@ -138,7 +143,6 @@ export async function obtenerLogosHeaderHTML(): Promise<string> {
   if (logos.length === 1) {
     return `<div style="text-align:left;margin-bottom:24px">${imgTag(logos[0])}</div>`
   }
-  // 2 o 3 logos: distribuidos en una fila (izquierda…derecha)
   return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
     ${logos.map(imgTag).join('\n    ')}
   </div>`
