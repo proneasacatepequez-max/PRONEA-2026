@@ -51,7 +51,7 @@ export function generarTextoConstancia(datos: {
 
 A QUIEN CORRESPONDA
 
-De manera atenta hago de su conocimiento que el(la) ${datos.nombreCompleto.toUpperCase()} con Documento de Identificación CUI/DPI No. ${datos.cui ?? 'PENDIENTE'}, con código de estudiante ${datos.codigoEstudiante}.
+De manera atenta hago de su conocimiento que el(la) <b>${datos.nombreCompleto.toUpperCase()}</b> con Documento de Identificación CUI/DPI No. <b>${datos.cui ?? 'PENDIENTE'}</b>, con código de estudiante <b>${datos.codigoEstudiante}</b>.
 
 Actualmente se encuentra inscrito en el Sistema de Información y Registro Extraescolar – SIREEX- en ${datos.nombreEtapaFormateado}, en el grupo ${grupo} dentro de la formación educativa que maneja el Programa Nacional de Educación Alternativa - PRONEA, desde la fecha ${datos.fechaInscripcion}. Así mismo se manifiesta que está llevando su proceso educativo en la modalidad a ${datos.modalidad} en ${datos.municipio}.
 
