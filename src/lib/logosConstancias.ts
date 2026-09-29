@@ -17,12 +17,14 @@ export const POSICIONES_LOGO: { v: PosicionLogo; label: string }[] = [
 const MINEDUC_DEFECTO = '/images/logo-mineduc.png'
 const PRONEA_DEFECTO  = '/images/logo-pronea.png'
 
-// Si el campo está vacío o todavía tiene un enlace viejo de Google Drive
-// (que no carga como imagen), se usa el logo local por defecto.
+// Si el campo está vacío, tiene un enlace viejo de Google Drive, o no
+// parece una URL válida (no empieza con "/" ni "http"), se usa el logo
+// local por defecto.
 function urlLogo(url: unknown, respaldo: string): string {
   const u = typeof url === 'string' ? url.trim() : ''
   if (!u) return respaldo
-  if (/drive\.google\.com|docs\.google\.com/i.test(u)) return respaldo
+  if (!u.startsWith('/') && !/^https?:\/\//i.test(u)) return respaldo
+  if (/drive\.google\.com|docs\.google\.com|\/d\/[A-Za-z0-9_-]{20,}/i.test(u)) return respaldo
   return u
 }
 
@@ -45,7 +47,7 @@ export function construirHeaderConstancia(info: any): string {
 
   return `<div style="display:flex;justify-content:${justify};align-items:center;margin-bottom:24px">
     <img src="${escAttr(src)}" alt="Ministerio de Educación"
-         style="height:75px;max-width:230px;object-fit:contain" />
+         style="height:105px;max-width:320px;object-fit:contain" />
   </div>`
 }
 
