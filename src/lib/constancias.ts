@@ -63,7 +63,7 @@ export function formatearEtapaParaTexto(nombreEtapa: string): string {
     return `la ${ordinal} Etapa ${cicloTexto}`
   }
 
-  // 3) Fallback
+  // 3) Fallback para nombres no reconocidos
   return `la ${original}`
 }
 
@@ -110,6 +110,12 @@ ${datos.cargoFirmante}${datos.dependenciaFirmante ? '\n' + datos.dependenciaFirm
 }
 
 // ── Encabezado con logos dinámicos (desde info_establecimiento) ────────
+// NOTA: el documento original proponía una tabla configuracion_logos
+// (varios logos con posición/tamaño configurable), pero esa tabla no se
+// usa en ningún lado del sistema todavía. En cambio, info_establecimiento
+// ya tiene 4 campos de logo con una pantalla de admin funcionando
+// (Establecimiento → 🖼️ Logos) y dos de ellos ya están etiquetados
+// literalmente "Para documentos oficiales" — así que se usan esos.
 export async function obtenerLogosHeaderHTML(): Promise<string> {
   const { data: info } = await supabaseAdmin
     .from('info_establecimiento')
@@ -120,7 +126,10 @@ export async function obtenerLogosHeaderHTML(): Promise<string> {
   let logos = [info?.logo_mineduc_url, info?.logo_digeex_url, info?.logo_establecimiento_url]
     .filter(Boolean) as string[]
 
+  // Si no se llenó ninguno de los 3 logos "para documentos oficiales",
+  // se usa el logo general de PRONEA como respaldo.
   if (logos.length === 0 && info?.logo_url) logos = [info.logo_url]
+
   if (logos.length === 0) return ''
 
   const imgTag = (url: string) =>
@@ -129,6 +138,7 @@ export async function obtenerLogosHeaderHTML(): Promise<string> {
   if (logos.length === 1) {
     return `<div style="text-align:left;margin-bottom:24px">${imgTag(logos[0])}</div>`
   }
+  // 2 o 3 logos: distribuidos en una fila (izquierda…derecha)
   return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
     ${logos.map(imgTag).join('\n    ')}
   </div>`
