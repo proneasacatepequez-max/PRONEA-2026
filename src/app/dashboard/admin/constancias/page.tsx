@@ -91,7 +91,7 @@ export default function ConstanciasAdminPage() {
           <div className="text-xs text-gray-400">{filtrados.length} de {lista.length} · histórico completo del sistema</div>
         </div>
       </header>
-      <div className="pc max-w-4xl">
+      <div className="pc max-w-7xl">
         {msg && <div className={`alert ${msg.startsWith('❌') ? 'al-e' : 'al-s'} mb-4`}>{msg}</div>}
 
         <div className="card mb-4 flex gap-3 flex-wrap items-end">
@@ -116,48 +116,67 @@ export default function ConstanciasAdminPage() {
         ) : filtrados.length === 0 ? (
           <div className="card text-center py-12 text-gray-400">Sin constancias que coincidan</div>
         ) : (
-          <div className="space-y-2">
-            {filtrados.map((c: any) => {
-              const est = c.datos_estudiante_snapshot ?? {}
-              const ocupado = accionandoId === c.id
-              return (
-                <div key={c.id} className="card flex items-center justify-between gap-3 flex-wrap">
-                  <div>
-                    <div className="font-mono text-xs text-gray-400">{c.numero_constancia}</div>
-                    <div className="font-semibold text-sm">{est.nombre_completo}</div>
-                    <div className="text-xs text-gray-400">{est.codigo_estudiante} · {est.etapa?.nombre}</div>
-                    <span className={`badge text-xs mt-1 inline-block ${ESTADO_BADGE[c.estado] ?? 'badge-gray'}`}>{ESTADO_LABEL[c.estado] ?? c.estado}</span>
-                    {c.estado === 'rechazado' && c.motivo_rechazo && (
-                      <div className="text-xs text-red-600 mt-1">Motivo: {c.motivo_rechazo}</div>
-                    )}
-                  </div>
-                  <div className="flex gap-2 flex-wrap">
-                    <a href={`/api/constancias/${c.id}/imprimir`} target="_blank" rel="noreferrer" className="btn btn-g btn-sm whitespace-nowrap">
-                      👁️ Ver / Imprimir
-                    </a>
-                    {c.estado === 'pendiente_validacion' && (
-                      <button className="btn btn-p btn-sm whitespace-nowrap" disabled={ocupado} onClick={() => validar(c.id)}>
-                        {ocupado ? '⏳...' : '✔️ Validar'}
-                      </button>
-                    )}
-                    {c.estado !== 'anulado' && (
-                      <button className="btn btn-d btn-sm whitespace-nowrap" disabled={ocupado} onClick={() => anular(c.id)}>
-                        {ocupado ? '⏳...' : '🚫 Anular'}
-                      </button>
-                    )}
-                    <button
-                      className="btn btn-d btn-sm whitespace-nowrap"
-                      style={{ background: '#7f1d1d' }}
-                      disabled={ocupado}
-                      onClick={() => eliminar(c.id, c.numero_constancia)}
-                      title="Eliminar definitivamente de la base de datos"
-                    >
-                      {ocupado ? '⏳...' : '🗑️ Eliminar'}
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
+          <div className="card p-0 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
+                  <th className="text-left px-4 py-3 font-bold">Número</th>
+                  <th className="text-left px-4 py-3 font-bold">Estudiante</th>
+                  <th className="text-left px-4 py-3 font-bold">Código</th>
+                  <th className="text-left px-4 py-3 font-bold">Etapa</th>
+                  <th className="text-left px-4 py-3 font-bold">Estado</th>
+                  <th className="text-right px-4 py-3 font-bold">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtrados.map((c: any) => {
+                  const est = c.datos_estudiante_snapshot ?? {}
+                  const ocupado = accionandoId === c.id
+                  return (
+                    <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50/60 align-top">
+                      <td className="px-4 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">{c.numero_constancia}</td>
+                      <td className="px-4 py-3 font-semibold">{est.nombre_completo}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{est.codigo_estudiante}</td>
+                      <td className="px-4 py-3 text-xs text-gray-600">{est.etapa?.nombre}</td>
+                      <td className="px-4 py-3">
+                        <span className={`badge text-xs ${ESTADO_BADGE[c.estado] ?? 'badge-gray'}`}>
+                          {ESTADO_LABEL[c.estado] ?? c.estado}
+                        </span>
+                        {c.estado === 'rechazado' && c.motivo_rechazo && (
+                          <div className="text-xs text-red-600 mt-1">Motivo: {c.motivo_rechazo}</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1.5 flex-wrap justify-end">
+                          <a href={`/api/constancias/${c.id}/imprimir`} target="_blank" rel="noreferrer" className="btn btn-g btn-sm whitespace-nowrap">
+                            👁️ Ver
+                          </a>
+                          {c.estado === 'pendiente_validacion' && (
+                            <button className="btn btn-p btn-sm whitespace-nowrap" disabled={ocupado} onClick={() => validar(c.id)}>
+                              {ocupado ? '⏳' : '✔️ Validar'}
+                            </button>
+                          )}
+                          {c.estado !== 'anulado' && (
+                            <button className="btn btn-d btn-sm whitespace-nowrap" disabled={ocupado} onClick={() => anular(c.id)}>
+                              {ocupado ? '⏳' : '🚫 Anular'}
+                            </button>
+                          )}
+                          <button
+                            className="btn btn-d btn-sm whitespace-nowrap"
+                            style={{ background: '#7f1d1d' }}
+                            disabled={ocupado}
+                            onClick={() => eliminar(c.id, c.numero_constancia)}
+                            title="Eliminar definitivamente"
+                          >
+                            {ocupado ? '⏳' : '🗑️ Eliminar'}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>
