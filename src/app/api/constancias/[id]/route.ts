@@ -11,26 +11,22 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
     const { accion, motivo } = await req.json().catch(() => ({}))
 
-    // Permisos por acción
     if (accion === 'validar' || accion === 'rechazar') {
       if (s.rol !== 'director' && s.rol !== 'administrador') return err('Sin permiso', 403)
     } else if (accion === 'anular') {
       if (s.rol !== 'administrador') return err('Solo el administrador puede anular', 403)
     } else if (accion === 'marcar_exportado') {
-      // Técnico, director y admin pueden marcar exportado
       if (!['tecnico', 'director', 'administrador'].includes(s.rol)) return err('Sin permiso', 403)
     } else {
       return err('Acción no reconocida', 400)
     }
 
-    // Leer la constancia
     const { data: c, error } = await supabaseAdmin
       .from('constancias_inscripcion')
       .select('id, estado, inscripcion_id')
       .eq('id', id).single()
     if (error || !c) return err('Constancia no encontrada', 404)
 
-    // Resguardo de alcance para director
     if (s.rol === 'director') {
       const { data: dir } = await supabaseAdmin.from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
       const { data: insc } = await supabaseAdmin.from('inscripciones').select('sede_id').eq('id', c.inscripcion_id).maybeSingle()
@@ -81,7 +77,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 }
 
-// DELETE → eliminar físicamente (solo admin)
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await params
