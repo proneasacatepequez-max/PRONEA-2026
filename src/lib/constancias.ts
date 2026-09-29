@@ -1,12 +1,6 @@
 // src/lib/constancias.ts
 import { supabaseAdmin } from './supabase'
 
-// ── Formateo de la etapa a lenguaje formal ──────────────────────────────
-// El campo real (etapas.nombre) es corto ("1a. Etapa Básico"), pero el
-// texto oficial de la constancia usa una forma más larga y formal
-// ("la Primera Etapa del Ciclo de Educación Básica"). Este mapeo es un
-// mejor esfuerzo basado en los nombres de etapa vistos hasta ahora —
-// revísalo si agregas una etapa con un nombre que no calce aquí.
 const ORDINALES: Record<string, string> = {
   '1a': 'Primera', '2a': 'Segunda', '3a': 'Tercera',
   '1ro': 'Primer', '2do': 'Segundo', '3ro': 'Tercer', '4to': 'Cuarto', '5to': 'Quinto',
@@ -16,27 +10,31 @@ export function formatearEtapaParaTexto(nombreEtapa: string): string {
   if (!nombreEtapa) return ''
   const m = nombreEtapa.match(/^(\d+(?:a|ro|do|to))\.?\s+Etapa\s+(.+)$/i)
   if (!m) return `la ${nombreEtapa}`
-
   const [, prefijo, resto] = m
   const ordinal = ORDINALES[prefijo.toLowerCase()] ?? prefijo
   const restoLower = resto.trim().toLowerCase()
-
   let cicloTexto = `del Ciclo de Educación ${resto.trim()}`
   if (restoLower.includes('bach')) cicloTexto = 'del Ciclo de Educación Diversificada'
-
   return `la ${ordinal} Etapa ${cicloTexto}`
 }
 
+// ── Fecha en formato largo para el encabezado ──────────────────────────
+export function fechaLargaGT(d: Date = new Date()): string {
+  return d.toLocaleDateString('es-GT', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
 // ── Texto completo de la constancia ─────────────────────────────────────
+// Los marcadores {{...}} se reemplazan en el render (imprimir/route.ts)
+// para poder aplicar negrilla sin guardar HTML crudo en BD.
 export function generarTextoConstancia(datos: {
-  fechaActual: string          // ya formateada, ej. "23 de Septiembre de 2026"
+  fechaActual: string
   nombreCompleto: string
   cui: string | null
   codigoEstudiante: string
   nombreEtapaFormateado: string
   codigoGrupoSireex: string | null
   cicloEscolar: number
-  fechaInscripcion: string     // formateada dd/mm/aaaa
+  fechaInscripcion: string
   modalidad: string
   municipio: string
   nombreFirmante: string
@@ -47,28 +45,22 @@ export function generarTextoConstancia(datos: {
     ? `${datos.codigoGrupoSireex}-${datos.cicloEscolar}`
     : `(sin grupo SIREEX asignado)`
 
+  // Marcadores @@...@@ para negrilla — se sustituyen al renderizar.
   return `Antigua Guatemala, ${datos.fechaActual}
 
 A QUIEN CORRESPONDA
 
-De manera atenta hago de su conocimiento que el(la) <b>${datos.nombreCompleto.toUpperCase()}</b> con Documento de Identificación CUI/DPI No. <b>${datos.cui ?? 'PENDIENTE'}</b>, con código de estudiante <b>${datos.codigoEstudiante}</b>.
+De manera atenta hago de su conocimiento que el(la) @@${datos.nombreCompleto.toUpperCase()}@@ con Documento de Identificación CUI/DPI No. @@${datos.cui ?? 'PENDIENTE'}@@, con código de estudiante @@${datos.codigoEstudiante}@@.
 
-Actualmente se encuentra inscrito en el Sistema de Información y Registro Extraescolar – SIREEX- en ${datos.nombreEtapaFormateado}, en el grupo ${grupo} dentro de la formación educativa que maneja el Programa Nacional de Educación Alternativa - PRONEA, desde la fecha ${datos.fechaInscripcion}. Así mismo se manifiesta que está llevando su proceso educativo en la modalidad a ${datos.modalidad} en ${datos.municipio}.
+Actualmente se encuentra inscrito en el Sistema de Información y Registro Extraescolar – SIREEX- en ${datos.nombreEtapaFormateado}, en el grupo @@${grupo}@@ dentro de la formación educativa que maneja el Programa Nacional de Educación Alternativa - PRONEA, desde la fecha @@${datos.fechaInscripcion}@@. Así mismo se manifiesta que está llevando su proceso educativo en la modalidad a @@${datos.modalidad}@@ en Antigua Guatemala.
 
-Y para los usos legales que al interesado convenga, se extiende y firma la presente en el municipio de ${datos.municipio}.
+Y para los usos legales que al interesado convenga, se extiende y firma la presente en el municipio de Antigua Guatemala.
 
 
 ${datos.nombreFirmante}
 ${datos.cargoFirmante}${datos.dependenciaFirmante ? '\n' + datos.dependenciaFirmante : ''}`
 }
 
-// ── Encabezado con logos dinámicos (desde info_establecimiento) ────────
-// NOTA: el documento original proponía una tabla configuracion_logos
-// (varios logos con posición/tamaño configurable), pero esa tabla no se
-// usa en ningún lado del sistema todavía. En cambio, info_establecimiento
-// ya tiene 4 campos de logo con una pantalla de admin funcionando
-// (Establecimiento → 🖼️ Logos) y dos de ellos ya están etiquetados
-// literalmente "Para documentos oficiales" — así que se usan esos.
 export async function obtenerLogosHeaderHTML(): Promise<string> {
   const { data: info } = await supabaseAdmin
     .from('info_establecimiento')
@@ -79,11 +71,7 @@ export async function obtenerLogosHeaderHTML(): Promise<string> {
   let logos = [info?.logo_mineduc_url, info?.logo_digeex_url, info?.logo_establecimiento_url]
     .filter(Boolean) as string[]
 
-  // Si no se llenó ninguno de los 3 logos "para documentos oficiales",
-  // se usa el logo general de PRONEA como respaldo — mejor mostrar algo
-  // que dejar el encabezado completamente vacío.
   if (logos.length === 0 && info?.logo_url) logos = [info.logo_url]
-
   if (logos.length === 0) return ''
 
   const imgTag = (url: string) =>
@@ -92,7 +80,6 @@ export async function obtenerLogosHeaderHTML(): Promise<string> {
   if (logos.length === 1) {
     return `<div style="text-align:left;margin-bottom:24px">${imgTag(logos[0])}</div>`
   }
-  // 2 o 3 logos: distribuidos en una fila (izquierda…derecha)
   return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px">
     ${logos.map(imgTag).join('\n    ')}
   </div>`
