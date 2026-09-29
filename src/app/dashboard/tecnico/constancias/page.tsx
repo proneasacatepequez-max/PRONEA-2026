@@ -11,6 +11,14 @@ const ESTADO_LABEL: Record<string, string> = {
   rechazado: '❌ Rechazada', exportado: '✅ Exportada', anulado: '🚫 Anulada',
 }
 
+// Formatea YYYY-MM-DD a dd/mm/aaaa para mostrar el hint de la fecha en BD
+function fechaCorta(fecha: string | null | undefined): string {
+  if (!fecha) return '—'
+  const d = new Date(fecha + 'T00:00:00')
+  if (isNaN(d.getTime())) return '—'
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
+}
+
 export default function ConstanciasPage() {
   // — Generador —
   const [q, setQ]                 = useState('')
@@ -23,6 +31,7 @@ export default function ConstanciasPage() {
   const [firmanteId, setFirmanteId] = useState('')
   const [grupoSireexManual, setGrupoSireexManual] = useState('')
   const [modalidadManual, setModalidadManual] = useState('')
+  const [fechaInscripcionManual, setFechaInscripcionManual] = useState('')  // YYYY-MM-DD
   const [generando, setGenerando] = useState(false)
 
   // — Histórico global (tabla) —
@@ -34,6 +43,7 @@ export default function ConstanciasPage() {
   const [msg, setMsg] = useState('')
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500) }
 
+  // Cargar firmantes al montar
   useEffect(() => {
     fetch('/api/firmantes-constancias?activos=1')
       .then(r => r.json())
@@ -47,6 +57,7 @@ export default function ConstanciasPage() {
       .catch(() => {})
   }, [])
 
+  // Búsqueda con debounce
   useEffect(() => {
     if (q.trim().length < 3) { setResultados([]); return }
     setBuscando(true)
@@ -77,6 +88,11 @@ export default function ConstanciasPage() {
     setResultados([]); setQ('')
   }
 
+  const limpiarFormulario = () => {
+    setEstSel(null); setInscSel(null)
+    setGrupoSireexManual(''); setModalidadManual(''); setFechaInscripcionManual('')
+  }
+
   const generar = async () => {
     if (!inscSel) { flash('❌ Selecciona una inscripción'); return }
     setGenerando(true)
@@ -88,6 +104,7 @@ export default function ConstanciasPage() {
           firmante_id: firmanteId || undefined,
           grupo_sireex_manual: grupoSireexManual.trim() || undefined,
           modalidad_manual: modalidadManual.trim() || undefined,
+          fecha_inscripcion_manual: fechaInscripcionManual.trim() || undefined,
         }),
       })
       const texto = await res.text()
@@ -95,8 +112,7 @@ export default function ConstanciasPage() {
       try { d = texto ? JSON.parse(texto) : {} } catch { d = { error: `Respuesta inesperada (HTTP ${res.status}): ${texto.slice(0, 200)}` } }
       if (!res.ok) { flash('❌ ' + (d.error ?? `Error al generar (HTTP ${res.status})`)); return }
       flash('✅ Constancia generada — enviada a validación del director')
-      setEstSel(null); setInscSel(null)
-      setGrupoSireexManual(''); setModalidadManual('')
+      limpiarFormulario()
       cargarGlobal()
     } catch (e: any) { flash('❌ No se pudo conectar: ' + (e?.message ?? 'error desconocido')) }
     finally { setGenerando(false) }
@@ -108,6 +124,11 @@ export default function ConstanciasPage() {
     const txt = `${est.nombre_completo ?? ''} ${est.codigo_estudiante ?? ''} ${c.numero_constancia}`.toLowerCase()
     return txt.includes(buscarGlobal.toLowerCase())
   })
+
+  // Hint: fecha de inscripción en BD (si el endpoint la devuelve)
+  const fechaBDHint = inscSel?.fecha_inscripcion
+    ? ` (registrada en el sistema: ${fechaCorta(inscSel.fecha_inscripcion)})`
+    : ''
 
   return (
     <div className="ap">
@@ -161,6 +182,7 @@ export default function ConstanciasPage() {
             </>
           ) : (
             <>
+              {/* Estudiante seleccionado */}
               <div className="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
                 <div>
                   <div className="font-bold">
@@ -170,11 +192,12 @@ export default function ConstanciasPage() {
                     {estSel.codigo_estudiante} · {estSel.cui_pendiente ? 'CUI pendiente' : estSel.cui}
                   </div>
                 </div>
-                <button className="btn btn-g btn-sm" onClick={() => { setEstSel(null); setInscSel(null) }}>
+                <button className="btn btn-g btn-sm" onClick={limpiarFormulario}>
                   ← Cambiar
                 </button>
               </div>
 
+              {/* Inscripción si hay varias */}
               {(estSel.inscripciones?.length ?? 0) > 1 && (
                 <div className="mb-4">
                   <label className="lbl">2. Inscripción (etapa / ciclo)</label>
@@ -192,6 +215,7 @@ export default function ConstanciasPage() {
                 </div>
               )}
 
+              {/* Firmante */}
               <div className="mb-4">
                 <label className="lbl">3. Firmante</label>
                 {firmantes.length === 0 ? (
@@ -210,6 +234,7 @@ export default function ConstanciasPage() {
                 )}
               </div>
 
+              {/* Grupo SIREEX */}
               <div className="mb-4">
                 <label className="lbl">4. Grupo SIREEX (opcional)</label>
                 <input
@@ -223,6 +248,7 @@ export default function ConstanciasPage() {
                 </div>
               </div>
 
+              {/* Modalidad */}
               <div className="mb-4">
                 <label className="lbl">5. Modalidad (opcional)</label>
                 <input
@@ -233,6 +259,20 @@ export default function ConstanciasPage() {
                 />
                 <div className="text-xs text-gray-400 mt-1">
                   Si lo dejas vacío, se usará la modalidad registrada en la inscripción.
+                </div>
+              </div>
+
+              {/* Fecha de inscripción manual */}
+              <div className="mb-4">
+                <label className="lbl">6. Fecha de inscripción (opcional)</label>
+                <input
+                  type="date"
+                  className="inp"
+                  value={fechaInscripcionManual}
+                  onChange={e => setFechaInscripcionManual(e.target.value)}
+                />
+                <div className="text-xs text-gray-400 mt-1">
+                  Si la dejas vacía, se usará la fecha de inscripción registrada en el sistema{fechaBDHint}.
                 </div>
               </div>
 
