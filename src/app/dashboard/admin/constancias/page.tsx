@@ -17,7 +17,7 @@ export default function ConstanciasAdminPage() {
   const [buscar, setBuscar]   = useState('')
   const [filtroEstado, setFiltroEstado] = useState('')
   const [msg, setMsg] = useState('')
-  const [anulandoId, setAnulandoId] = useState<string | null>(null)
+  const [accionandoId, setAccionandoId] = useState<string | null>(null)
 
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3000) }
 
@@ -32,22 +32,48 @@ export default function ConstanciasAdminPage() {
 
   useEffect(() => { cargar() }, [cargar])
 
+  const validar = async (id: string) => {
+    setAccionandoId(id)
+    try {
+      const res = await fetch(`/api/constancias/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accion: 'validar' }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al validar')); return }
+      flash('✅ Constancia validada')
+      cargar()
+    } catch (e: any) { flash('❌ No se pudo conectar: ' + (e?.message ?? '')) }
+    finally { setAccionandoId(null) }
+  }
+
   const anular = async (id: string) => {
     if (!confirm('¿Anular esta constancia? Esta acción no se puede deshacer.')) return
-    setAnulandoId(id)
+    setAccionandoId(id)
     try {
       const res = await fetch(`/api/constancias/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accion: 'anular' }),
       })
-      const texto = await res.text()
-      let d: any = {}
-      try { d = texto ? JSON.parse(texto) : {} } catch { d = { error: `HTTP ${res.status}` } }
+      const d = await res.json().catch(() => ({}))
       if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al anular')); return }
       flash('✅ Constancia anulada')
       cargar()
     } catch (e: any) { flash('❌ No se pudo conectar: ' + (e?.message ?? '')) }
-    finally { setAnulandoId(null) }
+    finally { setAccionandoId(null) }
+  }
+
+  const eliminar = async (id: string, numero: string) => {
+    if (!confirm(`¿ELIMINAR definitivamente la constancia ${numero}?\n\nEsta acción borra el registro de la base de datos y NO se puede deshacer.`)) return
+    setAccionandoId(id)
+    try {
+      const res = await fetch(`/api/constancias/${id}`, { method: 'DELETE' })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { flash('❌ ' + (d.error ?? 'Error al eliminar')); return }
+      flash('🗑️ Constancia eliminada')
+      cargar()
+    } catch (e: any) { flash('❌ No se pudo conectar: ' + (e?.message ?? '')) }
+    finally { setAccionandoId(null) }
   }
 
   const filtrados = lista.filter((c: any) => {
@@ -93,6 +119,7 @@ export default function ConstanciasAdminPage() {
           <div className="space-y-2">
             {filtrados.map((c: any) => {
               const est = c.datos_estudiante_snapshot ?? {}
+              const ocupado = accionandoId === c.id
               return (
                 <div key={c.id} className="card flex items-center justify-between gap-3 flex-wrap">
                   <div>
@@ -104,15 +131,29 @@ export default function ConstanciasAdminPage() {
                       <div className="text-xs text-red-600 mt-1">Motivo: {c.motivo_rechazo}</div>
                     )}
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <a href={`/api/constancias/${c.id}/imprimir`} target="_blank" rel="noreferrer" className="btn btn-g btn-sm whitespace-nowrap">
                       👁️ Ver / Imprimir
                     </a>
-                    {c.estado !== 'anulado' && (
-                      <button className="btn btn-d btn-sm" disabled={anulandoId === c.id} onClick={() => anular(c.id)}>
-                        {anulandoId === c.id ? '⏳...' : '🚫 Anular'}
+                    {c.estado === 'pendiente_validacion' && (
+                      <button className="btn btn-p btn-sm whitespace-nowrap" disabled={ocupado} onClick={() => validar(c.id)}>
+                        {ocupado ? '⏳...' : '✔️ Validar'}
                       </button>
                     )}
+                    {c.estado !== 'anulado' && (
+                      <button className="btn btn-d btn-sm whitespace-nowrap" disabled={ocupado} onClick={() => anular(c.id)}>
+                        {ocupado ? '⏳...' : '🚫 Anular'}
+                      </button>
+                    )}
+                    <button
+                      className="btn btn-d btn-sm whitespace-nowrap"
+                      style={{ background: '#7f1d1d' }}
+                      disabled={ocupado}
+                      onClick={() => eliminar(c.id, c.numero_constancia)}
+                      title="Eliminar definitivamente de la base de datos"
+                    >
+                      {ocupado ? '⏳...' : '🗑️ Eliminar'}
+                    </button>
                   </div>
                 </div>
               )
