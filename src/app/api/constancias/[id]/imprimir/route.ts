@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession } from '@/lib/auth'
-import { obtenerLogosHeaderHTML } from '@/lib/constancias'
+import { obtenerLogosConstanciaHTML as obtenerLogosHeaderHTML } from '@/lib/logosConstancias'
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
