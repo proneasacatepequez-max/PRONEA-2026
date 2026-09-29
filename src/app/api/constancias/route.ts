@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
     const s = await getSession(req)
     if (!s || !ROLES_GENERAN.includes(s.rol)) return err('Sin permiso', 403)
 
-    const { inscripcion_id, firmante_id } = await req.json().catch(() => ({}))
+    const { inscripcion_id, firmante_id, grupo_sireex_manual } = await req.json().catch(() => ({}))
     if (!inscripcion_id) return err('inscripcion_id requerido', 400)
 
     // 1) Inscripción + estudiante + etapa + sede + modalidad + técnico, todo
@@ -56,13 +56,17 @@ export async function POST(req: NextRequest) {
 
     if (!est) return err('No se encontró el estudiante asociado a esta inscripción', 404)
 
-    // 2) Código de grupo SIREEX (si ya fue asignado)
-    const { data: grupoRow } = await supabaseAdmin
-      .from('inscripcion_grupo_sireex')
-      .select('grupo_sireex:grupos_sireex(codigo)')
-      .eq('inscripcion_id', inscripcion_id)
-      .maybeSingle()
-    const codigoGrupoSireex = (grupoRow?.grupo_sireex as any)?.codigo ?? null
+    // 2) Código de grupo SIREEX — si el técnico lo escribió a mano, ese
+    //    manda; si no, se busca el que ya esté asignado en el sistema.
+    let codigoGrupoSireex: string | null = grupo_sireex_manual?.trim() || null
+    if (!codigoGrupoSireex) {
+      const { data: grupoRow } = await supabaseAdmin
+        .from('inscripcion_grupo_sireex')
+        .select('grupo_sireex:grupos_sireex(codigo)')
+        .eq('inscripcion_id', inscripcion_id)
+        .maybeSingle()
+      codigoGrupoSireex = (grupoRow?.grupo_sireex as any)?.codigo ?? null
+    }
 
     // 3) Firmante (opcional en el body, si no viene se usa el predeterminado activo)
     let firmante: any = null
@@ -183,16 +187,33 @@ export async function GET(req: NextRequest) {
     // El director solo ve las constancias de estudiantes de SU sede —
     // igual que el resto de bandejas del director en este sistema.
     if (s.rol === 'director') {
-      const { data: dir } = await supabaseAdmin.from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
+      const { data: dir } = await supabaseAdmin.from('directores').select('sede_id, sede:sedes(nombre)').eq('usuario_id', s.sub).maybeSingle()
       if (!dir?.sede_id) {
         return ok({ data: [], aviso: 'No se encontró tu perfil de director (o no tiene una sede asignada) — por eso no se puede filtrar ninguna constancia. Pide al administrador que revise tu usuario en Usuarios.' })
       }
+      const nombreSede = (dir.sede as any)?.nombre ?? 'tu sede'
       const { data: inscsDeLaSede } = await supabaseAdmin.from('inscripciones').select('id').eq('sede_id', dir.sede_id)
       const idsPermitidos = (inscsDeLaSede ?? []).map((i: any) => i.id)
       if (idsPermitidos.length === 0) {
-        return ok({ data: [], aviso: 'Tu sede no tiene ninguna inscripción registrada todavía.' })
+        return ok({ data: [], aviso: `${nombreSede} no tiene ninguna inscripción registrada todavía.` })
       }
       q = q.in('inscripcion_id', idsPermitidos)
+
+      const { data, error } = await q.order('generado_en', { ascending: false }).limit(200)
+      if (error) return err(error.message, 500)
+
+      // Diagnóstico: si no hay ninguna en SU sede pero sí existen pendientes
+      // en otras sedes, se avisa explícitamente — así se distingue "no hay
+      // nada que validar" de "hay algo pero no es de tu sede".
+      if ((data ?? []).length === 0 && (estado === 'pendiente_validacion' || !estado)) {
+        const { count } = await supabaseAdmin.from('constancias_inscripcion')
+          .select('*', { count: 'exact', head: true }).eq('estado', 'pendiente_validacion')
+        if ((count ?? 0) > 0) {
+          return ok({ data: [], aviso: `No hay constancias pendientes en ${nombreSede}. Sí hay ${count} pendiente(s) en total en el sistema, pero de otra(s) sede(s) — revisa a qué sede pertenece la inscripción del estudiante.` })
+        }
+      }
+
+      return ok({ data: data ?? [] })
     }
 
     const { data, error } = await q.order('generado_en', { ascending: false }).limit(200)
