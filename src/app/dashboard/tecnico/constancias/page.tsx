@@ -34,7 +34,6 @@ export default function ConstanciasPage() {
   const [msg, setMsg] = useState('')
   const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(''), 3500) }
 
-  // Cargar firmantes al montar
   useEffect(() => {
     fetch('/api/firmantes-constancias?activos=1')
       .then(r => r.json())
@@ -48,7 +47,6 @@ export default function ConstanciasPage() {
       .catch(() => {})
   }, [])
 
-  // Búsqueda con debounce
   useEffect(() => {
     if (q.trim().length < 3) { setResultados([]); return }
     setBuscando(true)
@@ -97,7 +95,6 @@ export default function ConstanciasPage() {
       try { d = texto ? JSON.parse(texto) : {} } catch { d = { error: `Respuesta inesperada (HTTP ${res.status}): ${texto.slice(0, 200)}` } }
       if (!res.ok) { flash('❌ ' + (d.error ?? `Error al generar (HTTP ${res.status})`)); return }
       flash('✅ Constancia generada — enviada a validación del director')
-      // limpiar
       setEstSel(null); setInscSel(null)
       setGrupoSireexManual(''); setModalidadManual('')
       cargarGlobal()
@@ -121,7 +118,7 @@ export default function ConstanciasPage() {
         </div>
       </header>
 
-      <div className="pc max-w-4xl">
+      <div className="pc max-w-7xl">
         {msg && <div className={`alert ${msg.startsWith('❌') ? 'al-e' : 'al-s'} mb-4`}>{msg}</div>}
 
         {/* ══════════ GENERADOR ══════════ */}
@@ -164,7 +161,6 @@ export default function ConstanciasPage() {
             </>
           ) : (
             <>
-              {/* Estudiante seleccionado */}
               <div className="flex items-start justify-between gap-3 mb-4 pb-3 border-b border-gray-100">
                 <div>
                   <div className="font-bold">
@@ -179,7 +175,6 @@ export default function ConstanciasPage() {
                 </button>
               </div>
 
-              {/* Inscripción si hay varias */}
               {(estSel.inscripciones?.length ?? 0) > 1 && (
                 <div className="mb-4">
                   <label className="lbl">2. Inscripción (etapa / ciclo)</label>
@@ -197,7 +192,6 @@ export default function ConstanciasPage() {
                 </div>
               )}
 
-              {/* Firmante */}
               <div className="mb-4">
                 <label className="lbl">3. Firmante</label>
                 {firmantes.length === 0 ? (
@@ -216,7 +210,6 @@ export default function ConstanciasPage() {
                 )}
               </div>
 
-              {/* Grupo SIREEX */}
               <div className="mb-4">
                 <label className="lbl">4. Grupo SIREEX (opcional)</label>
                 <input
@@ -230,14 +223,13 @@ export default function ConstanciasPage() {
                 </div>
               </div>
 
-              {/* Modalidad manual */}
               <div className="mb-4">
                 <label className="lbl">5. Modalidad (opcional)</label>
                 <input
                   className="inp"
                   value={modalidadManual}
                   onChange={e => setModalidadManual(e.target.value)}
-                  placeholder="Ej: Presencial, Semipresencial, A distancia — vacío = usa la del sistema"
+                  placeholder="Ej: Presencial, Semipresencial, A distancia, Virtual — vacío = usa la del sistema"
                 />
                 <div className="text-xs text-gray-400 mt-1">
                   Si lo dejas vacío, se usará la modalidad registrada en la inscripción.
@@ -255,11 +247,13 @@ export default function ConstanciasPage() {
           )}
         </div>
 
-        {/* ══════════ HISTÓRICO COMPLETO ══════════ */}
-        <div className="card">
-          <div className="card-title text-sm mb-3">📋 Histórico completo de constancias</div>
+        {/* ══════════ HISTÓRICO (TABLA HORIZONTAL) ══════════ */}
+        <div className="card p-0 overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-wrap gap-3">
+            <div className="card-title text-sm m-0">📋 Histórico completo de constancias</div>
+          </div>
 
-          <div className="flex gap-3 flex-wrap items-end mb-4">
+          <div className="px-4 py-3 flex gap-3 flex-wrap items-end border-b border-gray-100">
             <div className="flex-1 min-w-[12rem]">
               <label className="lbl">Buscar</label>
               <input
@@ -281,44 +275,56 @@ export default function ConstanciasPage() {
           </div>
 
           {loadingGlobal ? (
-            <div className="flex justify-center py-8">
+            <div className="flex justify-center py-12">
               <div className="w-8 h-8 border-2 border-pronea border-t-transparent rounded-full animate-spin" />
             </div>
           ) : listaFiltradaGlobal.length === 0 ? (
-            <div className="text-center py-8 text-gray-400 text-sm">Sin constancias que coincidan</div>
+            <div className="text-center py-12 text-gray-400 text-sm">Sin constancias que coincidan</div>
           ) : (
-            <div className="space-y-2">
-              {listaFiltradaGlobal.map((c: any) => {
-                const est = c.datos_estudiante_snapshot ?? {}
-                return (
-                  <div
-                    key={c.id}
-                    className="flex items-center justify-between gap-3 flex-wrap border border-gray-100 rounded-xl px-3 py-2"
-                  >
-                    <div>
-                      <div className="font-mono text-xs text-gray-400">{c.numero_constancia}</div>
-                      <div className="font-semibold text-sm">{est.nombre_completo}</div>
-                      <div className="text-xs text-gray-400">
-                        {est.codigo_estudiante} · {est.etapa?.nombre}
-                      </div>
-                      <span className={`badge text-xs mt-1 inline-block ${ESTADO_BADGE[c.estado] ?? 'badge-gray'}`}>
-                        {ESTADO_LABEL[c.estado] ?? c.estado}
-                      </span>
-                      {c.estado === 'rechazado' && c.motivo_rechazo && (
-                        <div className="text-xs text-red-600 mt-1">Motivo: {c.motivo_rechazo}</div>
-                      )}
-                    </div>
-                    <a
-                      href={`/api/constancias/${c.id}/imprimir`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="btn btn-g btn-sm whitespace-nowrap"
-                    >
-                      👁️ Ver / Imprimir
-                    </a>
-                  </div>
-                )
-              })}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gray-50 text-gray-600 text-xs uppercase tracking-wide">
+                    <th className="text-left px-4 py-3 font-bold">Número</th>
+                    <th className="text-left px-4 py-3 font-bold">Estudiante</th>
+                    <th className="text-left px-4 py-3 font-bold">Código</th>
+                    <th className="text-left px-4 py-3 font-bold">Etapa</th>
+                    <th className="text-left px-4 py-3 font-bold">Estado</th>
+                    <th className="text-right px-4 py-3 font-bold">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listaFiltradaGlobal.map((c: any) => {
+                    const est = c.datos_estudiante_snapshot ?? {}
+                    return (
+                      <tr key={c.id} className="border-t border-gray-100 hover:bg-gray-50/60 align-top">
+                        <td className="px-4 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">{c.numero_constancia}</td>
+                        <td className="px-4 py-3 font-semibold">{est.nombre_completo}</td>
+                        <td className="px-4 py-3 font-mono text-xs">{est.codigo_estudiante}</td>
+                        <td className="px-4 py-3 text-xs text-gray-600">{est.etapa?.nombre}</td>
+                        <td className="px-4 py-3">
+                          <span className={`badge text-xs ${ESTADO_BADGE[c.estado] ?? 'badge-gray'}`}>
+                            {ESTADO_LABEL[c.estado] ?? c.estado}
+                          </span>
+                          {c.estado === 'rechazado' && c.motivo_rechazo && (
+                            <div className="text-xs text-red-600 mt-1">Motivo: {c.motivo_rechazo}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <a
+                            href={`/api/constancias/${c.id}/imprimir`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="btn btn-g btn-sm whitespace-nowrap"
+                          >
+                            👁️ Ver / Imprimir
+                          </a>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
