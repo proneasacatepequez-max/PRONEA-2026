@@ -35,6 +35,7 @@ const NAV: Record<RolUsuario, { section: string; items: { href: string; icon: st
       { href: '/dashboard/admin/recursos', icon: '🎬', label: 'Recursos'        },
       { href: '/dashboard/admin/ajustes',  icon: '♿', label: 'Tipos de Ajuste' },
       { href: '/dashboard/admin/firmantes-constancias', icon: '✍️', label: 'Firmantes de Constancias' },
+      { href: '/dashboard/admin/constancias', icon: '📄', label: 'Constancias Generadas' },
     ]},
     { section: 'SIREEX', items: [
       { href: '/dashboard/admin/sireex', icon: '📤', label: 'Grupos SIREEX' },
