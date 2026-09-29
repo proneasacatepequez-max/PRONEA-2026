@@ -19,12 +19,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
   if (error || !c) return new NextResponse('Constancia no encontrada', { status: 404 })
 
-  // Resguardo de alcance
-  if (s.rol === 'director') {
-    const { data: dir } = await supabaseAdmin.from('directores').select('sede_id').eq('usuario_id', s.sub).maybeSingle()
-    const { data: insc } = await supabaseAdmin.from('inscripciones').select('sede_id').eq('id', c.inscripcion_id).maybeSingle()
-    if (!dir?.sede_id || insc?.sede_id !== dir.sede_id) return new NextResponse('Sin permiso', { status: 403 })
-  } else if (s.rol === 'tecnico') {
+  // El director es validador GLOBAL — puede ver cualquier constancia.
+  // El técnico solo las de sus propias inscripciones.
+  if (s.rol === 'tecnico') {
     const { data: tec } = await supabaseAdmin.from('tecnicos').select('id').eq('usuario_id', s.sub).maybeSingle()
     const { data: insc } = await supabaseAdmin.from('inscripciones').select('tecnico_id').eq('id', c.inscripcion_id).maybeSingle()
     if (!tec?.id || insc?.tecnico_id !== tec.id) return new NextResponse('Sin permiso', { status: 403 })
@@ -37,6 +34,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     .replace(/<b>/g, '@@')
     .replace(/<\/b>/g, '@@')
 
+  // El texto viene con saltos de línea planos — los convertimos a <br>
+  // respetando los párrafos (doble salto = párrafo nuevo).
+  //   • 1er párrafo (lugar y fecha)              → alineado a la derecha,
+  //     con un espacio grande debajo antes de "A QUIEN CORRESPONDA".
+  //   • último párrafo (nombre/cargo/dependencia) → centrado, en negrita,
+  //     con un espacio grande ARRIBA (~1 pulgada) para dejar lugar a la
+  //     firma física manuscrita.
+  //   • el resto                                  → justificado, espaciado normal.
   const parrafos = textoNormalizado.split('\n\n')
   const cuerpoHTML = parrafos
     .map((parrafo: string, i: number) => {
@@ -46,6 +51,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       if (esFecha) estilo = 'text-align:right;margin:0 0 48px 0;'
       if (esFirma) estilo = 'text-align:center;font-weight:bold;margin:1in 0 0 0;'
 
+      // 1) Escapar HTML básico (por seguridad, por si alguien mete < >)
+      // 2) Convertir marcadores @@texto@@ a <b>texto</b>
+      // 3) Saltos de línea simples a <br/>
       const safe = parrafo
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
@@ -56,7 +64,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     })
     .join('\n')
 
-  const badgeClase = c.estado.replace(/_/g, '-')
+  const badgeClase = c.estado.replace(/_/g, '-') // pendiente_validacion → pendiente-validacion
 
   const html = `<!DOCTYPE html>
 <html lang="es">
