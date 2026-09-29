@@ -1,13 +1,17 @@
 'use client'
 // src/app/dashboard/admin/establecimiento/page.tsx
-// FIX: Botón guardar en la misma fila que los tabs
-// FIX: Instrucciones para subir imágenes (logos y slider)
 import { useState, useEffect } from 'react'
 
 const TABS = [
   { id: 'info',   label: '📋 Información' },
   { id: 'logos',  label: '🖼️ Logos' },
   { id: 'slider', label: '🎬 Slider' },
+]
+
+const POSICIONES = [
+  { v: 'izquierda', label: '⬅️ Izquierda' },
+  { v: 'centro',    label: '⏺️ Centro' },
+  { v: 'derecha',   label: 'Derecha ➡️' },
 ]
 
 export default function EstablecimientoPage() {
@@ -61,6 +65,9 @@ export default function EstablecimientoPage() {
     </div>
   )
 
+  const posMineduc = info.constancia_logo_mineduc_pos ?? 'izquierda'
+  const logoSrc = info.logo_mineduc_url?.trim() || '/images/logo-mineduc.png'
+
   return (
     <div className="ap">
       <header className="topbar">
@@ -70,7 +77,7 @@ export default function EstablecimientoPage() {
       <div className="pc max-w-4xl">
         {msg && <div className={`alert mb-4 ${msg.startsWith('✅') ? 'al-s' : 'al-e'}`}>{msg}</div>}
 
-        {/* TABS + BOTÓN GUARDAR EN LA MISMA FILA */}
+        {/* TABS + BOTÓN GUARDAR */}
         <div className="flex items-center justify-between mb-5 gap-3">
           <div className="flex gap-1 bg-gray-100 p-1 rounded-xl flex-1">
             {TABS.map(t => (
@@ -125,38 +132,62 @@ export default function EstablecimientoPage() {
         {/* TAB: LOGOS */}
         {tab === 'logos' && (
           <div className="card">
-            <div className="card-title">Logos institucionales</div>
+            <div className="card-title">Logos de los documentos</div>
 
-            {/* Instrucciones para subir */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5">
-              <div className="text-sm font-bold text-blue-800 mb-2">📤 ¿Cómo subir logos?</div>
+              <div className="text-sm font-bold text-blue-800 mb-2">ℹ️ Cómo funcionan los logos</div>
               <div className="text-xs text-blue-700 space-y-1.5">
-                <div><b>Opción 1 — Google Drive:</b> Sube la imagen a Google Drive → clic derecho → "Obtener enlace" → cambia el permiso a "Cualquiera con el enlace puede ver" → copia el ID del enlace y forma la URL: <code className="bg-blue-100 px-1 rounded">https://drive.google.com/uc?id=ID_DE_LA_IMAGEN</code></div>
-                <div><b>Opción 2 — Supabase Storage:</b> Supabase → Storage → bucket "logos" → Upload → copia la URL pública</div>
-                <div><b>Opción 3 — ImgBB (gratuito):</b> Ve a <code className="bg-blue-100 px-1 rounded">imgbb.com</code> → sube la imagen → copia el "Direct link"</div>
+                <div>• <b>Constancias de inscripción:</b> se muestra el logo del <b>MINEDUC</b>. Aquí eliges su posición.</div>
+                <div>• <b>Boletas, escalas y otros documentos:</b> se muestra el logo de <b>PRONEA</b> (fijo a la izquierda).</div>
+                <div>• Los archivos viven en <code className="bg-blue-100 px-1 rounded">public/images/</code>: <code className="bg-blue-100 px-1 rounded">logo-mineduc.png</code> y <code className="bg-blue-100 px-1 rounded">logo-pronea.png</code>.</div>
+                <div>• No uses enlaces de Google Drive: no cargan como imagen.</div>
               </div>
             </div>
 
-            <div className="space-y-4">
-              {[
-                { k: 'logo_url',              label: 'Logo PRONEA principal',    desc: 'Aparece en login y encabezados' },
-                { k: 'logo_mineduc_url',       label: 'Logo MINEDUC',             desc: 'Para documentos oficiales' },
-                { k: 'logo_digeex_url',        label: 'Logo DIGEEX',              desc: 'Para documentos oficiales' },
-                { k: 'logo_establecimiento_url', label: 'Logo del Establecimiento', desc: 'Logo local del establecimiento' },
-              ].map(({ k, label, desc }) => (
-                <div key={k} className="flex items-start gap-4 p-3 border border-gray-100 rounded-xl">
-                  <div className="w-16 h-14 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center overflow-hidden flex-shrink-0">
-                    {info[k]
-                      ? <img src={info[k]} alt={label} className="w-full h-full object-contain p-1" onError={e => (e.currentTarget.style.display = 'none')} />
-                      : <span className="text-gray-300 text-3xl">🖼️</span>}
-                  </div>
-                  <div className="flex-1">
-                    <div className="text-sm font-bold text-gray-700 mb-0.5">{label}</div>
-                    <div className="text-xs text-gray-400 mb-2">{desc}</div>
-                    <input className="inp text-xs" value={info[k] ?? ''} onChange={F(k)} placeholder="https://..." />
-                  </div>
+            <div className="p-4 border border-gray-100 rounded-xl">
+              <div className="text-sm font-bold text-gray-700 mb-1">Logo MINEDUC — constancias de inscripción</div>
+              <div className="text-xs text-gray-400 mb-3">Elige dónde aparece el logo en las constancias.</div>
+
+              <div className="flex items-start gap-4">
+                <div className="w-32 h-16 rounded-lg border border-gray-200 bg-white flex items-center justify-center overflow-hidden flex-shrink-0">
+                  <img src={logoSrc} alt="MINEDUC" className="w-full h-full object-contain p-1"
+                    onError={e => (e.currentTarget.style.display = 'none')} />
                 </div>
-              ))}
+                <div className="flex-1">
+                  <label className="lbl">Ruta del logo (opcional)</label>
+                  <input className="inp text-xs" value={info.logo_mineduc_url ?? ''} onChange={F('logo_mineduc_url')}
+                    placeholder="/images/logo-mineduc.png (por defecto)" />
+                  <div className="text-xs text-gray-400 mt-1">Si lo dejas vacío se usa <code>/images/logo-mineduc.png</code></div>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <div className="text-xs font-bold text-gray-500 mb-1.5">Posición en la constancia</div>
+                <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                  {POSICIONES.map(p => (
+                    <button key={p.v} type="button"
+                      onClick={() => setInfo((i: any) => ({ ...i, constancia_logo_mineduc_pos: p.v }))}
+                      className={`flex-1 px-2 py-1.5 rounded-md text-xs font-bold transition-all ${posMineduc === p.v ? 'bg-white text-pronea shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Vista previa */}
+              <div className="mt-4">
+                <div className="text-xs font-bold text-gray-500 mb-1.5">Vista previa del encabezado</div>
+                <div className="border border-gray-200 rounded-xl bg-white p-4"
+                  style={{
+                    display: 'flex',
+                    justifyContent: posMineduc === 'centro' ? 'center' : posMineduc === 'derecha' ? 'flex-end' : 'flex-start',
+                    alignItems: 'center',
+                    minHeight: 80,
+                  }}>
+                  <img src={logoSrc} alt="MINEDUC" style={{ height: 56, maxWidth: 180, objectFit: 'contain' }} />
+                </div>
+                <div className="text-xs text-gray-400 mt-1.5">Recuerda pulsar «Guardar cambios» para aplicar.</div>
+              </div>
             </div>
           </div>
         )}
@@ -166,26 +197,22 @@ export default function EstablecimientoPage() {
           <div className="card">
             <div className="card-title">Imágenes del slider (pantalla de login)</div>
 
-            {/* Instrucciones */}
             <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5">
               <div className="text-sm font-bold text-blue-800 mb-2">📤 ¿Cómo agregar imágenes al slider?</div>
               <div className="text-xs text-blue-700 space-y-1">
-                <div>1. Sube tu imagen a <b>Google Drive</b>, <b>Supabase Storage</b> o <b>imgbb.com</b></div>
-                <div>2. Obtén la URL pública directa de la imagen (debe terminar en .jpg, .png o ser un enlace directo)</div>
+                <div>1. Sube tu imagen a <b>public/images/</b> en GitHub</div>
+                <div>2. Escribe la ruta de la imagen (por ejemplo /images/slider-1.jpg)</div>
                 <div>3. Pega la URL en el campo de abajo y haz clic en "Agregar imagen"</div>
                 <div>4. Recomendado: imágenes horizontales de 1200×600px o más</div>
-                <div><b>Google Drive:</b> <code className="bg-blue-100 px-1 rounded">https://drive.google.com/uc?id=TU_ID</code></div>
               </div>
             </div>
 
-            {/* Imágenes actuales */}
             {slider.length > 0 && (
               <div className="space-y-2 mb-5">
                 <div className="text-sm font-bold text-gray-600 mb-2">Imágenes actuales:</div>
                 {slider.map((img: any) => (
                   <div key={img.id} className="flex items-center gap-3 p-3 border border-gray-100 rounded-lg">
-                    <img src={img.url_imagen} alt={img.titulo ?? ''} className="w-20 h-12 object-cover rounded border border-gray-200"
-                      onError={e => { (e.currentTarget as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="48"><rect width="80" height="48" fill="%23f3f4f6"/><text x="40" y="28" text-anchor="middle" font-size="10" fill="%23999">Error</text></svg>' }} />
+                    <img src={img.url_imagen} alt={img.titulo ?? ''} className="w-20 h-12 object-cover rounded border border-gray-200" />
                     <div className="flex-1 min-w-0">
                       <div className="text-sm font-semibold text-gray-700">{img.titulo ?? 'Sin título'}</div>
                       <div className="text-xs text-gray-400 truncate">{img.url_imagen}</div>
@@ -196,11 +223,10 @@ export default function EstablecimientoPage() {
               </div>
             )}
 
-            {/* Agregar nueva */}
             <div className="border-2 border-dashed border-gray-200 rounded-xl p-4">
               <div className="text-sm font-bold text-gray-600 mb-3">➕ Agregar nueva imagen</div>
               <div className="fg"><label className="lbl">URL de la imagen *</label>
-                <input className="inp" value={nuevaImg.url_imagen} onChange={e => setNuevaImg(n => ({ ...n, url_imagen: e.target.value }))} placeholder="https://drive.google.com/uc?id=..." /></div>
+                <input className="inp" value={nuevaImg.url_imagen} onChange={e => setNuevaImg(n => ({ ...n, url_imagen: e.target.value }))} placeholder="/images/slider-1.jpg" /></div>
               <div className="fg2 mt-2">
                 <div className="fg"><label className="lbl">Título (opcional)</label>
                   <input className="inp" value={nuevaImg.titulo} onChange={e => setNuevaImg(n => ({ ...n, titulo: e.target.value }))} /></div>
