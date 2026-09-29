@@ -11,6 +11,7 @@ export default function ConstanciasPage() {
 
   const [firmantes, setFirmantes] = useState<any[]>([])
   const [firmanteId, setFirmanteId] = useState('')
+  const [grupoSireexManual, setGrupoSireexManual] = useState('')
   const [generando, setGenerando] = useState(false)
 
   const [historial, setHistorial] = useState<any[]>([])
@@ -56,7 +57,11 @@ export default function ConstanciasPage() {
     try {
       const res = await fetch('/api/constancias', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inscripcion_id: inscSel.id, firmante_id: firmanteId || undefined }),
+        body: JSON.stringify({
+          inscripcion_id: inscSel.id,
+          firmante_id: firmanteId || undefined,
+          grupo_sireex_manual: grupoSireexManual.trim() || undefined,
+        }),
       })
       const texto = await res.text()
       let d: any = {}
@@ -137,6 +142,13 @@ export default function ConstanciasPage() {
                   ))}
                 </select>
               )}
+            </div>
+
+            <div className="card mb-4">
+              <label className="lbl">Grupo SIREEX (opcional)</label>
+              <input className="inp" value={grupoSireexManual} onChange={e => setGrupoSireexManual(e.target.value)}
+                placeholder="Ej: 16504 — déjalo vacío para usar el que ya tenga asignado el sistema" />
+              <div className="text-xs text-gray-400 mt-1">Escribe solo el código (sin el ciclo) — el ciclo escolar se agrega automáticamente.</div>
             </div>
 
             <button className="btn btn-p w-full mb-6" disabled={!inscSel || generando || firmantes.length === 0} onClick={generar}>
