@@ -33,19 +33,26 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const logosHTML = await obtenerLogosHeaderHTML()
 
   // El texto ya viene con saltos de línea planos — los convertimos a <br>
-  // respetando los párrafos (doble salto = párrafo nuevo). El primer
-  // párrafo (lugar y fecha) va alineado a la derecha, el último (nombre,
-  // cargo y dependencia del firmante) va centrado — el resto, justificado.
+  // respetando los párrafos (doble salto = párrafo nuevo).
+  //   • 1er párrafo (lugar y fecha)              → alineado a la derecha,
+  //     con un espacio grande debajo antes de "A QUIEN CORRESPONDA".
+  //   • último párrafo (nombre/cargo/dependencia) → centrado, en negrita,
+  //     con un espacio grande ARRIBA (~1 pulgada) para dejar lugar a la
+  //     firma física manuscrita.
+  //   • el resto                                  → justificado, espaciado normal.
   const parrafos = c.texto_generado.split('\n\n')
   const cuerpoHTML = parrafos
     .map((parrafo: string, i: number) => {
       const esFecha = i === 0
       const esFirma = i === parrafos.length - 1
-      const align = esFecha ? 'right' : esFirma ? 'center' : 'justify'
-      const pesoExtra = esFirma ? 'font-weight:bold;' : ''
-      return `<p style="margin:0 0 18px 0;text-align:${align};${pesoExtra}">${parrafo.replace(/\n/g, '<br/>')}</p>`
+      let estilo = 'text-align:justify;margin:0 0 18px 0;'
+      if (esFecha) estilo = 'text-align:right;margin:0 0 48px 0;'
+      if (esFirma) estilo = 'text-align:center;font-weight:bold;margin:1in 0 0 0;'
+      return `<p style="${estilo}">${parrafo.replace(/\n/g, '<br/>')}</p>`
     })
     .join('\n')
+
+  const badgeClase = c.estado.replace(/_/g, '-') // pendiente_validacion → pendiente-validacion
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -53,22 +60,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 <meta charset="utf-8" />
 <title>Constancia ${c.numero_constancia}</title>
 <style>
-  @media print { .no-print { display: none !important; } @page { margin: 2cm; } }
+  @page { size: letter; margin: 1in; }
+  @media print {
+    .no-print { display: none !important; }
+    body { margin: 0 !important; padding: 0 !important; max-width: none !important; }
+  }
   body { font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #1a1a1a; max-width: 800px; margin: 30px auto; padding: 0 20px; line-height: 1.5; }
   .barra { display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; }
   .badge { display:inline-block; padding:4px 10px; border-radius:8px; font-size:11px; font-weight:bold; }
-  .b-pendiente { background:#fef3c7; color:#92400e; }
-  .b-validado  { background:#dbeafe; color:#1e40af; }
-  .b-rechazado { background:#fee2e2; color:#991b1b; }
-  .b-exportado { background:#dcfce7; color:#166534; }
-  .b-anulado   { background:#f3f4f6; color:#6b7280; }
+  .b-pendiente-validacion { background:#fef3c7; color:#92400e; }
+  .b-validado             { background:#dbeafe; color:#1e40af; }
+  .b-rechazado            { background:#fee2e2; color:#991b1b; }
+  .b-exportado            { background:#dcfce7; color:#166534; }
+  .b-anulado              { background:#f3f4f6; color:#6b7280; }
+  .b-borrador             { background:#f3f4f6; color:#6b7280; }
   .btn-print { background:#1e3a8a; color:white; border:none; padding:10px 20px; border-radius:8px; font-size:14px; font-weight:bold; cursor:pointer; }
   .folio { font-size:11px; color:#9ca3af; text-align:right; margin-top:6px; }
 </style>
 </head>
 <body>
   <div class="no-print barra">
-    <span class="badge b-${c.estado}">${c.estado.toUpperCase().replace('_', ' ')}</span>
+    <span class="badge b-${badgeClase}">${c.estado.toUpperCase().replace(/_/g, ' ')}</span>
     <button class="btn-print" onclick="marcarYimprimir()">🖨️ Imprimir / Guardar PDF</button>
   </div>
 
