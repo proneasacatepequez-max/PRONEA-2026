@@ -13,6 +13,7 @@ function fechaFormateadaGT(d: Date = new Date()): string {
 function fechaCortaGT(fecha: string | null): string {
   if (!fecha) return '—'
   const d = new Date(fecha + 'T00:00:00')
+  if (isNaN(d.getTime())) return '—'
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
@@ -50,6 +51,7 @@ export async function POST(req: NextRequest) {
       firmante_id,
       grupo_sireex_manual,
       modalidad_manual,
+      fecha_inscripcion_manual,   // ← NUEVO: formato YYYY-MM-DD
     } = await req.json().catch(() => ({}))
     if (!inscripcion_id) return err('inscripcion_id requerido', 400)
 
@@ -78,8 +80,17 @@ export async function POST(req: NextRequest) {
     const modalidad: any = insc.modalidad
     if (!est) return err('No se encontró el estudiante asociado a esta inscripción', 404)
 
+    // Modalidad: si el técnico escribió una manual, esa manda.
     const modalidadTexto: string = (modalidad_manual?.trim() || modalidad?.nombre || 'Presencial')
 
+    // Fecha de inscripción: si el técnico escribió una manual (YYYY-MM-DD),
+    // esa manda; si no, se usa la registrada en la inscripción.
+    const fechaInscripcionTexto = fecha_inscripcion_manual?.trim()
+      ? fechaCortaGT(fecha_inscripcion_manual.trim())
+      : fechaCortaGT(insc.fecha_inscripcion)
+
+    // Grupo SIREEX: si el técnico lo escribió a mano, ese manda; si no,
+    // se busca el que ya esté asignado en el sistema.
     let codigoGrupoSireex: string | null = grupo_sireex_manual?.trim() || null
     if (!codigoGrupoSireex) {
       const { data: grupoRow } = await supabaseAdmin
@@ -90,6 +101,7 @@ export async function POST(req: NextRequest) {
       codigoGrupoSireex = (grupoRow?.grupo_sireex as any)?.codigo ?? null
     }
 
+    // Firmante (opcional en el body, si no viene se usa el predeterminado activo)
     let firmante: any = null
     if (firmante_id) {
       const { data } = await supabaseAdmin.from('firmantes_constancias').select('*').eq('id', firmante_id).eq('activo', true).maybeSingle()
@@ -107,8 +119,14 @@ export async function POST(req: NextRequest) {
       .filter(Boolean).join(' ')
 
     const datosEstudianteSnapshot = {
-      ...est, nombre_completo: nombreCompleto, etapa, sede: insc.sede, modalidad,
-      codigo_grupo_sireex: codigoGrupoSireex, modalidad_texto: modalidadTexto,
+      ...est,
+      nombre_completo: nombreCompleto,
+      etapa,
+      sede: insc.sede,
+      modalidad,
+      codigo_grupo_sireex: codigoGrupoSireex,
+      modalidad_texto: modalidadTexto,
+      fecha_inscripcion_texto: fechaInscripcionTexto,   // ← NUEVO
     }
     const datosFirmanteSnapshot = { ...firmante }
 
@@ -120,7 +138,7 @@ export async function POST(req: NextRequest) {
       nombreEtapaFormateado: formatearEtapaParaTexto(etapa?.nombre ?? ''),
       codigoGrupoSireex,
       cicloEscolar: insc.ciclo_escolar,
-      fechaInscripcion: fechaCortaGT(insc.fecha_inscripcion),
+      fechaInscripcion: fechaInscripcionTexto,   // ← usa la manual si vino
       modalidad: modalidadTexto,
       municipio: 'Antigua Guatemala',
       nombreFirmante: firmante.nombre_completo,
@@ -151,6 +169,7 @@ export async function POST(req: NextRequest) {
 
       if (!errIns && data) { creada = data; break }
 
+      // Si el error NO es por unique constraint, no reintentar
       if (errIns && !errIns.message.includes('duplicate key')) {
         return err(errIns.message, 500)
       }
@@ -166,7 +185,7 @@ export async function POST(req: NextRequest) {
         usuario_id: s.sub, accion: 'generar_constancia', tabla_afectada: 'constancias_inscripcion',
         registro_id: creada.id, datos_nuevos: { numero_constancia: creada.numero_constancia, estudiante_id: est.id },
       })
-    } catch { /* no bloquear */ }
+    } catch { /* la auditoría nunca debe bloquear la generación */ }
 
     return ok({ ok: true, constancia: creada })
   } catch (e: any) {
@@ -174,6 +193,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// GET → listar/consultar constancias (por estudiante_id, inscripcion_id, o estado)
 export async function GET(req: NextRequest) {
   try {
     const s = await getSession(req)
@@ -214,6 +234,7 @@ export async function GET(req: NextRequest) {
     if (inscripcionId) q = q.eq('inscripcion_id', inscripcionId)
     if (estado) q = q.eq('estado', estado)
 
+    // El director solo ve las constancias de estudiantes de SU sede
     if (s.rol === 'director') {
       const { data: dir } = await supabaseAdmin.from('directores').select('sede_id, sede:sedes(nombre)').eq('usuario_id', s.sub).maybeSingle()
       if (!dir?.sede_id) {
