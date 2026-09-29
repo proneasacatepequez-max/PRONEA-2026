@@ -16,18 +16,19 @@ function fechaCortaGT(fecha: string | null): string {
   return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`
 }
 
-// POST → generar una nueva constancia (estado inicial: pendiente_validacion)
 export async function POST(req: NextRequest) {
   try {
     const s = await getSession(req)
     if (!s || !ROLES_GENERAN.includes(s.rol)) return err('Sin permiso', 403)
 
-    const { inscripcion_id, firmante_id, grupo_sireex_manual } = await req.json().catch(() => ({}))
+    const {
+      inscripcion_id,
+      firmante_id,
+      grupo_sireex_manual,
+      modalidad_manual,   // ← NUEVO
+    } = await req.json().catch(() => ({}))
     if (!inscripcion_id) return err('inscripcion_id requerido', 400)
 
-    // 1) Inscripción + estudiante + etapa + sede + modalidad + técnico, todo
-    //    fresco desde la BD — nunca se confía en datos que mande el cliente
-    //    para el snapshot legal.
     const { data: insc, error: errInsc } = await supabaseAdmin
       .from('inscripciones')
       .select(`
@@ -43,7 +44,6 @@ export async function POST(req: NextRequest) {
 
     if (errInsc || !insc) return err(errInsc?.message ?? 'Inscripción no encontrada', 404)
 
-    // Técnico solo puede generar constancias de estudiantes que él inscribió
     if (s.rol === 'tecnico') {
       const { data: tec } = await supabaseAdmin.from('tecnicos').select('id').eq('usuario_id', s.sub).maybeSingle()
       if (!tec || tec.id !== insc.tecnico_id) return err('Esta inscripción no te pertenece', 403)
@@ -53,11 +53,11 @@ export async function POST(req: NextRequest) {
     const etapa: any = insc.etapa
     const sede: any = insc.sede
     const modalidad: any = insc.modalidad
-
     if (!est) return err('No se encontró el estudiante asociado a esta inscripción', 404)
 
-    // 2) Código de grupo SIREEX — si el técnico lo escribió a mano, ese
-    //    manda; si no, se busca el que ya esté asignado en el sistema.
+    // Modalidad: si el técnico escribió una manual, esa manda.
+    const modalidadTexto: string = (modalidad_manual?.trim() || modalidad?.nombre || 'Presencial')
+
     let codigoGrupoSireex: string | null = grupo_sireex_manual?.trim() || null
     if (!codigoGrupoSireex) {
       const { data: grupoRow } = await supabaseAdmin
@@ -68,7 +68,6 @@ export async function POST(req: NextRequest) {
       codigoGrupoSireex = (grupoRow?.grupo_sireex as any)?.codigo ?? null
     }
 
-    // 3) Firmante (opcional en el body, si no viene se usa el predeterminado activo)
     let firmante: any = null
     if (firmante_id) {
       const { data } = await supabaseAdmin.from('firmantes_constancias').select('*').eq('id', firmante_id).eq('activo', true).maybeSingle()
@@ -85,7 +84,7 @@ export async function POST(req: NextRequest) {
     const nombreCompleto = [est.primer_nombre, est.segundo_nombre, est.primer_apellido, est.apellido_casada || est.segundo_apellido]
       .filter(Boolean).join(' ')
 
-    const datosEstudianteSnapshot = { ...est, nombre_completo: nombreCompleto, etapa, sede, modalidad, codigo_grupo_sireex: codigoGrupoSireex }
+    const datosEstudianteSnapshot = { ...est, nombre_completo: nombreCompleto, etapa, sede, modalidad, codigo_grupo_sireex: codigoGrupoSireex, modalidad_texto: modalidadTexto }
     const datosFirmanteSnapshot = { ...firmante }
 
     const textoGenerado = generarTextoConstancia({
@@ -97,16 +96,13 @@ export async function POST(req: NextRequest) {
       codigoGrupoSireex,
       cicloEscolar: insc.ciclo_escolar,
       fechaInscripcion: fechaCortaGT(insc.fecha_inscripcion),
-      modalidad: modalidad?.nombre ?? 'Presencial',
-      municipio: sede?.municipio?.nombre ?? sede?.nombre ?? 'Antigua Guatemala',
+      modalidad: modalidadTexto,       // ← usa el manual si vino
+      municipio: 'Antigua Guatemala',  // ← forzado (aunque generarTextoConstancia ya lo ignora)
       nombreFirmante: firmante.nombre_completo,
       cargoFirmante: firmante.cargo,
       dependenciaFirmante: firmante.dependencia,
     })
 
-    // 4) Número correlativo único.
-    // Nota: se calcula contando filas existentes — es seguro para el volumen
-    // de uso esperado (generación manual, no un proceso masivo concurrente).
     const { count, error: errCount } = await supabaseAdmin.from('constancias_inscripcion').select('*', { count: 'exact', head: true })
     if (errCount) return err('No se pudo leer la tabla constancias_inscripcion — ¿ya corriste el SQL? Detalle: ' + errCount.message, 500)
     const siguiente = (count ?? 0) + 1
@@ -131,19 +127,14 @@ export async function POST(req: NextRequest) {
         usuario_id: s.sub, accion: 'generar_constancia', tabla_afectada: 'constancias_inscripcion',
         registro_id: creada.id, datos_nuevos: { numero_constancia: numeroConstancia, estudiante_id: est.id },
       })
-    } catch { /* la auditoría nunca debe bloquear la generación de la constancia */ }
+    } catch { /* no bloquear */ }
 
     return ok({ ok: true, constancia: creada })
   } catch (e: any) {
-    // Cualquier excepción inesperada se devuelve como JSON legible, en vez
-    // de dejar que Next.js muestre su página de error genérica en HTML
-    // (que el navegador no puede interpretar como JSON — eso es lo que se
-    // veía como "Error de conexión").
     return err('Error inesperado al generar la constancia: ' + (e?.message ?? String(e)), 500)
   }
 }
 
-// GET → listar/consultar constancias (por estudiante_id, inscripcion_id, o estado)
 export async function GET(req: NextRequest) {
   try {
     const s = await getSession(req)
@@ -184,8 +175,6 @@ export async function GET(req: NextRequest) {
     if (inscripcionId) q = q.eq('inscripcion_id', inscripcionId)
     if (estado) q = q.eq('estado', estado)
 
-    // El director solo ve las constancias de estudiantes de SU sede —
-    // igual que el resto de bandejas del director en este sistema.
     if (s.rol === 'director') {
       const { data: dir } = await supabaseAdmin.from('directores').select('sede_id, sede:sedes(nombre)').eq('usuario_id', s.sub).maybeSingle()
       if (!dir?.sede_id) {
@@ -202,9 +191,6 @@ export async function GET(req: NextRequest) {
       const { data, error } = await q.order('generado_en', { ascending: false }).limit(200)
       if (error) return err(error.message, 500)
 
-      // Diagnóstico: si no hay ninguna en SU sede pero sí existen pendientes
-      // en otras sedes, se avisa explícitamente — así se distingue "no hay
-      // nada que validar" de "hay algo pero no es de tu sede".
       if ((data ?? []).length === 0 && (estado === 'pendiente_validacion' || !estado)) {
         const { count } = await supabaseAdmin.from('constancias_inscripcion')
           .select('*', { count: 'exact', head: true }).eq('estado', 'pendiente_validacion')
@@ -214,6 +200,16 @@ export async function GET(req: NextRequest) {
       }
 
       return ok({ data: data ?? [] })
+    }
+
+    // Técnico: limitar a sus propias inscripciones (para que su tabla no muestre de otros)
+    if (s.rol === 'tecnico') {
+      const { data: tec } = await supabaseAdmin.from('tecnicos').select('id').eq('usuario_id', s.sub).maybeSingle()
+      if (!tec?.id) return ok({ data: [] })
+      const { data: inscsDelTec } = await supabaseAdmin.from('inscripciones').select('id').eq('tecnico_id', tec.id)
+      const idsPermitidos = (inscsDelTec ?? []).map((i: any) => i.id)
+      if (idsPermitidos.length === 0) return ok({ data: [] })
+      q = q.in('inscripcion_id', idsPermitidos)
     }
 
     const { data, error } = await q.order('generado_en', { ascending: false }).limit(200)
