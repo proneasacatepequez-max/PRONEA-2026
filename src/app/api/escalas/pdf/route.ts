@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, err } from '@/lib/auth'
+import { obtenerLogosHTML } from '@/lib/logosConstancias'
 
 // Generamos el PDF con HTML+CSS convertido a buffer usando la API de jsPDF via buffer
 // Como no tenemos puppeteer, usamos una solución HTML que se puede abrir/imprimir
@@ -66,6 +67,9 @@ export async function GET(req: NextRequest) {
   const fecha = new Date().toLocaleDateString('es-GT', { year: 'numeric', month: 'long', day: 'numeric' })
   const hoy   = new Date().toLocaleDateString('es-GT')
 
+  // Logos configurados por el administrador para las escalas (PRONEA / MINEDUC / ...)
+  const logosHTML = await obtenerLogosHTML('escala')
+
   // Filtrar áreas que tienen tareas en este libro
   const areasConTareas = (areas ?? []).filter((a: any) => {
     if (areaId && String(a.id) !== areaId) return false
@@ -101,6 +105,7 @@ export async function GET(req: NextRequest) {
 
     return `
       <div style="page-break-inside:avoid;margin-bottom:10px;">
+        ${logosHTML}
         <table style="width:100%;border-collapse:collapse;font-family:Arial,sans-serif;">
           <!-- Encabezado MINEDUC (igual al de la imagen) -->
           <tr>
@@ -193,20 +198,25 @@ export async function GET(req: NextRequest) {
   <meta charset="UTF-8">
   <title>Escala Numérica — ${est?.primer_nombre} ${est?.primer_apellido}</title>
   <style>
+    @page { size: letter; margin: 10mm; }
     @media print {
-      @page { size: letter; margin: 10mm; }
-      body { margin: 0; }
-      .no-print { display: none; }
+      /* !important: la barra tiene display:flex propio y, sin esto, seguía apareciendo al imprimir */
+      .no-print { display: none !important; }
+      body { margin: 0 !important; }
     }
     body { font-family: Arial, sans-serif; font-size: 9pt; margin: 10mm; }
     table { border-collapse: collapse; width: 100%; }
+    .barra { padding:8px; background:#f0f0f0; margin-bottom:12px; border-radius:6px; display:flex; gap:8px; align-items:center; }
+    .btn { border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:12px; color:#fff; }
+    .btn-print { background:#1a3a5c; }
+    .btn-close { background:#aaa; }
   </style>
 </head>
 <body>
-  <div class="no-print" style="padding:8px;background:#f0f0f0;margin-bottom:12px;border-radius:6px;display:flex;gap:8px;align-items:center;">
+  <div class="no-print barra">
     <strong>📄 Escala Numérica — ${est?.primer_nombre} ${est?.primer_apellido}</strong>
-    <button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;">🖨️ Imprimir / Guardar PDF</button>
-    <button onclick="window.close()" style="background:#aaa;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;">✕ Cerrar</button>
+    <button class="btn btn-print" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+    <button class="btn btn-close" onclick="window.close()">✕ Cerrar</button>
   </div>
   ${tablasPorArea}
 </body>
