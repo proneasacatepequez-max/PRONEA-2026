@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabaseAdmin } from '@/lib/supabase'
 import { getSession, err } from '@/lib/auth'
+import { obtenerLogosHTML } from '@/lib/logosConstancias'
 
 // Mismas fórmulas que notas/calcular: tareas → 30 pts, examen → 20 pts = 50 pts por área por libro
 const ptsATareas = (obt: number, max: number) =>
@@ -186,6 +187,9 @@ export async function GET(req: NextRequest) {
 
   const fmt = (v: number | null) => (v === null ? '—' : v)
 
+  // Logos configurados por el administrador para la boleta (PRONEA / MINEDUC / ...)
+  const logosHTML = await obtenerLogosHTML('boleta')
+
   const filasHtml = filas.map((f) => `
     <tr>
       <td style="border:1px solid #ccc;padding:6px 8px;font-size:9pt;font-weight:bold;">${f.nombre}</td>
@@ -206,12 +210,17 @@ export async function GET(req: NextRequest) {
   <meta charset="UTF-8">
   <title>Boleta de Calificaciones — ${nombreCompleto}</title>
   <style>
+    @page { size: letter; margin: 12mm; }
     @media print {
-      @page { size: letter; margin: 12mm; }
-      body { margin: 0; }
-      .no-print { display: none; }
+      /* !important: la barra tiene display:flex propio y, sin esto, seguía apareciendo al imprimir */
+      .no-print { display: none !important; }
+      body { margin: 0 !important; }
     }
     body { font-family: Arial, sans-serif; font-size: 10pt; margin: 12mm; color:#111; }
+    .barra { padding:8px; background:#f0f0f0; margin-bottom:12px; border-radius:6px; display:flex; gap:8px; align-items:center; }
+    .btn { border:none; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:12px; color:#fff; }
+    .btn-print { background:#1a3a5c; }
+    .btn-close { background:#aaa; }
     table { border-collapse: collapse; width: 100%; }
     .cab { text-align:center; }
     .cab h1 { font-size: 11pt; margin: 2px 0; }
@@ -222,11 +231,13 @@ export async function GET(req: NextRequest) {
   </style>
 </head>
 <body>
-  <div class="no-print" style="padding:8px;background:#f0f0f0;margin-bottom:12px;border-radius:6px;display:flex;gap:8px;align-items:center;">
+  <div class="no-print barra">
     <strong>🧾 Boleta de Calificaciones — ${nombreCompleto}</strong>
-    <button onclick="window.print()" style="background:#1a3a5c;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;">🖨️ Imprimir / Guardar PDF</button>
-    <button onclick="window.close()" style="background:#aaa;color:#fff;border:none;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:12px;">✕ Cerrar</button>
+    <button class="btn btn-print" onclick="window.print()">🖨️ Imprimir / Guardar PDF</button>
+    <button class="btn btn-close" onclick="window.close()">✕ Cerrar</button>
   </div>
+
+  ${logosHTML}
 
   <div class="cab">
     <h1>Ministerio de Educación</h1>
