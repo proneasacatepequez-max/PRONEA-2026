@@ -8,12 +8,6 @@ const TABS = [
   { id: 'slider', label: '🎬 Slider' },
 ]
 
-const POSICIONES = [
-  { v: 'izquierda', label: '⬅️ Izquierda' },
-  { v: 'centro',    label: '⏺️ Centro' },
-  { v: 'derecha',   label: 'Derecha ➡️' },
-]
-
 export default function EstablecimientoPage() {
   const [tab,    setTab]    = useState('info')
   const [info,   setInfo]   = useState<any>({})
@@ -65,9 +59,6 @@ export default function EstablecimientoPage() {
     </div>
   )
 
-  const posMineduc = info.constancia_logo_mineduc_pos ?? 'izquierda'
-  const logoSrc = info.logo_mineduc_url?.trim() || '/images/logo-mineduc.png'
-
   return (
     <div className="ap">
       <header className="topbar">
@@ -88,12 +79,14 @@ export default function EstablecimientoPage() {
               </button>
             ))}
           </div>
-          <button onClick={save} disabled={saving}
-            className="btn btn-p px-6 py-2 flex-shrink-0">
-            {saving
-              ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Guardando...</span>
-              : '💾 Guardar cambios'}
-          </button>
+          {tab === 'info' && (
+            <button onClick={save} disabled={saving}
+              className="btn btn-p px-6 py-2 flex-shrink-0">
+              {saving
+                ? <span className="flex items-center gap-2"><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Guardando...</span>
+                : '💾 Guardar cambios'}
+            </button>
+          )}
         </div>
 
         {/* TAB: INFORMACIÓN */}
@@ -130,67 +123,7 @@ export default function EstablecimientoPage() {
         )}
 
         {/* TAB: LOGOS */}
-        {tab === 'logos' && (
-          <div className="card">
-            <div className="card-title">Logos de los documentos</div>
-
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-5">
-              <div className="text-sm font-bold text-blue-800 mb-2">ℹ️ Cómo funcionan los logos</div>
-              <div className="text-xs text-blue-700 space-y-1.5">
-                <div>• <b>Constancias de inscripción:</b> se muestra el logo del <b>MINEDUC</b>. Aquí eliges su posición.</div>
-                <div>• <b>Boletas, escalas y otros documentos:</b> se muestra el logo de <b>PRONEA</b> (fijo a la izquierda).</div>
-                <div>• Los archivos viven en <code className="bg-blue-100 px-1 rounded">public/images/</code>: <code className="bg-blue-100 px-1 rounded">logo-mineduc.png</code> y <code className="bg-blue-100 px-1 rounded">logo-pronea.png</code>.</div>
-                <div>• No uses enlaces de Google Drive: no cargan como imagen.</div>
-              </div>
-            </div>
-
-            <div className="p-4 border border-gray-100 rounded-xl">
-              <div className="text-sm font-bold text-gray-700 mb-1">Logo MINEDUC — constancias de inscripción</div>
-              <div className="text-xs text-gray-400 mb-3">Elige dónde aparece el logo en las constancias.</div>
-
-              <div className="flex items-start gap-4">
-                <div className="w-32 h-16 rounded-lg border border-gray-200 bg-white flex items-center justify-center overflow-hidden flex-shrink-0">
-                  <img src={logoSrc} alt="MINEDUC" className="w-full h-full object-contain p-1"
-                    onError={e => (e.currentTarget.style.display = 'none')} />
-                </div>
-                <div className="flex-1">
-                  <label className="lbl">Ruta del logo (opcional)</label>
-                  <input className="inp text-xs" value={info.logo_mineduc_url ?? ''} onChange={F('logo_mineduc_url')}
-                    placeholder="/images/logo-mineduc.png (por defecto)" />
-                  <div className="text-xs text-gray-400 mt-1">Si lo dejas vacío se usa <code>/images/logo-mineduc.png</code></div>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <div className="text-xs font-bold text-gray-500 mb-1.5">Posición en la constancia</div>
-                <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
-                  {POSICIONES.map(p => (
-                    <button key={p.v} type="button"
-                      onClick={() => setInfo((i: any) => ({ ...i, constancia_logo_mineduc_pos: p.v }))}
-                      className={`flex-1 px-2 py-1.5 rounded-md text-xs font-bold transition-all ${posMineduc === p.v ? 'bg-white text-pronea shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Vista previa */}
-              <div className="mt-4">
-                <div className="text-xs font-bold text-gray-500 mb-1.5">Vista previa del encabezado</div>
-                <div className="border border-gray-200 rounded-xl bg-white p-4"
-                  style={{
-                    display: 'flex',
-                    justifyContent: posMineduc === 'centro' ? 'center' : posMineduc === 'derecha' ? 'flex-end' : 'flex-start',
-                    alignItems: 'center',
-                    minHeight: 80,
-                  }}>
-                  <img src={logoSrc} alt="MINEDUC" style={{ height: 56, maxWidth: 180, objectFit: 'contain' }} />
-                </div>
-                <div className="text-xs text-gray-400 mt-1.5">Recuerda pulsar «Guardar cambios» para aplicar.</div>
-              </div>
-            </div>
-          </div>
-        )}
+        {tab === 'logos' && <LogosTab flash={flash} />}
 
         {/* TAB: SLIDER */}
         {tab === 'slider' && (
@@ -238,6 +171,253 @@ export default function EstablecimientoPage() {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+
+// ─────────────────────────────────────────────────────────────────────
+// Pestaña LOGOS: catálogo de logos + qué logos lleva cada documento
+// ─────────────────────────────────────────────────────────────────────
+type PosLogo = 'izquierda' | 'centro' | 'derecha'
+
+function VistaEncabezado({ items }: { items: { nombre: string; url: string; posicion: PosLogo }[] }) {
+  const zona = (p: PosLogo) => items.filter(i => i.posicion === p)
+  const img = (i: { nombre: string; url: string }) => (
+    <img key={i.url + i.nombre} src={i.url} alt={i.nombre} style={{ height: 44, maxWidth: 130, objectFit: 'contain' }}
+      onError={e => (e.currentTarget.style.opacity = '0.2')} />
+  )
+  const cen = zona('centro')
+  return (
+    <div className="border border-gray-200 rounded-xl bg-white p-3" style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 64 }}>
+      {items.length === 0 && <div className="text-xs text-gray-400 mx-auto">Sin logos — el documento saldrá sin encabezado de logos</div>}
+      {items.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 0', justifyContent: 'flex-start' }}>{zona('izquierda').map(img)}</div>
+          {cen.length > 0 && <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '0 0 auto' }}>{cen.map(img)}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 0', justifyContent: 'flex-end' }}>{zona('derecha').map(img)}</div>
+        </>
+      )}
+    </div>
+  )
+}
+
+function LogosTab({ flash }: { flash: (m: string) => void }) {
+  const [cargando, setCargando] = useState(true)
+  const [listo, setListo]       = useState(true)
+  const [logos, setLogos]       = useState<any[]>([])
+  const [tipos, setTipos]       = useState<any[]>([])
+  // asig[tipo][logo_id] = posición (si no existe la clave, el logo NO se usa en ese documento)
+  const [asig, setAsig]         = useState<Record<string, Record<number, PosLogo>>>({})
+  const [sucio, setSucio]       = useState<Record<string, boolean>>({})
+  const [nuevo, setNuevo]       = useState({ nombre: '', url: '' })
+  const [busy, setBusy]         = useState('')
+
+  const post = async (body: any) => {
+    const res  = await fetch('/api/logos-documentos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const txt = await res.text()
+    let data: any = {}
+    try { data = JSON.parse(txt) } catch { /* respuesta no JSON */ }
+    return { ok: res.ok, data }
+  }
+
+  const cargar = async () => {
+    try {
+      const res  = await fetch('/api/logos-documentos')
+      const data = await res.json()
+      if (!res.ok) { flash('❌ ' + (data?.error ?? 'Error al cargar logos')); return }
+      setListo(data.tablasListas !== false)
+      setLogos(data.logos ?? [])
+      setTipos(data.tipos ?? [])
+      const m: Record<string, Record<number, PosLogo>> = {}
+      for (const t of (data.tipos ?? [])) m[t.v] = {}
+      for (const a of (data.asignaciones ?? [])) {
+        if (!m[a.tipo_documento]) m[a.tipo_documento] = {}
+        m[a.tipo_documento][a.logo_id] = a.posicion
+      }
+      setAsig(m)
+      setSucio({})
+    } catch { flash('❌ Error de conexión al cargar logos') }
+    finally { setCargando(false) }
+  }
+
+  useEffect(() => { cargar() }, [])
+
+  const setLogoCampo = (id: number, k: 'nombre' | 'url', v: string) =>
+    setLogos(ls => ls.map(l => l.id === id ? { ...l, [k]: v } : l))
+
+  const guardarLogo = async (l: any) => {
+    setBusy('logo' + l.id)
+    const r = await post({ accion: 'editar_logo', id: l.id, nombre: l.nombre, url: l.url })
+    flash(r.ok ? '✅ Logo actualizado' : '❌ ' + (r.data?.error ?? 'Error al guardar'))
+    setBusy('')
+  }
+
+  const alternarActivo = async (l: any) => {
+    setBusy('logo' + l.id)
+    const r = await post({ accion: 'editar_logo', id: l.id, activo: !l.activo })
+    if (r.ok) setLogos(ls => ls.map(x => x.id === l.id ? { ...x, activo: !l.activo } : x))
+    else flash('❌ ' + (r.data?.error ?? 'Error'))
+    setBusy('')
+  }
+
+  const eliminarLogo = async (l: any) => {
+    if (!confirm(`¿Eliminar el logo "${l.nombre}"? También se quitará de todos los documentos.`)) return
+    setBusy('logo' + l.id)
+    const r = await post({ accion: 'eliminar_logo', id: l.id })
+    if (r.ok) { flash('✅ Logo eliminado'); await cargar() }
+    else flash('❌ ' + (r.data?.error ?? 'Error al eliminar'))
+    setBusy('')
+  }
+
+  const crearLogo = async () => {
+    if (!nuevo.nombre.trim() || !nuevo.url.trim()) { flash('❌ Nombre y ruta son requeridos'); return }
+    setBusy('nuevo')
+    const r = await post({ accion: 'crear_logo', nombre: nuevo.nombre, url: nuevo.url })
+    if (r.ok) { flash('✅ Logo agregado al catálogo'); setNuevo({ nombre: '', url: '' }); await cargar() }
+    else flash('❌ ' + (r.data?.error ?? 'Error al crear'))
+    setBusy('')
+  }
+
+  const usarEn = (tipo: string, id: number, usar: boolean) => {
+    setAsig(a => {
+      const t = { ...(a[tipo] ?? {}) }
+      if (usar) t[id] = t[id] ?? 'izquierda'; else delete t[id]
+      return { ...a, [tipo]: t }
+    })
+    setSucio(s => ({ ...s, [tipo]: true }))
+  }
+
+  const posEn = (tipo: string, id: number, pos: PosLogo) => {
+    setAsig(a => ({ ...a, [tipo]: { ...(a[tipo] ?? {}), [id]: pos } }))
+    setSucio(s => ({ ...s, [tipo]: true }))
+  }
+
+  const guardarTipo = async (tipo: string) => {
+    setBusy('tipo' + tipo)
+    // el orden de guardado sigue el orden del catálogo
+    const items = logos
+      .filter(l => asig[tipo]?.[l.id])
+      .map(l => ({ logo_id: l.id, posicion: asig[tipo][l.id] }))
+    const r = await post({ accion: 'guardar_asignacion', tipo, items })
+    if (r.ok) { flash('✅ Logos del documento guardados'); setSucio(s => ({ ...s, [tipo]: false })) }
+    else flash('❌ ' + (r.data?.error ?? 'Error al guardar'))
+    setBusy('')
+  }
+
+  if (cargando) return <div className="card"><div className="text-sm text-gray-400">Cargando logos…</div></div>
+
+  if (!listo) return (
+    <div className="card">
+      <div className="card-title">Logos de los documentos</div>
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+        ⚠️ Falta crear las tablas de logos. Ejecuta <code className="bg-amber-100 px-1 rounded">sql_logos_documentos.sql</code> en
+        Supabase → SQL Editor y recarga esta página.
+      </div>
+    </div>
+  )
+
+  const POS: { v: PosLogo; label: string }[] = [
+    { v: 'izquierda', label: '⬅️ Izquierda' },
+    { v: 'centro',    label: '⏺️ Centro' },
+    { v: 'derecha',   label: 'Derecha ➡️' },
+  ]
+
+  return (
+    <div className="space-y-5">
+      {/* ── 1) CATÁLOGO ─────────────────────────────────────────── */}
+      <div className="card">
+        <div className="card-title">1. Catálogo de logos</div>
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 text-xs text-blue-700 space-y-1">
+          <div>• Aquí están todos los logos disponibles. Más abajo eliges <b>cuáles lleva cada documento</b> y <b>en qué posición</b>.</div>
+          <div>• Para agregar uno nuevo: súbelo a <code className="bg-blue-100 px-1 rounded">public/images/</code> en GitHub y escribe su ruta (ej. <code className="bg-blue-100 px-1 rounded">/images/logo-digeex.png</code>).</div>
+          <div>• No uses enlaces de Google Drive: no cargan como imagen.</div>
+        </div>
+
+        <div className="space-y-2">
+          {logos.map(l => (
+            <div key={l.id} className={`flex items-center gap-3 p-3 border rounded-xl ${l.activo ? 'border-gray-100' : 'border-gray-100 opacity-60'}`}>
+              <div className="w-28 h-14 rounded-lg border border-gray-200 bg-white flex items-center justify-center overflow-hidden flex-shrink-0">
+                <img src={l.url} alt={l.nombre} className="w-full h-full object-contain p-1"
+                  onError={e => (e.currentTarget.style.opacity = '0.15')} />
+              </div>
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-2 min-w-0">
+                <input className="inp text-sm" value={l.nombre} onChange={e => setLogoCampo(l.id, 'nombre', e.target.value)} placeholder="Nombre" />
+                <input className="inp text-xs" value={l.url} onChange={e => setLogoCampo(l.id, 'url', e.target.value)} placeholder="/images/logo.png" />
+              </div>
+              <div className="flex gap-1 flex-shrink-0">
+                <button className="btn btn-p px-3 py-1 text-xs" disabled={busy === 'logo' + l.id} onClick={() => guardarLogo(l)} title="Guardar nombre y ruta">💾</button>
+                <button className="btn px-3 py-1 text-xs" disabled={busy === 'logo' + l.id} onClick={() => alternarActivo(l)}
+                  title={l.activo ? 'Desactivar (no se imprimirá)' : 'Activar'}>{l.activo ? '👁️' : '🚫'}</button>
+                <button className="btn px-3 py-1 text-xs" disabled={busy === 'logo' + l.id} onClick={() => eliminarLogo(l)} title="Eliminar">🗑️</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="border-2 border-dashed border-gray-200 rounded-xl p-4 mt-4">
+          <div className="text-sm font-bold text-gray-600 mb-3">➕ Agregar logo al catálogo</div>
+          <div className="fg2">
+            <div className="fg"><label className="lbl">Nombre *</label>
+              <input className="inp" value={nuevo.nombre} onChange={e => setNuevo(n => ({ ...n, nombre: e.target.value }))} placeholder="DIGEEX" /></div>
+            <div className="fg"><label className="lbl">Ruta de la imagen *</label>
+              <input className="inp" value={nuevo.url} onChange={e => setNuevo(n => ({ ...n, url: e.target.value }))} placeholder="/images/logo-digeex.png" /></div>
+          </div>
+          <button className="btn btn-p mt-2" disabled={busy === 'nuevo'} onClick={crearLogo}>➕ Agregar logo</button>
+        </div>
+      </div>
+
+      {/* ── 2) ASIGNACIÓN POR DOCUMENTO ─────────────────────────── */}
+      {tipos.map(t => {
+        const sel = asig[t.v] ?? {}
+        const vista = logos
+          .filter(l => l.activo && sel[l.id])
+          .map(l => ({ nombre: l.nombre, url: l.url, posicion: sel[l.id] }))
+        return (
+          <div key={t.v} className="card">
+            <div className="flex items-center justify-between mb-3 gap-3">
+              <div className="card-title" style={{ marginBottom: 0 }}>{t.icono} {t.label}</div>
+              <button className="btn btn-p px-4 py-1.5 text-sm" disabled={!sucio[t.v] || busy === 'tipo' + t.v} onClick={() => guardarTipo(t.v)}>
+                {busy === 'tipo' + t.v ? 'Guardando…' : sucio[t.v] ? '💾 Guardar este documento' : '✓ Guardado'}
+              </button>
+            </div>
+
+            <div className="text-xs text-gray-400 mb-2">Marca los logos que lleva este documento y elige la posición de cada uno.</div>
+
+            <div className="space-y-2">
+              {logos.map(l => {
+                const usado = !!sel[l.id]
+                return (
+                  <div key={l.id} className={`flex items-center gap-3 p-2.5 border rounded-lg ${usado ? 'border-blue-200 bg-blue-50/40' : 'border-gray-100'} ${l.activo ? '' : 'opacity-50'}`}>
+                    <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                      <input type="checkbox" checked={usado} onChange={e => usarEn(t.v, l.id, e.target.checked)} />
+                      <img src={l.url} alt={l.nombre} style={{ height: 28, maxWidth: 70, objectFit: 'contain' }}
+                        onError={e => (e.currentTarget.style.opacity = '0.15')} />
+                      <span className="text-sm font-semibold text-gray-700 truncate">{l.nombre}{!l.activo && ' (desactivado)'}</span>
+                    </label>
+                    <div className="flex gap-1 bg-gray-100 p-1 rounded-lg flex-shrink-0">
+                      {POS.map(p => (
+                        <button key={p.v} type="button" disabled={!usado}
+                          onClick={() => posEn(t.v, l.id, p.v)}
+                          className={`px-2 py-1 rounded-md text-xs font-bold transition-all disabled:opacity-40 ${usado && sel[l.id] === p.v ? 'bg-white text-pronea shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="mt-3">
+              <div className="text-xs font-bold text-gray-500 mb-1.5">Vista previa del encabezado</div>
+              <VistaEncabezado items={vista} />
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
